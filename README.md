@@ -73,8 +73,13 @@ sdk.dir=/path/to/android-sdk
 
 ```bash
 python3 scripts/fetch_poe2db.py        # poe2db.tw/kr 파싱 → assets JSON
+python3 scripts/fetch_poe2_i18n.py     # 시세·장비 한글 사전 → assets/poe2_kr_i18n.json
 python3 scripts/make_store_assets.py   # 아이콘, 스토어 그래픽
 ```
+
+`fetch_poe2_i18n.py`는 poe.ninja 시세 응답의 영문 이름·옵션을 poe2db 한국어 페이지와 대조해
+한글 이름 4,600여 개, 베이스 1,700여 개, 아이콘 3,800여 개, 옵션 문장 틀 570여 개를 만듭니다.
+패치로 신규 아이템이 늘면 다시 돌려 사전을 갱신하세요 (`.cache/i18n/` 캐시).
 
 `fetch_poe2db.py`는 lxml만 있으면 됩니다. 내려받은 페이지는 `.cache/poe2db/`에 남아 다음 실행 때는 목록 페이지만 다시 받습니다. 젬 설명은 젬별 툴팁 조각을 한 번씩 더 받아 채웁니다.
 
@@ -94,8 +99,12 @@ app/src/main/java/com/sunuhwi/poe2dbkr/
   PobTriggers.kt      메타젬 인식·추출 (이름·skillId, 조건별 에너지)
   BattleSetup.kt      빌드 → 전투 수치 변환 (화면과 테스트가 함께 씀)
   BattleCanvasView.kt 전장·스틱맨·이펙트 캔버스 (Choreographer 프레임 루프)
+  WeaponTypes.kt      무기 판정과 공격 형태(근접·활·쇠뇌·주문)
+  I18n.kt             한글 사전 로딩·이름/베이스/아이콘/옵션 변환
+  PobLocale.kt        PoB 장비를 한글 이름·옵션으로 표시
 scripts/
   fetch_poe2db.py     poe2db.tw 수집 스크립트
+  fetch_poe2_i18n.py  poe.ninja·poe2db 대조 한글 사전 생성
   make_store_assets.py 아이콘·스토어 그래픽 생성
 store-assets/         스토어 등록용 아이콘, 그래픽, 문구, 개인정보 처리방침
 ```
