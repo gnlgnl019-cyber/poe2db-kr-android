@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_home"
+        android:icon="@drawable/ic_home"
+        android:title="@string/tab_home" />
+    <item
+        android:id="@+id/nav_skills"
+        android:icon="@drawable/ic_bolt"
+        android:title="@string/tab_skills" />
+    <item
+        android:id="@+id/nav_uniques"
+        android:icon="@drawable/ic_shield"
+        android:title="@string/tab_uniques" />
+    <item
+        android:id="@+id/nav_others"
+        android:icon="@drawable/ic_coin"
+        android:title="@string/tab_others" />
+    <item
+        android:id="@+id/nav_favorites"
+        android:icon="@drawable/ic_star_border"
+        android:title="@string/tab_favorites" />
+</menu>

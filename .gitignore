@@ -1,0 +1,17 @@
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+.cache/
+*.jks
+*.keystore
+keystore/
+keystore.properties
+release/
+
+store-assets/_check.png
+dist/

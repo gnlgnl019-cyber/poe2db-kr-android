@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PoE2DB KR</string>
+    <string name="app_tagline">Path of Exile 2 · 한국어 데이터베이스</string>
+
+    <string name="search_hint">스킬, 유니크, 화폐, 키워드 검색</string>
+    <string name="search_clear">검색어 지우기</string>
+    <string name="search_action">검색</string>
+
+    <string name="tab_home">홈</string>
+    <string name="tab_skills">스킬</string>
+    <string name="tab_uniques">유니크</string>
+    <string name="tab_others">화폐·기타</string>
+    <string name="tab_favorites">즐겨찾기</string>
+
+    <string name="chip_all">전체</string>
+    <string name="chip_skill">스킬 젬</string>
+    <string name="chip_support">보조 젬</string>
+    <string name="chip_unique">유니크</string>
+    <string name="chip_currency">화폐</string>
+    <string name="chip_keyword">키워드</string>
+    <string name="chip_ascendancy">전직·직업</string>
+
+    <string name="status_count">%1$s개 항목 · %2$s 기준</string>
+    <string name="status_favorites">즐겨찾기 %1$s개</string>
+    <string name="status_search">‘%1$s’ 검색 결과 %2$s개</string>
+
+    <string name="empty_title">찾는 항목이 없습니다</string>
+    <string name="empty_hint">다른 이름으로 검색하거나 사이트에서 직접 찾아보세요.</string>
+    <string name="empty_action">사이트에서 검색</string>
+    <string name="favorites_empty_title">저장한 항목이 없습니다</string>
+    <string name="favorites_empty_hint">카드 오른쪽 별표를 누르면 여기에 모입니다.</string>
+
+    <string name="bookmark_add">즐겨찾기 저장</string>
+    <string name="bookmark_remove">즐겨찾기 해제</string>
+    <string name="bookmark_added">즐겨찾기에 저장했습니다</string>
+    <string name="bookmark_removed">즐겨찾기에서 뺐습니다</string>
+
+    <string name="detail_back">목록으로</string>
+    <string name="detail_star">즐겨찾기</string>
+    <string name="detail_open_browser">브라우저로 열기</string>
+    <string name="detail_refresh">새로고침</string>
+    <string name="site_title">poe2db.tw</string>
+    <string name="site_description">poe2db.tw 한국어 사이트 열기</string>
+
+    <string name="exit_hint">한 번 더 누르면 종료됩니다</string>
+
+    <string name="info_title">앱 정보</string>
+    <string name="info_version">버전 %1$s</string>
+    <string name="info_data">내장 데이터 %1$s건 · %2$s 수집</string>
+    <string name="info_body">poe2db.tw 한국어 페이지에서 스킬 젬, 보조 젬, 유니크 아이템, 화폐, 전직, 키워드 자료를 모아 기기에 저장해 둔 앱입니다.\n\n즐겨찾기는 기기 안에만 저장되고 어디로도 전송되지 않습니다. 상세 화면과 아이콘은 poe2db.tw, cdn.poe2db.tw에서 불러옵니다.\n\nPath of Exile 2 및 poe2db.tw의 공식 앱이 아닌 팬 메이드 앱입니다.</string>
+    <string name="info_close">확인</string>
+
+    <string name="data_source">poe2db.tw</string>
+    <string name="page_error">페이지를 불러오지 못했습니다</string>
+    <string name="retry">다시 시도</string>
+    <string name="link_error">이 링크를 열 수 있는 앱이 없습니다</string>
+    <string name="status_loading">데이터 불러오는 중…</string>
+</resources>
