@@ -82,6 +82,10 @@ object PobCalculator {
         val resists: List<Triple<String, Double, Double>>, // 이름, 기준, 현재
         val ehpBase: Double,
         val ehpNow: Double,
+        /** PoB에 DPS 값이 없어 평균 타입·공속으로 추정했는지 */
+        val dpsEstimated: Boolean = false,
+        /** PoB가 DPS를 무한(inf)로 내보냈는지 */
+        val dpsInfinite: Boolean = false,
         val factor: Double = 1.0,
     )
 
@@ -149,17 +153,21 @@ object PobCalculator {
         "drain ailments" to Mods(),
     )
 
-    /** 보조 젬인지 (PoB 2는 skillId가 Support로 시작한다) */
+    /** 보조 젬인지 (PoB 2는 skillId 어딘가에 Support가 들어간다) */
     fun isSupport(gem: PobGem): Boolean {
         val id = gem.skillId.lowercase()
-        if (id.startsWith("support")) return true
-        if (gem.name.lowercase().trim() in SUPPORT_GEMS) return true
-        return false
+        if (id.startsWith("support") || id.contains("support")) return true
+        val name = gem.name.lowercase().trim()
+        if (name in SUPPORT_GEMS) return true
+        return name.contains("support")
     }
+
+    /** 무한·NaN은 없는 값으로 친다 (PoB가 inf로 내보낸 빌드 대응) */
+    private fun finite(value: Double?): Double? = value?.takeIf { it.isFinite() }
 
     private fun stat(build: PobBuild, vararg keys: String): Double {
         for (key in keys) {
-            build.stats[key]?.let { return it }
+            finite(build.stats[key])?.let { return it }
         }
         return 0.0
     }
@@ -227,18 +235,7 @@ object PobCalculator {
         // 4. 스탯 재계산
         val speedStat = stat(build, "AttacksPerSecond", "CastsPerSecond", "Speed", "HitSpeed")
         val averageHit = stat(build, "AverageHit", "AverageDamage")
-        val dpsFromHit = if (averageHit > 0 && speedStat > 0) averageHit * speedStat else 0.0
-        val dpsBase = stat(build, "TotalDPS", "CombinedDPS", "WithIgniteDPS").takeIf { it > 0 }
-            ?: dpsFromHit
-        val apsBase = speedStat.takeIf { it > 0 } ?: 1.0
-        val speedPct = total.atkSpdPct + total.castSpdPct
-        val dmgFactor = (1 + total.dmgPct / 100) * (1 + speedPct / 100) *
-            (1 + total.critChancePct / 100) * (1 + total.critMultiFlat / 100)
-        val dpsNow = dpsBase * dmgFactor
-        val apsNow = apsBase * (1 + speedPct / 100)
-
         val critBase = stat(build, "CritChance").takeIf { it > 0 } ?: 5.0
-        val critNow = (critBase * (1 + total.critChancePct / 100)).coerceAtMost(100.0)
         // PoB 2는 배율을 3.5처럼 배수로 저장한다. 350처럼 퍼센트로 저장한 빌드도 받아 준다.
         val rawMulti = stat(build, "CritMultiplier")
         val critMultiBase = if (rawMulti > 0) {
@@ -246,6 +243,25 @@ object PobCalculator {
         } else {
             150.0
         }
+        val dpsPoB = stat(build, "TotalDPS", "CombinedDPS", "WithIgniteDPS").takeIf { it > 0 }
+        // PoB가 DPS를 비우거나 무한(inf)으로 내보낸 빌드가 있다. 그럴 때만 직접 어림한다.
+        val dpsFromHit = if (averageHit > 0 && speedStat > 0) {
+            val critFactor = 1.0 + (critBase / 100.0) * (critMultiBase / 100.0 - 1.0).coerceAtLeast(0.0)
+            averageHit * speedStat * critFactor
+        } else {
+            0.0
+        }
+        val dpsBase = dpsPoB ?: dpsFromHit
+        val dpsEstimated = dpsPoB == null
+        val dpsInfinite = dpsPoB == null && build.nonFiniteStats.any { it in DPS_STATS }
+        val apsBase = speedStat.takeIf { it > 0 } ?: 1.0
+        val speedPct = total.atkSpdPct + total.castSpdPct
+        val dmgFactor = (1 + total.dmgPct / 100) * (1 + speedPct / 100) *
+            (1 + total.critChancePct / 100) * (1 + total.critMultiFlat / 100)
+        val dpsNow = dpsBase * dmgFactor
+        val apsNow = apsBase * (1 + speedPct / 100)
+
+        val critNow = (critBase * (1 + total.critChancePct / 100)).coerceAtMost(100.0)
         val critMultiNow = critMultiBase + total.critMultiFlat
 
         val lifeBase = stat(build, "Life")
@@ -302,7 +318,14 @@ object PobCalculator {
             ),
             ehpBase = ehpBase,
             ehpNow = ehpNow,
+            dpsEstimated = dpsEstimated,
+            dpsInfinite = dpsInfinite,
             factor = dmgFactor,
         )
     }
+
+    /** PoB가 DPS로 내보내는 스탯 이름들 */
+    private val DPS_STATS = setOf(
+        "TotalDPS", "CombinedDPS", "WithIgniteDPS", "WithBleedDPS", "WithPoisonDPS",
+    )
 }

@@ -124,6 +124,10 @@ data class BattlePlayerStats(
     val triggers: List<TriggerSpec> = emptyList(),
     /** 점멸 타격처럼 적 옆으로 순간이동해 베는 근접 스킬 */
     val flicker: Boolean = MeleeMotion.isFlicker(skillName),
+    /** PoB에 DPS 값이 없어 평균 타격·공속으로 추정했는지 */
+    val dpsEstimated: Boolean = false,
+    /** PoB가 DPS를 무한(inf)으로 내보냈는지 */
+    val dpsInfinite: Boolean = false,
 ) {
     val element: DamageElement get() = fx.element
 
@@ -609,6 +613,9 @@ class BattleWorld(
         const val REFERENCE_HIT = 60_000.0
 
         fun formatShort(value: Double): String = when {
+            // 무한·NaN은 화면에 숫자 대신 대시로 내보낸다.
+            !value.isFinite() -> "—"
+            value >= 1_000_000_000 -> String.format(java.util.Locale.KOREA, "%.2fB", value / 1_000_000_000)
             value >= 1_000_000 -> String.format(java.util.Locale.KOREA, "%.2fM", value / 1_000_000)
             value >= 10_000 -> String.format(java.util.Locale.KOREA, "%.0fK", value / 1_000)
             value >= 1_000 -> String.format(java.util.Locale.KOREA, "%.1fK", value / 1_000)

@@ -28,6 +28,8 @@ data class PobSkillGroup(
     val gems: MutableList<PobGem> = mutableListOf(),
     /** PoB가 계산에 쓰는 활성 스킬 그룹인지 */
     var isMain: Boolean = false,
+    /** PoB가 이 그룹에서 고른 스킬 번호 (mainActiveSkill, 1부터. 없으면 0) */
+    var mainActiveSkill: Int = 0,
 ) {
     /** 그룹 이름이 비어 있으면 첫 스킬 이름으로 대신한다 */
     val title: String
@@ -84,6 +86,8 @@ data class PobBuild(
     var treeUrl: String = "",
     var rawXml: String = "",
     var fullDps: Double = 0.0,
+    /** PoB가 inf·nan으로 내보낸 스탯 이름 (값이 없어 계산에서 뺀다) */
+    val nonFiniteStats: MutableSet<String> = linkedSetOf(),
     var activeItemSet: Int = 0,
     val fullDpsSkills: MutableList<PobFullDpsSkill> = mutableListOf(),
     val itemSets: MutableMap<Int, MutableMap<String, Int>> = linkedMapOf(),
@@ -151,14 +155,18 @@ object Pob {
         "ZU_Li7Pt_wn0-uX_AO4WUwg"
 
     fun decode(input: String): PobBuild {
-        val text = input.trim().trim('\n', '\r', ' ', '"')
+        val text = input.trim().trim('\n', '\r', ' ', '"', '\uFEFF')
         val xml = if (text.startsWith("<")) {
             text
         } else {
-            inflate(text.replace("-", "+").replace("_", "/").let { s ->
-                val pad = s.length % 4
-                if (pad == 0) s else s + "=".repeat(4 - pad)
-            })
+            // 붙여넣은 코드는 줄바꿈·공백이 섮여 있을 수 있으므로 먼저 걷어 낸다.
+            val code = text.filterNot { it.isWhitespace() }
+                .replace("-", "+").replace("_", "/")
+                .let { s ->
+                    val pad = s.length % 4
+                    if (pad == 0) s else s + "=".repeat(4 - pad)
+                }
+            inflate(code)
         }
         return parseXml(xml)
     }
@@ -244,15 +252,21 @@ object Pob {
                     }
                     "PlayerStat" -> {
                         val stat = parser.getAttributeValue(null, "stat").orEmpty()
-                        val value = parser.getAttributeValue(null, "value")?.toDoubleOrNull()
-                        if (stat.isNotEmpty() && value != null) build.stats[stat] = value
-                        if (stat == "FullDPS" && value != null) build.fullDps = value
+                        val value = parseStatNumber(parser.getAttributeValue(null, "value"))
+                        if (stat.isNotEmpty() && value != null) {
+                            // 무한·NaN은 계산에 쓸 수 없으므로 이름만 기억해 두고 뺀다.
+                            if (value.isFinite()) build.stats[stat] = value
+                            else build.nonFiniteStats.add(stat)
+                        }
+                        if (stat == "FullDPS" && value != null && value.isFinite()) build.fullDps = value
                     }
                     "FullDPSSkill" -> {
                         val name = parser.getAttributeValue(null, "stat").orEmpty()
-                        val dps = parser.getAttributeValue(null, "value")?.toDoubleOrNull() ?: 0.0
+                        val dps = parseStatNumber(parser.getAttributeValue(null, "value"))
                         val source = parser.getAttributeValue(null, "source").orEmpty()
-                        if (name.isNotBlank()) build.fullDpsSkills.add(PobFullDpsSkill(name, dps, source))
+                        if (name.isNotBlank() && dps != null && dps.isFinite()) {
+                            build.fullDpsSkills.add(PobFullDpsSkill(name, dps, source))
+                        }
                     }
                     "SkillGroup", "Skill" -> {
                         val label = parser.getAttributeValue(null, "label").orEmpty()
@@ -264,6 +278,7 @@ object Pob {
                                 label = label,
                                 enabled = enabled,
                                 isMain = isMain,
+                                mainActiveSkill = main?.toIntOrNull() ?: 0,
                             )
                         )
                     }
@@ -363,12 +378,28 @@ object Pob {
         return build
     }
 
-    /** 계산·전투에 쓰는 메인 스킬 그룹을 고른다. preferred는 1부터 시작하는 그룹 번호(0이면 자동). */
+    /**
+     * PoB가 적어 보낸 스탯 값. 최신 PoB는 계산이 풀리지 않은 스탯을 inf·nan으로 내보내므로
+     * 이런 값도 숫자로 읽어 낸다(계산에서는 따로 걸러 낸다).
+     */
+    internal fun parseStatNumber(raw: String?): Double? {
+        val text = raw?.trim()?.lowercase() ?: return null
+        return when (text) {
+            "inf", "+inf", "infinity", "+infinity" -> Double.POSITIVE_INFINITY
+            "-inf", "-infinity" -> Double.NEGATIVE_INFINITY
+            "nan", "-nan", "+nan" -> Double.NaN
+            else -> text.toDoubleOrNull()
+        }
+    }
+
+    /** 계산·전투에 쓰는 메인 스킬 그룹을 고른다. preferred는 1부터 시작하는 그룹 번호(0이면 PoB 설정을 따른다). */
     fun mainGroup(build: PobBuild, preferred: Int = 0): PobSkillGroup? {
         val usable = build.skills.filter { it.gems.any { gem -> gem.enabled } }
         if (usable.isEmpty()) return null
-        if (preferred in 1..build.skills.size) {
-            val picked = build.skills[preferred - 1]
+        // 화면에서 고른 그룹이 있으면 그 그룹, 없으면 PoB가 계산한 그룹(mainSocketGroup)을 쓴다.
+        val wanted = if (preferred in 1..build.skills.size) preferred else build.mainSocketGroup
+        if (wanted in 1..build.skills.size) {
+            val picked = build.skills[wanted - 1]
             if (picked.enabled && picked.gems.any { it.enabled }) return picked
         }
         usable.firstOrNull { it.isMain }?.let { return it }
@@ -430,6 +461,9 @@ object Pob {
             serializer.startTag(null, "SkillGroup")
             serializer.attribute(null, "label", group.label)
             serializer.attribute(null, "enabled", group.enabled.toString())
+            if (group.mainActiveSkill > 0) {
+                serializer.attribute(null, "mainActiveSkill", group.mainActiveSkill.toString())
+            }
             group.gems.forEach { gem ->
                 serializer.startTag(null, "Gem")
                 serializer.attribute(null, "name", gem.name)

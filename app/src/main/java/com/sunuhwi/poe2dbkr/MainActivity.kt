@@ -105,7 +105,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var battleView: BattleCanvasView
     private val battleReady: Boolean get() = this::battleView.isInitialized
-    private var battleFxOverride: SkillEffectType? = null
+    /** 전투 탭에서 직접 고른 스킬 젬 이름. null이면 빌드 주력 스킬(자동) */
+    private var battleSkillPick: String? = null
     private var battleTriggerMode = TriggerMode.AUTO
     private var battleMode = BattleMode.MAP
     private var battleMobCount = 25
@@ -1199,7 +1200,7 @@ class MainActivity : AppCompatActivity() {
 
         buildBattleModeChips()
         buildBattleOptChips()
-        buildBattleFxChips()
+        buildBattleSkillChips()
         buildBattleTriggerChips()
 
         pobPane.btnBattleStart.setOnClickListener { startBattle() }
@@ -1214,7 +1215,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun battleChip(label: String, checked: Boolean, onPick: (Chip) -> Unit): Chip {
+    private fun battleChip(
+        label: String,
+        checked: Boolean,
+        kind: BattleChipKind = BattleChipKind.PICK,
+        onPick: (Chip) -> Unit,
+    ): Chip {
         val chip = Chip(this)
         chip.id = View.generateViewId()
         chip.text = label
@@ -1222,7 +1228,12 @@ class MainActivity : AppCompatActivity() {
         chip.isChecked = checked
         chip.setOnClickListener { view ->
             val c = view as Chip
-            if (c.isChecked) onPick(c) else c.isChecked = true
+            // 누르는 순간 칩이 상태를 먼저 뒤집었으므로, 누르기 전 상태는 지금의 반대다.
+            val before = !c.isChecked
+            val after = BattleChipRule.stateAfterClick(kind, before)
+            // 배경·테두리·글자색은 체크 상태를 따라가므로 여기서 바로 켜짐/꺼짐이 보인다.
+            if (c.isChecked != after) c.isChecked = after
+            if (after != before) onPick(c)
         }
         return chip
     }
@@ -1261,7 +1272,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             group.addView(
-                battleChip(getString(R.string.battle_map_amp), battleAmp) { chip ->
+                battleChip(getString(R.string.battle_map_amp), battleAmp, BattleChipKind.TOGGLE) { chip ->
                     battleAmp = chip.isChecked
                     restartBattleIfRunning()
                 }
@@ -1282,32 +1293,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun buildBattleFxChips() {
-        val group = pobPane.battleFxChips
+    /**
+     * 스킬 칩 줄: '자동'(빌드 주력 스킬) + 불러온 빌드에 실제로 켜져 있는 액티브 스킬.
+     * 빌드를 바꾸거나 스킬을 끄면 이 줄도 그 빌드에 맞게 다시 만들어진다.
+     */
+    private fun buildBattleSkillChips() {
+        val group = pobPane.battleSkillChips
         group.removeAllViews()
+        val options = BattleSetup.skillOptions(pobBuild, krDict)
+        // 고른 스킬이 이 빌드에 없으면(다른 빌드를 불러왔거나 스킬을 껐으면) 자동으로 돌아간다.
+        if (battleSkillPick != null && options.none { it.gem == battleSkillPick }) battleSkillPick = null
         group.addView(
-            battleChip(getString(R.string.battle_fx_auto), battleFxOverride == null) {
-                battleFxOverride = null
-                for (i in 0 until group.childCount) {
-                    val c = group.getChildAt(i) as Chip
-                    c.isChecked = c.text.toString() == getString(R.string.battle_fx_auto)
-                }
+            battleChip(getString(R.string.battle_skill_auto), battleSkillPick == null) {
+                battleSkillPick = null
+                markSkillChip(group, null)
                 refreshBattleHeader()
                 restartBattleIfRunning()
             }
         )
-        SkillEffectType.values().forEach { type ->
-            group.addView(
-                battleChip(type.label, battleFxOverride == type) {
-                    battleFxOverride = type
-                    for (i in 0 until group.childCount) {
-                        val c = group.getChildAt(i) as Chip
-                        c.isChecked = c.text == type.label
-                    }
-                    refreshBattleHeader()
-                    restartBattleIfRunning()
-                }
-            )
+        options.forEach { option ->
+            val chip = battleChip(option.name, battleSkillPick == option.gem) {
+                battleSkillPick = option.gem
+                markSkillChip(group, option.gem)
+                refreshBattleHeader()
+                restartBattleIfRunning()
+            }
+            // 같은 한국어 이름이 겹쳐도 젬 이름으로 구분한다.
+            chip.tag = option.gem
+            group.addView(chip)
+        }
+    }
+
+    /** 스킬 칩 중 고른 젬만 체크하고 나머지는 푼다 (tag에 젬 이름, '자동'은 null) */
+    private fun markSkillChip(group: ViewGroup, gem: String?) {
+        for (i in 0 until group.childCount) {
+            val c = group.getChildAt(i) as Chip
+            c.isChecked = c.tag == gem
         }
     }
 
@@ -1318,9 +1339,9 @@ class MainActivity : AppCompatActivity() {
     private fun buildBattleTriggerChips() {
         val group = pobPane.battleTriggerChips
         group.removeAllViews()
+        // 빌드의 메타젬을 그대로 쓰거나(자동) 무시한다(끔). 가짜 스킬을 끼워 넣는 시험 모드는 두지 않는다.
         listOf(
             TriggerMode.AUTO to getString(R.string.battle_trigger_auto),
-            TriggerMode.TEST to getString(R.string.battle_trigger_test),
             TriggerMode.OFF to getString(R.string.battle_trigger_off),
         ).forEach { (mode, label) ->
             group.addView(
@@ -1343,7 +1364,7 @@ class MainActivity : AppCompatActivity() {
         flasks = pobFlasks,
         config = pobConfig,
         mainGroupPreference = pobMainGroup,
-        fxOverride = battleFxOverride,
+        skillOverride = battleSkillPick,
         triggerMode = battleTriggerMode,
         dict = krDict,
     )
@@ -1365,7 +1386,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
-        val fxLabel = if (battleFxOverride == null) stats.fx.label else stats.fx.label + " · 직접 선택"
+        val fxLabel = if (battleSkillPick == null) stats.fx.label else stats.fx.label + " · 직접 선택"
         pobPane.tvBattleSkill.text = getString(
             R.string.battle_skill_line,
             stats.skillName,
@@ -1374,6 +1395,11 @@ class MainActivity : AppCompatActivity() {
             fmt.format(stats.dps.toLong()),
             fmt.format(stats.ehp.toLong()),
         ) + if (stats.weaponLabel.isNotBlank()) "\n무기: ${stats.weaponLabel}" else ""
+        // PoB가 DPS를 inf로 내보낸 빌드는 화면 숫자가 추정치라는 것을 같이 적는다.
+        if (stats.dpsEstimated) {
+            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
+                getString(if (stats.dpsInfinite) R.string.pob_dps_infinite else R.string.pob_dps_missing)
+        }
         when {
             stats.triggers.isNotEmpty() -> {
                 // 켜져 있는 메타젬을 전부 나열한다 (첫 그룹만 쓰지 않는다).
@@ -1608,6 +1634,7 @@ class MainActivity : AppCompatActivity() {
                 pobOverrides.clear()
                 pobFlasks.clear()
                 pobMainGroup = 0
+                battleSkillPick = null
                 try {
                     pobPane.tvBuildTitle.text = build.title
                     pobPane.tvBuildHint.text = getString(
@@ -1804,13 +1831,18 @@ class MainActivity : AppCompatActivity() {
 
         pobPane.tvDps.text = fmt.format(result.dpsNow.toLong())
         val dpsPct = if (result.dpsBase > 0) (result.dpsNow / result.dpsBase - 1) * 100 else 0.0
-        pobPane.tvDpsDelta.text = "기준 %s DPS · %s%.1f%%".format(
-            fmt.format(result.dpsBase.toLong()),
-            if (dpsPct >= 0) "+" else "",
-            dpsPct,
-        )
+        pobPane.tvDpsDelta.text = when {
+            result.dpsInfinite -> getString(R.string.pob_dps_infinite)
+            result.dpsEstimated -> getString(R.string.pob_dps_missing)
+            else -> "기준 %s DPS · %s%.1f%%".format(
+                fmt.format(result.dpsBase.toLong()),
+                if (dpsPct >= 0) "+" else "",
+                dpsPct,
+            )
+        }
         pobPane.tvDpsDelta.setTextColor(
             when {
+                result.dpsEstimated -> ContextCompat.getColor(this, R.color.text_muted)
                 dpsPct > 0.05 -> ContextCompat.getColor(this, R.color.resist_high)
                 dpsPct < -0.05 -> ContextCompat.getColor(this, R.color.resist_low)
                 else -> ContextCompat.getColor(this, R.color.text_muted)
@@ -1856,6 +1888,8 @@ class MainActivity : AppCompatActivity() {
             "· ${group.label}: " + group.gems.filter { it.enabled }.joinToString(", ") { it.name }
         }.ifBlank { getString(R.string.pob_tree_empty) }
 
+        // 이 빌드에 맞는 스킬 칩을 다시 만들고 헤더도 새 수치로 갱신한다.
+        buildBattleSkillChips()
         refreshBattleHeader()
 
         renderTreeTab(build)
