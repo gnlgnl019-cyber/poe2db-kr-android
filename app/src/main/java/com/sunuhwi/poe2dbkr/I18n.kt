@@ -22,6 +22,8 @@ class KrDict(
     val classes: Map<String, String> = emptyMap(),
     val categories: Map<String, String> = emptyMap(),
     val classIcons: Map<String, String> = emptyMap(),
+    val props: Map<String, String> = emptyMap(),
+    val tags: Map<String, String> = emptyMap(),
     val fetchedAt: String = "",
 ) {
 
@@ -30,9 +32,24 @@ class KrDict(
 
         /** "Uncut Skill Gem (Level 17)" 처럼 등급이 붙은 이름을 떼어 내는 규칙 */
         private val LEVEL = Regex("^(.*?)\\s*\\(Level\\s*(\\d+)\\)$", RegexOption.IGNORE_CASE)
-        private val RANGE = Regex("\\(\\s*(\\d+(?:\\.\\d+)?)\\s*[\\-~—]\\s*(\\d+(?:\\.\\d+)?)\\s*\\)")
-        private val NUMBER = Regex("\\d+(?:\\.\\d+)?")
         private const val PLACEHOLDER = "#"
+        /** (10—20) 처럼 범위로 적힌 값 */
+        private val RANGE = Regex("\\(\\s*([-+]?\\d+(?:\\.\\d+)?)\\s*[-~—–]\\s*([-+]?\\d+(?:\\.\\d+)?)\\s*\\)")
+        /** 부호가 붙을 수 있는 숫자 */
+        private val SIGNED = Regex("([-+])?(\\d+(?:\\.\\d+)?)")
+        /** PoB가 줄 앞뒤에 붙이는 {tags:...} {range:0.5} 같은 표시 */
+        private val BRACES = Regex("\\{[^}]*\\}")
+        /** PoB가 줄 끝에 다는 (implicit) (crafted) 같은 꼬리표 */
+        private val TAIL_TAG = Regex(
+            "\\s*\\((implicit|crafted|enchant|fractured|desecrated|rune|augmented|scourged|veiled|custom)\\)\\s*$",
+            RegexOption.IGNORE_CASE,
+        )
+        private val SPACES = Regex("\\s+")
+        /** 반경 안 패시브에 덧붙는 옵션의 앞뒤 문장 */
+        private val RADIUS = listOf(
+            Triple("notable passive skills in radius also grant ", "반경 내 주요 패시브 스킬이 ", " 도 부여"),
+            Triple("small passive skills in radius also grant ", "반경 내 소형 패시브 스킬이 ", " 도 부여"),
+        )
         private val PREFIXES = listOf(
             "Runemastered " to "룬 장인의 ",
             "Superior " to "상급 ",
@@ -62,6 +79,8 @@ class KrDict(
                 classes = pairs(root.optJSONArray("classes")),
                 categories = pairs(root.optJSONArray("categories")),
                 classIcons = pairs(root.optJSONArray("classIcons")),
+                props = pairs(root.optJSONArray("props")),
+                tags = pairs(root.optJSONArray("tags")),
                 fetchedAt = root.optString("fetchedAt"),
             )
         }
@@ -81,6 +100,12 @@ class KrDict(
     }
 
     fun isEmpty(): Boolean = names.isEmpty() && bases.isEmpty()
+
+    /**
+     * 패시브 이름 (영문 → 한글). 트리 자료를 읽은 뒤 한 번 채워 두면
+     * "Allocates Kite Runner" 같은 인챈트 문장도 한글로 바뀐다.
+     */
+    var passiveNames: Map<String, String> = emptyMap()
 
     /** 영문 아이템 이름 → 한글 이름. 사전에 없으면 빈 문자열. */
     fun name(en: String): String {
@@ -176,20 +201,106 @@ class KrDict(
     fun modLine(en: String): String {
         val text = en.trim()
         if (text.isEmpty()) return ""
-        val cleaned = Market.cleanTags(text)
-        mods[templateOf(cleaned)]?.let { template -> return fillNumbers(template, cleaned) }
-        // 마법/희귀 아이템 앞에 붙는 접사 등급 표기 제거 후 재시도
-        val stripped = cleaned.replace(Regex("^(?:\\([^)]*\\)\\s*)+"), "")
-        if (stripped != cleaned) mods[templateOf(stripped)]?.let { return fillNumbers(it, stripped) }
-        return ""
+        // PoB 2는 줄 앞에 {crafted}{fractured} 같은 꼬리표를 붙인다. 한글 꼬리표로 옮겨 둔다.
+        var tag = ""
+        var head = text
+        while (head.startsWith("{")) {
+            val close = head.indexOf('}')
+            if (close < 0) break
+            val word = head.substring(1, close).substringBefore(':').lowercase().trim()
+            if (tags.containsKey(word)) tag = word
+            head = head.substring(close + 1).trim()
+        }
+        var line = Market.cleanTags(BRACES.replace(head, "")).trim()
+        if (line.isEmpty()) return ""
+        TAIL_TAG.find(line)?.let { match ->
+            tag = match.groupValues[1].lowercase()
+            line = line.removeRange(match.range).trim()
+        }
+        val body = translateLine(line) ?: return ""
+        val suffix = tags[tag]?.let { " ($it)" }.orEmpty()
+        return body + suffix
     }
 
-    /** 영문 옵션 문장을 사전 키 형태(숫자 → #, 범위 → (#-#), 소문자)로 바꾼다. */
-    internal fun templateOf(text: String): String {
-        var t = NUMBER.replace(text.lowercase().trim(), PLACEHOLDER)
-        t = t.replace(Regex("\\(\\s*#\\s*[-~—]\\s*#\\s*\\)"), "(#-#)")
-        t = t.replace(Regex("\\s+"), " ")
-        return t.trim()
+    /** "속성 이름: 값" 형태의 아이템 머리말 (품질·방어도·요구 사항 등) */
+    private fun translateProperty(line: String): String? {
+        val split = line.indexOf(": ")
+        if (split <= 0) return null
+        val label = props[line.substring(0, split).lowercase().trim()] ?: return null
+        var value = line.substring(split + 2).trim()
+        // "Requires: Level 64" → "요구 사항: 레벨 64"
+        if (value.startsWith("Level ", true)) value = "레벨 " + value.substring(6)
+        var tag = ""
+        TAIL_TAG.find(value)?.let { match ->
+            tag = match.groupValues[1].lowercase()
+            value = value.removeRange(match.range).trim()
+        }
+        val suffix = tags[tag]?.let { " ($it)" }.orEmpty()
+        return "$label: $value$suffix"
+    }
+
+    /** 옵션 한 줄을 사전으로 옮긴다. 접두 규칙(Bonded 등)을 먼저 보고 문장 틀을 쓴다. */
+    private fun translateLine(line: String, depth: Int = 0): String? {
+        if (line.isEmpty()) return null
+        val lower = line.lowercase()
+        if (depth < 3) {
+            // 룬 결속 옵션: "Bonded: +20 to maximum Life" → "결속: 생명력 최대치 +20"
+            if (lower.startsWith("bonded: ")) {
+                translateLine(line.substring(8).trim(), depth + 1)?.let { return "결속: $it" }
+            }
+            // 반경 내 패시브에 덧붙는 옵션 (오래된 주얼)
+            for ((prefix, before, after) in RADIUS) {
+                if (lower.startsWith(prefix)) {
+                    translateLine(line.substring(prefix.length).trim(), depth + 1)
+                        ?.let { return "$before$it$after" }
+                }
+            }
+            // 인첸트가 지정하는 패시브: "Allocates Kite Runner" → "카이트 러너 할당"
+            if (lower.startsWith("allocates ")) {
+                val name = line.substring(10).trim()
+                passiveNames[name.lowercase()]?.let { return "$it 할당" }
+            }
+        }
+        translateProperty(line)?.let { return it }
+        mods[templateOf(line)]?.let { template -> return fillNumbers(template, line) }
+        // 줄 자체는 사전에 없지만 부호만 반대인 짝이 있으면 부호를 뒤집어 쓴다.
+        // ("-30% to Lightning Resistance" → "번개 저항 -30%")
+        if (line.startsWith("-")) {
+            val flipped = translateLine(line.substring(1).trim(), depth)
+            if (flipped != null) return negateNumbers(flipped)
+        }
+        // 마법/희귀 아이템 앞에 붙는 접사 등급 표기 제거 후 재시도
+        val stripped = line.replace(Regex("^(?:\\([^)]*\\)\\s*)+"), "")
+        if (stripped != line) mods[templateOf(stripped)]?.let { return fillNumbers(it, stripped) }
+        return null
+    }
+
+    private fun negateNumbers(text: String): String {
+        val withMinus = Regex("\\+(\\d)").replace(text) { "-${it.groupValues[1]}" }
+        if (withMinus != text) return withMinus
+        return Regex("\\d").replace(text) { "-${it.value}" }
+    }
+
+    /** 영문 옵션 문장을 사전 키 형태(숫자 → #, 범위 → #, 소문자)로 바꾼다. */
+    internal fun templateOf(text: String): String = canonical(text, keepSign = false)
+
+    /**
+     * 사전 만들기 스크립트와 같은 규칙으로 숫자를 지운다.
+     * 범위 (10—20)은 값 하나로 보고, 열쇠에서는 + 부호를 지운다.
+     */
+    private fun canonical(text: String, keepSign: Boolean): String {
+        var t = Market.cleanTags(BRACES.replace(text, ""))
+        t = t.replace('—', '-').replace('–', '-')
+        t = RANGE.replace(t, PLACEHOLDER)
+        t = SIGNED.replace(t) { match ->
+            when (match.groupValues[1]) {
+                "-" -> "-#"
+                "+" -> if (keepSign) "+#" else "#"
+                else -> "#"
+            }
+        }
+        if (!keepSign) t = t.replace("+#", "#")
+        return SPACES.replace(t.trim().lowercase(), " ").trimEnd('.', ' ')
     }
 
     /** 영문 옵션 목록 전체를 한글로. 번역이 없는 줄은 영문 그대로 남긴다. */
@@ -203,14 +314,23 @@ class KrDict(
         "이름 ${names.size} · 베이스 ${bases.size} · 아이콘 ${icons.size} · 옵션 틀 ${mods.size}"
 
     private fun fillNumbers(template: String, english: String): String {
-        val numbers = NUMBER.findAll(english).map { it.value }.toList()
+        val numbers = SIGNED.findAll(english).map {
+            (if (it.groupValues[1] == "-") "-" else "") to it.groupValues[2]
+        }.toList()
         if (numbers.isEmpty()) return template
         var index = 0
         val out = StringBuilder(template.length + 8)
         for (ch in template) {
             if (ch == PLACEHOLDER.first()) {
-                out.append(numbers.getOrNull(index) ?: PLACEHOLDER)
+                val (sign, digits) = numbers.getOrNull(index) ?: ("" to PLACEHOLDER)
                 index++
+                val prev = out.lastOrNull()
+                if (prev == '+' || prev == '-') {
+                    out.append(digits)
+                } else {
+                    if (sign == "-") out.append('-')
+                    out.append(digits)
+                }
             } else {
                 out.append(ch)
             }
@@ -238,9 +358,16 @@ object I18n {
             val raw = context.assets.open(ASSET).bufferedReader().use { it.readText() }
             KrDict.parse(raw)
         }.getOrElse { KrDict.EMPTY }
+        loaded.passiveNames = runCatching { passiveNamesOf(context) }.getOrDefault(emptyMap())
         cached.compareAndSet(null, loaded)
         return cached.get() ?: loaded
     }
+
+    /** 트리 자료의 패시브 이름을 "영문 소문자 → 한글"로 편다. */
+    private fun passiveNamesOf(context: Context): Map<String, String> =
+        Poe2Tree.of(context).nodes.values
+            .filter { it.nameEn.isNotBlank() && it.nameKo.isNotBlank() }
+            .associate { it.nameEn.lowercase() to it.nameKo }
 
     fun ofRaw(raw: String): KrDict = KrDict.parse(raw)
 

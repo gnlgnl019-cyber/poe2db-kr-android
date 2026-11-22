@@ -75,6 +75,13 @@ data class PobBuild(
     val slots: MutableMap<String, Int> = linkedMapOf(),
     var treeTitle: String = "",
     var treeNodes: Int = 0,
+    /** Spec nodes="1,2,3" 의 노드 번호 (찍은 패시브) */
+    val treeNodeIds: MutableList<Int> = mutableListOf(),
+    /** masteryEffects="{노드,효과}" — 노드 번호 → 고른 마스터리 효과 번호 */
+    val treeMastery: MutableMap<Int, Int> = linkedMapOf(),
+    var treeClassId: Int = -1,
+    var treeAscendClassId: Int = 0,
+    var treeUrl: String = "",
     var rawXml: String = "",
     var fullDps: Double = 0.0,
     var activeItemSet: Int = 0,
@@ -113,29 +120,36 @@ object Pob {
     val FLASK_PREFIX = "Flask"
 
     private const val SAMPLE_CODE =
-        "eNqtWNty2zYQfU6-AsOZTNvx6EKKkiiNnIwtN7anUaJaTvIMk5CEGgQUErSj_lG_oz_WBUALFC-WnDQPGQh7AOyevdKTd99jhh5I" +
-        "klLBTx233XUQ4aGIKF-dOplctgLn3dvXkzmW60_L84wyJbEHPLftdtvdnoNiEWWMfKkI3r5-NdHnECMPhJ06I89BIcNp-hHH5NS5" +
-        "wXxFEgfhNCQ8mlrBBcER2RK4GVO-EOE9kZeJyDagpYMeKHmciQhg07MP04WD7jCPqDx1PgoORzaYyzURfIb_EsmliCr7lBf3QcdX" +
-        "kznDW5IsJJYohf9OnVshMbuYw-UPmGXwlB94vX63PXQ69QemIr6jnETFM33X9bp-22s6cyYlDu_TOWySUPBod7DX9hsPTRMqp2vM" +
-        "Q2LhbnvwHHyWMUk3jCqqd0eatQIH4xW5wDH8vzvg-m7X7zad-UCXFuqD1U3AGeZ4BxwFjbjfOUlW28WaEmZpCQaN-LMkFpk1z1XO" +
-        "arz7Aas4teBg1G0Ev6cJuSEpTeUOP2wmW7CoDO43c7ZaSw4ZVToxCBqvX2ORltCt3JGTjk40tbpNCEE4lPSBLDYkVDmj71M_kKSS" +
-        "2QRD7EkJhJNEPDqIQ2KlU5FxeM_tDhyUJZC3ayk36bjT2QjiRXdt-di5TzobSFd4o5XeU8ZaEl7t6IdeTT4nzCw6-WrSUY9rNZV2" +
-        "arFQp1KUikRekjg930LmnDoyyfKU1HKd9FCU8B0jUS5FDN-pWuKiHYPoTCtv3oTbENdVpCxHWtPrqCDJBXl5grhF3zLMqNyaH6WX" +
-        "9fk5ThQ3xknF567IUhbeWGSbDRhnduseqNxfuXEGT1HM0C2JN6J6dS7OpT_2xCLEUkLhXosa3feEP3a_9cE1X2Ym78rP7DAWcuix" +
-        "JWZp_hrE1i5UjoscD11BiYOuJJbodp3xCApj1ZllhFXbyD4td5Ifo0ZVi2dYUeLjCbFPvJyPHvpKeYQuVFOpMlGUWSXV7tNmrps7" +
-        "eqlu-c9ULa8lVAGNUStEI93r86sD30EJTvTNNzgB1Y1uRlm1M0YLKZI4XcPVkdrMnYO-CrZEi3__Ubqic_GoZK38n1rnW38axcfo" +
-        "xOuiX3G2igmXJPpNyebrbUpDyEPTE8fIc_1Wb1TB2Vh_AgZBC4aAMk71ZH3fQib0niDTzsdo1O6_UfJ8LkAbUN9MBmPkwkhQvqdo" +
-        "xg35lkGrUtJ0rJVRzIEGfhmp6W2UnnjBGyRFbgESMAygWxoTZIeIshonw5E6EePvNM7gapgFKpCer2-1DJk2pp1SwioFKA8TglMS" +
-        "mRPoBkc0S0vISUeZsh8yng0Z7-UhQ6AbJOgPKgkyo0eZHbtbjBftU-1DZeM5g3kVYsQzvtSDyRjBwFU2NJ9DwLfB6DnX7jnMqzhs" +
-        "4B5k3_U0-2qWeYb4E7evYbouPQfrHevLOg_1rIfcwx6CMgMN6A48ovbeEyY4mgkYYbboSoiKf64Ii4ncI9evIV4Pl7mLVZIezb5b" +
-        "YX80OMz-0NCqprdneHX9YtyrQRnAKwK6YgmWQA5oEuo49S2nvcOc3lL46PolRZcJDjWtsEg3ypEzTFm1PkZbZKJ4j9eRFxzg1R0O" +
-        "jia2VyHW9fyDzHreMQG7V09MbUUwjsKPw9Hat8x2DzM7xRJ4ncNIqWmED7slBfYuGZTRtGyh3d1x6g38oxnrVhgbeodD0T2qEIyO" +
-        "oLWOrcGL2FIjRCrJRhdWRsg9tGch02oA5ps7mmpq6fE09bp7aQY-UNeYgNDGQzk4SOPgCBrrCBruCBqOLEEzvKLhPkN6a4z_zhKd" +
-        "oVMBEyc6izNmqlvRoPrdIgnDUSVW_IqRDRoHVuPgiIZKVxwU_YJhWNAd9VG0oMlyoAnqS2Vmqdnb0zuoVoVhHfNGFNRFrRb1B0da" +
-        "O_opa-c4w_-XoYO9ZFbdwFQ8t7H3Npjkdq1Nw8M2XcGXPzqHzMyHGsrROWGV8Krb27NoWO2UR8wp_s9MFm5hnvjM6bdsZ2DhE0a1" +
-        "4SQ2FpdnuKK6SpVYQJTlg_ASBkOCwzWCJhfD8EFhKCUh6MO2VXUWRJqvqAUT8kkHgjfQxUFHGGbia_N5Y_5Ks_-BWD3j2TNeDcoM" +
-        "PRbTq8EUurgF-jVA05Uspl97GVRkCxnUQExRsphhDUZlRZGPoAlTsH9Upw7EYoHVbg3kPcPp_R737tMHqfWXWeuP0angS7rSe0_L" +
-        "SWf_7-BvX_8Hq-S9-w=="
+        "eNqtWdty2zgSfU6-AqWqqd2t0DZxI0CXnanY2VxqxzPeyDPzjEiQxDVFKrw44_2j_Y79sT0AaVESKUvJ7Dy4oO6DRvfpbqCZufjx" +
+        "j2VKHmxRJnl2OaKn4YjYbJJPk2x-Oaqr2Yke_fj65cWtqRa_zK7qJHWabgOjpzQ8DfmILPNpndrfeorXL19c-H0ktQ82vRzFbEQm" +
+        "qSnLn83SXo4-mWxuixEx5cRm0-tO8daaqX20sGySbJxP7m31vsjrFbwckYfEfr3Jp4Bdv_npejwin002TarL0c95hi0rk1ULm2c3" +
+        "5l958T6f9uRJtimHjy8ublPzaItxZSpS4s_l6C6vTPr2FsYfTFrjKKEZl-GpGp0Nb7jOl5-TzE4390hKWShO2b49b6rKTO7LWwjt" +
+        "JM-m6438VOzddF0k1fXCZBPbwelp9Bz8pk6rZJUmjur1lv1eIcFmbt-aJf6uN1BBQxHu2_NTMuugAlHvA96YzKyBsd6L-3tmi_nj" +
+        "eJHYtKNFR3vxb4plXnfhUZesvbYfjKvTDqzjcC_4XVLYT7ZMymqNV_vJztPpLlju52y-qDJ01M6OSO81vzB5uYM-aRN5ceYbza3u" +
+        "CmuJmVTJgx2v7MT1jLfnfpAqqdKuwUj65AQxRZF_HZEMjVVe53WG8yinbbt-RLewrT51EtrCUek65DqQWlMRMMp5FMRKyIDLOKQB" +
+        "k4rSgPNYRAEXoRJBREVEA8o101ijFgPBoZRR6DaJiGETZToMIiYiWBRKQ8slwBEMSk1VQJUDszBSKhCRlsKdphW2hBIQEWseUKqZ" +
+        "hDaOw0DKUOtAUKkCriSNA6ZUKGEGLgU85lEcSKqE2xrGWMMBaLkAMuIaW6WEp1gDrUXsjMNdZxB-wgHNAipjBf-Zw-oQvxm88K4I" +
+        "_GVACK0UByFYMi1cEFIAoTQilpEGh4zi0gAHnCEgF49EO6mARSGHEfQg4DELdcDDCKFIsEphVoAWzlTEIYfPAQ2Zos5RSHB1UTAF" +
+        "RRTACwStGM7nTMbgPYQvXEuu3KHwAqwiYqpxHMTeOHVRxIggiELl8xGDCErDCGy74CBGcpzpEEoGr0EzqIASXjCQi5hDifwhajgn" +
+        "WORid0lD-mUELpnLC6JwGXFJayhWLmcM6QatOnYSrkCM8DHKOJKIFzTAAAs5R3KkisGABj-CCQp55JKMCkBoImYshE2F1EgOMVKJ" +
+        "4ByKSuZqk0bY52sjZtpThtoQceTCFcKFwrSLH_64WqQxNlEV-ToJle-yFxe_FmmzOGtXF2eu83yPutZ0i_F9kqYlKfOiem-X5dUj" +
+        "no3LUVXU7Xvk9f7Fw4tsPqd22mpJaj67h5SS9fVB3vjObc6ENZL5J3RXT0pn07XtWtMq2rcZlzb5Ups0qR6bHzsn-_23pnAXQ3ND" +
+        "bR73wc6qjTPG9WqF4Brp0AE9-z2LNzgqMSm5s8tV3jfdqlvt9x0xnpiqwtSyyAd831J-n_0uBx-zWd08OrvHrDEd5NBhM5OW7Wmo" +
+        "rXWpHFc5jHzA-46RLJ-Ru0WdTTEV9JO5i-jcbnS_zNaa76PGPZXPsOLUxxPSHfHtfHDye5JNyVs3UfWZ2NR1Tjrpk7D1jcbf6lv7" +
+        "s3TLjxVuAY9xK5I0j2trWosRKUzhLX8yBVxvfGucdZJzMq7yYlkuYHrqhG1yyO95OiPj__7H-Uqu8q9Od9L-59at6J-N4-fkFQvJ" +
+        "X009X9qsstO_Od3t4rFMJujDZiA8J4yKEx73cF2tPwG1PsEEvItzA6m3N66K5N6SZpY9J_Gp_MHp26GYrOB-MxafE4p5eNfOZhif" +
+        "7Jcac5rTlufeGcccPBC7SE_vXu0rpn8gVd5GQHJMwuQuWVrSTdC7brxSsduxNH8kyxqmMQj3IFx4qx1DzQznk7KDdQ4k2aSwprTT" +
+        "Zgf5ZKZJXe4gL85cKNslw7qSYd9eMhavQUH-kVSWNHP3LjuddLNefE59Dl2MVyk-1lAjrMmln8rPCSa83UDbIRy51fFzqd1KGOsl" +
+        "LKIH2afMs-8G-WeIf0Wlh_l76TkYPzaXQxniXYbo4QzhmsED9BkZcbJ3Ns0zcpNjfn8kH_K8l58PNl3aaotcMUC8_7JqU-ya9Gj2" +
+        "aY_9ODrMvmpodZ8uz_BKxWbdu69EgOcWvpoKkaAHPAlDnIqOU36Y07tkbou_lOR9YSaeVizKlUvkjUnS_v04fSRNFW_xivHwAK8Y" +
+        "C48mlveIxZfDQWYZO6Zgt-6T5m4lGEfx43C1yo7Z8DCz16YCr7cYKT2Nt7aYJWDvfYprtNyNsJOuOWWROJqxsMeYYodLkR51EcRH" +
+        "0DrEVvRNbLkRoqzsyl-sqbX3eJ7zquwXYCtc0zRwlx5PEw-32gw5cGaagvDB4zo4SGN0BI1DBKk1QSruCLox82SyzZAXnZt_14Xv" +
+        "0OscEyd5s6zT5nbbDGhYukmCinu1InpB7vFYdx7rIx7UZJ7B0d8MhgX_on7NT_DIZqAJ90tvZhmQbfmt-7eCGmK-UemhqvUqGR0Z" +
+        "bfynor01tfl_BRptNbN7DZobj-59e_eERMMuJnU4pg81muEKndkONUlGrmzaK68h2VZEqv9SHjGniD8zWdCNeeLXLPlSrwPc-IRx" +
+        "z3CxbCLeneE23XWuLHNUWTsIzzAYWjNZEDxySwwfCYZSO4E_6WPfnbGtmq-ocZpXTz5Ys8IrDh8xzCzbfzts_oly-wOxv4d1e9gA" +
+        "qhl6OgwfwGy84h1QDACbV6nDyEFjuJE7SDQAaS6lDqMGMK4rNvnQ-zAb8cdD7qAWN1gNByDvUlPeb3FPnz5Iu3w1a_8xep1ns2Tu" +
+        "ZU_Li7Pt_wn0-uX_AO4WUwg"
+
     fun decode(input: String): PobBuild {
         val text = input.trim().trim('\n', '\r', ' ', '"')
         val xml = if (text.startsWith("<")) {
@@ -292,6 +306,25 @@ object Pob {
                     "Spec" -> {
                         build.treeTitle = parser.getAttributeValue(null, "title").orEmpty()
                         build.treeNodes = parser.getAttributeValue(null, "nodesCount")?.toIntOrNull() ?: 0
+                        build.treeClassId = parser.getAttributeValue(null, "classId")?.toIntOrNull() ?: -1
+                        build.treeAscendClassId =
+                            parser.getAttributeValue(null, "ascendClassId")?.toIntOrNull() ?: 0
+                        build.treeUrl = parser.getAttributeValue(null, "url").orEmpty()
+                        parser.getAttributeValue(null, "nodes")?.let { raw ->
+                            raw.split(',').forEach { token ->
+                                token.trim().toIntOrNull()?.let { build.treeNodeIds.add(it) }
+                            }
+                        }
+                        parser.getAttributeValue(null, "masteryEffects")?.let { raw ->
+                            Regex("\\{(\\d+),(\\d+)\\}").findAll(raw).forEach { match ->
+                                val node = match.groupValues[1].toIntOrNull() ?: return@forEach
+                                val effect = match.groupValues[2].toIntOrNull() ?: return@forEach
+                                build.treeMastery[node] = effect
+                            }
+                        }
+                        if (build.treeNodes == 0 && build.treeNodeIds.isNotEmpty()) {
+                            build.treeNodes = build.treeNodeIds.size
+                        }
                     }
                 }
             } else if (event == XmlPullParser.TEXT || event == XmlPullParser.CDSECT) {
@@ -375,6 +408,20 @@ object Pob {
         serializer.startTag(null, "Spec")
         serializer.attribute(null, "title", build.treeTitle.ifBlank { "빌드" })
         serializer.attribute(null, "nodesCount", build.treeNodes.toString())
+        if (build.treeNodeIds.isNotEmpty()) {
+            serializer.attribute(null, "nodes", build.treeNodeIds.joinToString(","))
+        }
+        if (build.treeMastery.isNotEmpty()) {
+            serializer.attribute(
+                null,
+                "masteryEffects",
+                build.treeMastery.entries.joinToString(",") { "{${it.key},${it.value}}" },
+            )
+        }
+        if (build.treeClassId >= 0) serializer.attribute(null, "classId", build.treeClassId.toString())
+        if (build.treeAscendClassId > 0) {
+            serializer.attribute(null, "ascendClassId", build.treeAscendClassId.toString())
+        }
         serializer.endTag(null, "Spec")
         serializer.endTag(null, "Tree")
 

@@ -96,6 +96,8 @@ class MainActivity : AppCompatActivity() {
     private var krDict: KrDict = KrDict.EMPTY
 
     private var pobBuild: PobBuild? = null
+    /** 불러온 빌드의 노드로 만든 poe2db 트리 주소 (없으면 기본 트리를 연다) */
+    private var buildTreeUrl = ""
     private val pobOverrides = HashMap<String, PobItem>()
     private val pobFlasks = mutableSetOf<String>()
     private val pobConfig = PobCalculator.Config()
@@ -875,7 +877,9 @@ class MainActivity : AppCompatActivity() {
                 treePane.treeProgress.isVisible = newProgress < 100
             }
         }
-        treePane.chipPassiveTree.setOnClickListener { openTree(PASSIVE_TREE_URL) }
+        treePane.chipPassiveTree.setOnClickListener {
+            openTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+        }
         treePane.chipAtlasTree.setOnClickListener { openTree(ATLAS_TREE_URL) }
         treePane.btnTreeRefresh.setOnClickListener { treePane.treeWebView.reload() }
         treePane.btnTreeOpen.setOnClickListener {
@@ -987,7 +991,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         pobPane.btnOpenNinjaBuilds.setOnClickListener { showNinjaBuilds() }
-        pobPane.btnOpenTree.setOnClickListener { openTree(PASSIVE_TREE_URL) }
+        pobPane.btnOpenTree.setOnClickListener { openTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL }) }
         pobPane.btnOpenAtlas.setOnClickListener { openTree(ATLAS_TREE_URL) }
 
         setupBattle()
@@ -1600,6 +1604,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val hadBattle = battleStarted
                 pobBuild = build
+                buildTreeUrl = Poe2Tree.url(build, Poe2Tree.of(this))
                 pobOverrides.clear()
                 pobFlasks.clear()
                 pobMainGroup = 0
@@ -1853,12 +1858,99 @@ class MainActivity : AppCompatActivity() {
 
         refreshBattleHeader()
 
-        pobPane.tvTreeInfo.text = buildString {
-            append("클래스: ${build.title}\n")
-            append("패시브 노드: ${build.treeNodes}개\n")
-            if (build.treeTitle.isNotBlank()) append("트리: ${build.treeTitle}\n")
-            append("\n아래 버튼으로 poe2db.tw 트리 뷰어에서 직접 찍어볼 수 있습니다.")
+        renderTreeTab(build)
+    }
+
+    /** 패시브 탭: 찍은 노드 수·전직·키스톤·주요 패시브를 한글로 보여 준다. */
+    private fun renderTreeTab(build: PobBuild) {
+        val tree = Poe2Tree.of(this)
+        val box = pobPane.llTreeNodes
+        box.removeAllViews()
+        pobPane.btnOpenTree.setText(
+            if (buildTreeUrl.isNotBlank()) R.string.pob_tree_open_character else R.string.pob_open_tree
+        )
+        val summary = Poe2Tree.summarize(build, tree)
+        if (summary == null) {
+            pobPane.tvTreeInfo.text = getString(R.string.pob_tree_no_nodes)
+            return
         }
+        pobPane.tvTreeInfo.text = if (summary.ascendKo.isBlank()) {
+            getString(R.string.pob_tree_summary_plain, summary.classKo, summary.allocated)
+        } else {
+            getString(
+                R.string.pob_tree_summary,
+                summary.classKo,
+                summary.ascendKo,
+                summary.allocated,
+                summary.ascendancyNodes.size,
+                summary.keystones.size,
+                summary.notableCount,
+            )
+        }
+        addTreeGroup(box, R.string.pob_tree_group_ascendancy, summary.ascendancyNodes)
+        addTreeGroup(box, R.string.pob_tree_group_keystone, summary.keystones)
+        addTreeGroup(box, R.string.pob_tree_group_notable, summary.notables)
+        if (summary.ascendancyNodes.isEmpty() && summary.keystones.isEmpty() && summary.notables.isEmpty()) {
+            addTreeGroup(box, R.string.pob_tree_group_mastery, summary.masteries)
+        }
+    }
+
+    /** 노드 목록 한 묶음. 줄을 누르면 한글 설명이 펼쳐진다. */
+    private fun addTreeGroup(box: LinearLayout, titleRes: Int, nodes: List<TreeNode>) {
+        if (nodes.isEmpty()) return
+        val density = resources.displayMetrics.density
+        val header = TextView(this).apply {
+            text = getString(titleRes) + " " + nodes.size
+            setTextColor(ContextCompat.getColor(context, R.color.gold))
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+        }
+        box.addView(header)
+        nodes.forEach { node ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundResource(R.drawable.bg_search)
+                setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = (4 * density).toInt() }
+            row.layoutParams = params
+            val name = TextView(this).apply {
+                text = node.displayName
+                setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                textSize = 13f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+            row.addView(name)
+            val stats = node.stats.trim()
+            if (stats.isNotBlank()) {
+                val first = stats.lineSequence().firstOrNull().orEmpty()
+                row.addView(TextView(this).apply {
+                    text = first
+                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                    textSize = 11f
+                })
+            }
+            row.setOnClickListener {
+                val detail = if (stats.isBlank()) node.displayName else node.displayName + "\n\n" + stats
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle(getString(R.string.pob_tree_point) + " · " + getString(treeKindRes(node)))
+                    .setMessage(detail)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show()
+            }
+            box.addView(row)
+        }
+    }
+
+    private fun treeKindRes(node: TreeNode): Int = when {
+        node.isKeystone -> R.string.pob_tree_group_keystone
+        node.isAscendancy -> R.string.pob_tree_group_ascendancy
+        node.isMastery -> R.string.pob_tree_group_mastery
+        else -> R.string.pob_tree_group_notable
     }
 
     private fun appendDelta(view: TextView, base: Double, now: Double) {

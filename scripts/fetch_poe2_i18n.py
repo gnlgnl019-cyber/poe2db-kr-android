@@ -12,6 +12,10 @@
      poe2db.tw/kr/<영문 슬러그> 페이지의 아이템 팝업에서 한글 이름·베이스·아이콘·옵션을 뽑는다.
   3. 고유 아이템은 poe.ninja 영문 옵션과 poe2db 한글 옵션을 순서대로 짝지어
      숫자를 # 으로 지운 문장 틀(template) 사전을 만든다. 희귀/마법 아이템 옵션도 같은 틀로 번역된다.
+  4. poe2db의 아이템 분류 페이지(Modifiers Calc)를 영문·한글 두 벌로 읽어,
+     접사·에센스·훼손·타락·룬·결속 옵션 문장을 전부 짝지어 문장 틀에 넣는다.
+     두 페이지의 옵션 줄은 같은 순서·같은 생성 정보를 가지므로 줄마다 대조해 짝짓는다.
+  5. 아이템 머리말(품질·방어도·요구 사항 등)과 PoB 꼬리표((implicit) 등)도 함께 담는다.
 
 캐시: .cache/i18n/ (재실행 시 재다운로드 생략)
 """
@@ -151,11 +155,139 @@ MANUAL_MODS = {
     "Gain #% of Damage as Extra Lightning Damage": "피해의 #%를 추가 번개 피해로 획득",
 }
 
+# poe2db 분류 표에는 없고 고유 아이템·호신부·플라스크·주얼에만 붙는 문장.
+# 게임 한글 표기를 poe2db 한글 페이지에서 확인해 그대로 적는다.
+POB_MODS = {
+    "# life regeneration per second": "초당 생명력 재생 #",
+    "# charges per second": "1초마다 충전 # 획득",
+    "gains # charges per second": "1초마다 충전 # 획득",
+    "flasks gain # charges per second": "플라스크가 1초마다 충전 # 획득",
+    "#% increased charges per use": "사용 1회당 충전 소모량 #% 증가",
+    "#% reduced charges per use": "사용 1회당 충전 소모량 #% 감소",
+    "#% reduced amount recovered": "회복량 #% 감소",
+    "instant recovery": "즉시 회복",
+    "energy shield recharge starts on use": "사용 시 에너지 보호막 재충전 시작",
+    "excess life recovery added as guard for # seconds": "#초 동안 초과 생명력 회복량이 가호로 추가됨",
+    "this flask cannot be used but applies its effect constantly":
+        "이 플라스크는 사용할 수 없지만 효과가 지속적으로 적용됨",
+    "grants onslaught during effect": "효과를 받는 동안 맹공 부여",
+    "grants a frenzy charge on use": "사용 시 격분 충전 부여",
+    "grants up to your maximum rage on use": "사용 시 격노 최대치까지 부여",
+    "recover life equal to #% of mana flask's recovery amount when used":
+        "사용 시 마나 플라스크 회복량의 #%와 동일한 생명력 회복",
+    "recover mana equal to #% of life flask's recovery amount when used":
+        "사용 시 생명력 플라스크 회복량의 #%와 동일한 마나 회복",
+    "possessed by spirit of the cat for # seconds on use": "사용 시 #초 동안 고양이의 영혼에 사로잡힘",
+    "used when you are affected by a slow": "감속의 영향을 받을 때 사용됨",
+    "used when you become frozen": "동결될 때 사용됨",
+    "used when you become poisoned": "중독될 때 사용됨",
+    "used when you become ignited": "점화될 때 사용됨",
+    "used when you are stunned": "기절할 때 사용됨",
+    "used when you take fire damage from a hit": "명중으로 화염 피해를 받을 때 사용됨",
+    "used when you take cold damage from a hit": "명중으로 냉기 피해를 받을 때 사용됨",
+    "used when you take lightning damage from a hit": "명중으로 번개 피해를 받을 때 사용됨",
+    "used when you take chaos damage from a hit": "명중으로 카오스 피해를 받을 때 사용됨",
+    "used when you kill a rare or unique enemy": "희귀 또는 고유 적을 처치할 때 사용됨",
+    "bow attacks fire an additional arrow": "활 공격 시 화살 1개 추가 발사",
+    "#% increased effect of socketed items": "장착된 아이템의 효과 #% 증가",
+    "#% increased global defences": "전역 방어 #% 증가",
+    "#% to damage over time multiplier": "지속 피해 배율 +#%",
+    "#% increased effect of notable passive skills in radius": "반경 내 주요 패시브 스킬의 효과 #% 증가",
+    "#% increased effect of small passive skills in radius": "반경 내 소형 패시브 스킬의 효과 #% 증가",
+    "passives in radius of vaal pact can be allocated": "반경 내 바알의 계약 패시브 스킬 할당 가능",
+    "without being connected to your tree": "패시브 트리와 연결되지 않아도 됨",
+    "#% more damage for each enemy hit recently": "최근 명중한 적 하나당 피해 #% 증폭",
+}
+
+# 예전 판에서 쓰던 베이스 이름. 지금 poe2db 분류 페이지에는 없지만 예전 빌드 파일에 남아 있다.
+LEGACY_BASES = {
+    "Chain Belt": "사슬 허리띠",
+    "Coral Amulet": "산호 목걸이",
+    "Paua Ring": "파우아 반지",
+    "Perfidy Gloves": "배반 장갑",
+    "Terror Kite Shield": "공포의 카이트 방패",
+    "Felon Motley Hood": "죄수의 잡색 두건",
+    "Thunder Wolf Séance Bow": "천둥 늑대 교령의 활",
+    "Séance Bow": "교령의 활",
+}
+
 TAG = re.compile(r"<[^>]+>")
 BR = re.compile(r"<br\s*/?>", re.I)
 NUM = re.compile(r"\d+(?:\.\d+)?")
 PICK = re.compile(r"\[([^\]|]*)\|([^\]]*)\]")
 PLAIN = re.compile(r"\[([^\]]*)\]")
+
+# 아이템에 붙는 옵션을 모두 담고 있는 poe2db 분류 페이지 (Modifiers Calc 탭)
+CLASS_PAGES = [
+    "Amulets", "Belts", "Body_Armours_dex", "Body_Armours_dex_int", "Body_Armours_int",
+    "Body_Armours_str", "Body_Armours_str_dex", "Body_Armours_str_dex_int",
+    "Body_Armours_str_int", "Boots_dex", "Boots_dex_int", "Boots_int", "Boots_str",
+    "Boots_str_dex", "Boots_str_int", "Bows", "Bucklers", "Charms", "Claws",
+    "Crossbows", "Daggers", "Diamond", "Emerald", "Flails", "Foci", "Gloves_dex",
+    "Gloves_dex_int", "Gloves_int", "Gloves_str", "Gloves_str_dex", "Gloves_str_int",
+    "Helmets_dex", "Helmets_dex_int", "Helmets_int", "Helmets_str", "Helmets_str_dex",
+    "Helmets_str_int", "Life_Flasks", "Mana_Flasks", "One_Hand_Axes", "One_Hand_Maces",
+    "One_Hand_Swords", "Quarterstaves", "Quivers", "Rings", "Ruby", "Sapphire",
+    "Sceptres", "Shields_str", "Shields_str_dex", "Shields_str_int", "Spears",
+    "Staves", "Talismans", "Traps", "Two_Hand_Axes", "Two_Hand_Maces",
+    "Two_Hand_Swords", "Wands",
+]
+
+# 아이템 머리말(속성) 이름
+PROPS = {
+    "Quality": "품질",
+    "Physical Damage": "물리 피해",
+    "Fire Damage": "화염 피해",
+    "Cold Damage": "냉기 피해",
+    "Lightning Damage": "번개 피해",
+    "Chaos Damage": "카오스 피해",
+    "Elemental Damage": "원소 피해",
+    "Critical Hit Chance": "치명타 명중 확률",
+    "Critical Strike Chance": "치명타 명중 확률",
+    "Attacks per Second": "초당 공격 횟수",
+    "Attack Speed": "공격 속도",
+    "Weapon Range": "무기 범위",
+    "Armour": "방어도",
+    "Evasion": "회피",
+    "Evasion Rating": "회피",
+    "Energy Shield": "에너지 보호막",
+    "Ward": "수호",
+    "Chance to Block": "막기 확률",
+    "Spirit": "정신력",
+    "Requires": "요구 사항",
+    "Requires: Level": "요구 사항: 레벨",
+    "Item Level": "아이템 레벨",
+    "Level": "레벨",
+    "LevelReq": "레벨 요구",
+    "Sockets": "홈",
+    "Rune": "룬",
+    "Radius": "반경",
+    "Limited to": "한정",
+    "Stack Size": "중첩 개수 크기",
+    "Base Movement Speed": "기본 이동 속도",
+    "Movement Speed": "이동 속도",
+    "Reload Time": "재장전 시간",
+    "Charges": "충전",
+    "Chance to Evade": "회피 확률",
+    "Block": "막기",
+}
+
+# PoB가 아이템 줄 끝에 다는 꼬리표
+TAGS = {
+    "implicit": "고정",
+    "crafted": "제작",
+    "enchant": "인챈트",
+    "fractured": "분할",
+    "desecrated": "훼손",
+    "rune": "룬",
+    "augmented": "증가",
+    "scourged": "스컬지",
+    "veiled": "장막",
+    "custom": "임의",
+}
+
+RANGE_PAREN = re.compile(r"\(\s*([-+]?\d+(?:\.\d+)?)\s*[-~—–]\s*([-+]?\d+(?:\.\d+)?)\s*\)")
+SIGNED_NUM = re.compile(r"([-+])?(\d+(?:\.\d+)?)")
 
 
 def clean_tags(text):
@@ -204,6 +336,124 @@ def fetch(url, tries=3, force=False):
     return last if isinstance(last, str) and last.startswith("HTTP") else None
 
 
+def modsview(html):
+    """분류 페이지에 들어 있는 new ModsView({...}) 데이터를 꺼낸다."""
+    if not html:
+        return None
+    start = html.find("new ModsView(")
+    if start < 0:
+        return None
+    begin = html.find("{", start)
+    depth = 0
+    in_string = False
+    escaped = False
+    i = begin
+    while i < len(html):
+        ch = html[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+        i += 1
+    try:
+        return json.loads(html[begin:i + 1])
+    except ValueError:
+        return None
+
+
+def same_row(en_row, ko_row):
+    """영문·한글 두 줄이 같은 옵션인지 생성 정보로 대조한다."""
+    for field in ("Level", "ModGenerationTypeID", "DropChance"):
+        if str(en_row.get(field)) != str(ko_row.get(field)):
+            return False
+    return en_row.get("ModFamilyList") == ko_row.get("ModFamilyList")
+
+
+def class_mod_pairs(page):
+    """한 분류 페이지의 영문·한글 옵션을 줄마다 짝짓는다."""
+    en_data = modsview(fetch("https://poe2db.tw/us/" + page))
+    ko_data = modsview(fetch(BASE + page))
+    if not isinstance(en_data, dict) or not isinstance(ko_data, dict):
+        return []
+    pairs = []
+    for key, en_rows in en_data.items():
+        if not isinstance(en_rows, list) or not en_rows or not isinstance(en_rows[0], dict):
+            continue
+        ko_rows = ko_data.get(key)
+        if not isinstance(ko_rows, list) or len(ko_rows) != len(en_rows):
+            continue
+        for en_row, ko_row in zip(en_rows, ko_rows):
+            if not isinstance(ko_row, dict) or not same_row(en_row, ko_row):
+                continue
+            en = strip_markup(en_row.get("str") or "")
+            ko = strip_markup(ko_row.get("str") or "")
+            if en and ko and any(ord(ch) > 0x7F for ch in ko):
+                pairs.append((en, ko))
+    return pairs
+
+
+def collect_class_mods():
+    """모든 분류 페이지에서 옵션 문장 틀을 모은다 (같은 열쇠에는 가장 많이 나온 해석을 쓴다)."""
+    votes = {}
+    pairs = 0
+
+    def work(page):
+        return page, class_mod_pairs(page)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for i, (page, rows) in enumerate(pool.map(work, CLASS_PAGES), 1):
+            pairs += len(rows)
+            for en, ko in rows:
+                key = canonical(en)
+                value = canonical(ko, keep_sign=True)
+                if not key or not value:
+                    continue
+                if key.count("#") != value.count("#"):
+                    continue
+                bucket = votes.setdefault(key, {})
+                bucket[value] = bucket.get(value, 0) + 1
+            print(f"  분류 {i}/{len(CLASS_PAGES)} {page}: {len(rows)}줄")
+    out = {key: max(bucket, key=bucket.get) for key, bucket in votes.items()}
+    print(f"분류 페이지 옵션 {pairs}줄 → 문장 틀 {len(out)}개")
+    return out
+
+
+WHITEITEM = re.compile(r'<a class="whiteitem[^"]*"[^>]*href="([^"#]+)"[^>]*>([^<]{1,60})</a>')
+UNIQUE_LINK = re.compile(r'href="/(?:kr|us)/([^"#]+)"[^>]*><span class="uniqueName">([^<]{1,60})</span>')
+
+
+def class_names(page):
+    """분류 페이지의 아이템 목록에서 베이스 타입·고유 아이템 영문/한글 이름을 짝짓는다."""
+    ko_html = fetch(BASE + page)
+    en_html = fetch("https://poe2db.tw/us/" + page)
+    if not ko_html or not en_html:
+        return {}
+    ko_items = dict(WHITEITEM.findall(ko_html))
+    ko_uniques = dict(UNIQUE_LINK.findall(ko_html))
+    out = {}
+    for slug, en_name in dict(WHITEITEM.findall(en_html)).items():
+        ko_name = ko_items.get(slug)
+        if ko_name:
+            out[slug] = (en_name.strip(), ko_name.strip(), "base")
+    for slug, en_name in dict(UNIQUE_LINK.findall(en_html)).items():
+        ko_name = ko_uniques.get(slug)
+        if ko_name:
+            out[slug] = (en_name.strip(), ko_name.strip(), "unique")
+    return out
+
+
 def fetch_json(url):
     CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / (hashlib.sha1(url.encode()).hexdigest()[:16] + ".json")
@@ -230,6 +480,18 @@ def clean(text):
     text = text.replace("&nbsp;", " ").replace("&amp;", "&")
     text = text.replace("\xa0", " ")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def strip_markup(text):
+    """옵션 HTML에서 화면에 보이는 글자만 남긴다 ([키워드|번역] 표기도 번역 쪽으로)."""
+    t = BR.sub(" ", text or "")
+    t = TAG.sub("", t)
+    t = (t.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">")
+         .replace("&quot;", '"').replace("&#39;", "'").replace("&amp;", "&"))
+    t = t.replace("\xa0", " ").replace("\u2212", "-")
+    t = PICK.sub(lambda m: (m.group(2) or m.group(1)).strip(), t)
+    t = PLAIN.sub(lambda m: m.group(1).strip(), t)
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def mod_text(inner):
@@ -284,13 +546,36 @@ def title_name(html):
     return re.sub(r"\s*-\s*PoE2DB.*$", "", title).strip()
 
 
+def canonical(text, keep_sign=False):
+    """영문·한글 옵션을 같은 열쇠 모양으로 바꾼다.
+
+    범위 표기 (10—20)은 값 하나(#)로 보고, 숫자는 # 으로 지운다.
+    열쇠(keep_sign=False)에서는 + 부호도 지우고 - 부호만 남겨, "+30 to maximum Life"와
+    "30 to maximum Life"가 같은 열쇠가 되게 한다. 값 쪽(keep_sign=True)은 +·- 를 남겨
+    "생명력 +#" 처럼 게임 표기를 그대로 살린다.
+    """
+    t = strip_markup(text)
+    t = t.replace("—", "-").replace("–", "-")
+    t = RANGE_PAREN.sub("#", t)
+
+    def num(match):
+        sign = match.group(1) or ""
+        if sign == "-":
+            return "-#"
+        if sign == "+":
+            return "+#" if keep_sign else "#"
+        return "#"
+
+    t = SIGNED_NUM.sub(num, t)
+    if not keep_sign:
+        t = t.replace("+#", "#")
+    t = re.sub(r"\s+", " ", t).strip().lower()
+    return t.rstrip(" .")
+
+
 def template(text):
     """숫자를 # 으로 지운 문장 틀 (poe.ninja 태그도 함께 제거)."""
-    t = clean_tags(text)
-    t = NUM.sub("#", t)
-    t = re.sub(r"\(\s*#\s*[-~—]\s*#\s*\)", "(#-#)", t)
-    t = re.sub(r"\s+", " ", t).strip().lower()
-    return t
+    return canonical(clean_tags(text))
 
 
 def number_count(text):
@@ -303,9 +588,7 @@ def numbers_of(text):
 
 
 def templatize_ko(text):
-    t = re.sub(r"\(\s*(\d+(?:\.\d+)?)\s*—\s*(\d+(?:\.\d+)?)\s*\)", r"(#—#)", text)
-    t = NUM.sub("#", t)
-    return re.sub(r"\s+", " ", t).strip()
+    return canonical(text, keep_sign=True)
 
 
 def normalize_key(name):
@@ -391,6 +674,7 @@ def main():
         if name not in missing:
             targets.append((name, "unique"))
     fetched = {}
+    page_pairs = {}
 
     def work(pair):
         name, kind = pair
@@ -401,6 +685,20 @@ def main():
         info = popup(html)
         if not info["name"]:
             info["name"] = title_name(html)
+        # 고유 아이템 페이지는 영문판도 같이 읽어 옵션 줄을 순서대로 짝짓는다.
+        # (룬·플라스크·주얼처럼 분류 표에 없는 옵션까지 문장 틀에 넣기 위해서다.)
+        if info["implicit"] or info["explicit"]:
+            en_html = fetch("https://poe2db.tw/us/" + slug_of(name))
+            if en_html:
+                en_info = popup(en_html)
+                rows = []
+                for field in ("implicit", "explicit"):
+                    en_lines = en_info[field]
+                    ko_lines = info[field]
+                    if len(en_lines) == len(ko_lines):
+                        rows.extend(zip(en_lines, ko_lines))
+                if rows:
+                    page_pairs[name] = rows
         return name, kind, info
 
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -442,8 +740,28 @@ def main():
         if len(staged) % 40 == 0:
             print(f"  베이스 {len(staged)} …")
 
+    # 분류 페이지의 아이템 목록으로 베이스 타입·고유 아이템 이름도 채운다.
+    base_added = 0
+    for page in CLASS_PAGES:
+        for _slug, (en_name, ko_name, kind) in class_names(page).items():
+            if not en_name or not ko_name:
+                continue
+            names.setdefault(normalize_key(en_name), ko_name)
+            if kind == "base":
+                bases.setdefault(normalize_key(en_name), ko_name)
+                base_added += 1
+    print(f"분류 목록에서 베이스 이름 {base_added}개 확보")
+
     # ---------------------------------------------------------------- 옵션 틀
     mods = {template(k): v for k, v in MANUAL_MODS.items()}
+    # 분류 페이지(Modifiers Calc)에서 접사·에센스·훼손·타락·룬·결속 옵션을 통째로 가져온다.
+    for key, value in collect_class_mods().items():
+        mods.setdefault(key, value)
+    for key, value in POB_MODS.items():
+        mods[canonical(key)] = value
+    for en_name, ko_name in LEGACY_BASES.items():
+        names.setdefault(normalize_key(en_name), ko_name)
+        bases.setdefault(normalize_key(en_name), ko_name)
     item_mods = {}
     learned = 0
     for name, base, implicit, explicit, _ in lines:
@@ -477,11 +795,26 @@ def main():
         if (implicit or explicit) and (ko_imp or ko_exp):
             item_mods[normalize_key(name)] = {"implicit": ko_imp, "explicit": ko_exp}
 
-    # 옵션 틀에서 숫자를 되돌려 쓰기 쉽도록 "#-#" 범위 표기를 "(#-#)" 로 통일
+    # 스킬 레벨처럼 숫자 개수가 맞지 않는 줄만 버리고 문장 틀에 넣는다.
+    page_learned = 0
+    for name in sorted(page_pairs):
+        for en, ko in page_pairs[name]:
+            key = canonical(en)
+            value = canonical(ko, keep_sign=True)
+            if not key or not value or not any(ord(ch) > 0x7F for ch in ko):
+                continue
+            if key.count("#") != value.count("#"):
+                continue
+            if key not in mods:
+                mods[key] = value
+                page_learned += 1
+    print(f"고유 페이지 짝 {len(page_pairs)}종에서 문장 틀 {page_learned}개 추가")
+
+    # 옵션 틀은 이미 숫자를 지운 모양이라 그대로 쓴다.
     normalized_mods = {}
     for k, v in mods.items():
-        k2 = re.sub(r"\(\s*#\s*[-~—]\s*#\s*\)", "(#-#)", k)
-        normalized_mods.setdefault(k2, v)
+        if k:
+            normalized_mods.setdefault(k, v)
 
     # "Uncut Skill Gem (Level 17)" 처럼 등급이 붙은 이름은 기본 이름 번역 + 등급 표기로 채운다.
     level_re = re.compile(r"^(.*?)\s*\(Level\s*(\d+)\)$", re.I)
@@ -527,6 +860,8 @@ def main():
         "bases": sorted(bases.items()),
         "icons": sorted(icons.items()),
         "mods": sorted(normalized_mods.items()),
+        "props": sorted(PROPS.items()),
+        "tags": sorted(TAGS.items()),
         "itemMods": sorted((k, v.get("implicit", []), v.get("explicit", [])) for k, v in item_mods.items()),
         "classes": sorted(CLASS_KO.items()),
         "categories": sorted({**CLASS_KO, **CATEGORY_KO}.items()),

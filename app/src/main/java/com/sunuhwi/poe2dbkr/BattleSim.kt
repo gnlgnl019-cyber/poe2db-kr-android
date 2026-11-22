@@ -78,6 +78,26 @@ object SkillEffects {
     }
 }
 
+/**
+ * 순간이동 근접기 판별.
+ *
+ * 점멸 타격처럼 적에게 걸어가지 않고 공격할 때마다 적 옆으로 순간이동해 베는 스킬은
+ * 이동 연출 대신 텔레포트 잔상으로 그린다. 질풍·충전 지팡이처럼 빠른 연타 계열도 같은 결로 친다.
+ */
+object MeleeMotion {
+
+    private val FLICKER_WORDS = listOf(
+        "flicker", " flicker strike", "blink", "blink strike", "teleport strike",
+        "charged staff", "질풍", "점멸", "섬광 타격", "순간 이동", "순간이동",
+    )
+
+    fun isFlicker(vararg names: String): Boolean {
+        val text = names.joinToString(" ").lowercase()
+        if (text.isBlank()) return false
+        return FLICKER_WORDS.any { text.contains(it) }
+    }
+}
+
 /** PoB에서 뽑아 전투에 넣는 플레이어 수치 */
 data class BattlePlayerStats(
     val className: String,
@@ -102,6 +122,8 @@ data class BattlePlayerStats(
     val dpsBase: Double = 0.0,
     val weaponLabel: String = "",
     val triggers: List<TriggerSpec> = emptyList(),
+    /** 점멸 타격처럼 적 옆으로 순간이동해 베는 근접 스킬 */
+    val flicker: Boolean = MeleeMotion.isFlicker(skillName),
 ) {
     val element: DamageElement get() = fx.element
 
@@ -227,6 +249,8 @@ class PlayerState(stats: BattlePlayerStats) {
     var dashVy = 0f
     var attackCount = 0
     var dodgeCooldown = 0f
+    /** 순간이동 직후의 잔상 시간 */
+    var blinkGlow = 0f
 }
 
 class Enemy(
@@ -270,7 +294,7 @@ class Enemy(
 
 enum class FxKind {
     SLASH, ICE_CONE, RING, BOLT, PILLAR, ORB, AURA, SPEAR, SHOCKWAVE, CYCLONE, MINION_HIT, CLOUD,
-    GROUND_CRACK, METEOR, THRUST, IMPACT,
+    GROUND_CRACK, METEOR, THRUST, IMPACT, AFTERIMAGE, STREAK,
 }
 
 class Fx(
@@ -579,6 +603,8 @@ class BattleWorld(
         private const val MAX_FX = 220
         private const val MAX_PARTICLES = 420
         private const val MAX_POPUPS = 46
+        /** 한 프레임에 처리할 수 있는 최대 공격 횟수 (초고속 공속 대응) */
+        private const val MAX_STRIKES_PER_STEP = 6
         /** 메타 에너지 100%(발동 1회)에 해당하는 피해량 */
         const val REFERENCE_HIT = 60_000.0
 
@@ -907,35 +933,40 @@ class BattleWorld(
                 AttackForm.CAST -> 148f
                 AttackForm.UNARMED -> 52f
             }
-            var vx = 0f
-            var vy = 0f
-            val speed = 148f
-            if (dist > desired + 26f) {
-                vx = dx / dist
-                vy = dy / dist
-                moving = true
-            } else if (dist < desired - 34f) {
-                vx = -dx / dist
-                vy = -dy / dist
-                moving = true
+            // 점멸 타격은 걸어가지 않는다. 다음 공격 때 적 옆으로 순간이동해 벤다.
+            if (stats.flicker && (stats.form == AttackForm.MELEE || stats.form == AttackForm.UNARMED)) {
+                moving = false
             } else {
-                val side = if (sin(elapsed * 0.8) >= 0) 1f else -1f
-                vx = -dy / dist * side * 0.55f
-                vy = dx / dist * side * 0.55f
-                moving = true
+                var vx = 0f
+                var vy = 0f
+                val speed = 148f
+                if (dist > desired + 26f) {
+                    vx = dx / dist
+                    vy = dy / dist
+                    moving = true
+                } else if (dist < desired - 34f) {
+                    vx = -dx / dist
+                    vy = -dy / dist
+                    moving = true
+                } else {
+                    val side = if (sin(elapsed * 0.8) >= 0) 1f else -1f
+                    vx = -dy / dist * side * 0.55f
+                    vy = dx / dist * side * 0.55f
+                    moving = true
+                }
+                if (boss != null && nearest.kind == EnemyKind.BOSS && nearest.windup > 0.3f &&
+                    player.dodgeCooldown <= 0f
+                ) {
+                    // 텔레그래프를 보고 옆으로 구르기
+                    val side = if (rand.nextBoolean()) 1f else -1f
+                    player.dashTimer = 0.40f
+                    player.dashVx = -dy / dist * side * 320f
+                    player.dashVy = dx / dist * side * 320f
+                    player.dodgeCooldown = 1.4f
+                }
+                player.x += vx * speed * dt
+                player.y += vy * speed * dt
             }
-            if (boss != null && nearest.kind == EnemyKind.BOSS && nearest.windup > 0.3f &&
-                player.dodgeCooldown <= 0f
-            ) {
-                // 텔레그래프를 보고 옆으로 구르기
-                val side = if (rand.nextBoolean()) 1f else -1f
-                player.dashTimer = 0.40f
-                player.dashVx = -dy / dist * side * 320f
-                player.dashVy = dx / dist * side * 320f
-                player.dodgeCooldown = 1.4f
-            }
-            player.x += vx * speed * dt
-            player.y += vy * speed * dt
         }
 
         if (moving) player.walkPhase += dt * 11f
@@ -943,19 +974,26 @@ class BattleWorld(
         player.x = player.x.coerceIn(44f, W - 44f)
         player.y = player.y.coerceIn(84f, H - 34f)
 
-        // 공격
+        // 공격 — 공속이 아주 빠르면 한 프레임에 여러 번 친다. 남은 시간을 이어서 누적한다.
+        player.blinkGlow = max(0f, player.blinkGlow - dt)
         player.attackTimer -= dt
-        if (player.attackTimer <= 0f) {
+        val interval = (1.0 / effectiveAps()).toFloat()
+        var strikes = 0
+        while (player.attackTimer <= 0f && strikes < MAX_STRIKES_PER_STEP) {
             val target = nearest
-            if (target != null) {
-                player.attackTimer = (1.0 / effectiveAps()).toFloat()
-                player.attackAnim = 1f
-                player.attackCount++
-                fireAttack(target)
-            } else {
+            if (target == null) {
                 player.attackTimer = 0.1f
+                break
             }
+            player.attackTimer += interval
+            player.attackAnim = 1f
+            player.attackCount++
+            strikes++
+            fireAttack(target)
         }
+        // 프레임이 크게 밀려 예약이 쌓였을 때는 한 번 비워 무한 연타를 막는다.
+        if (player.attackTimer < -interval * MAX_STRIKES_PER_STEP) player.attackTimer = 0f
+        else if (player.attackTimer <= 0f) player.attackTimer = interval
     }
 
     private fun nearestEnemy(): Enemy? {
@@ -984,7 +1022,7 @@ class BattleWorld(
 
     /** 초당 공격 횟수가 0/NaN으로 들어와도 루프가 멈추지 않게 한다. */
     private fun effectiveAps(): Double =
-        stats.aps.takeIf { it.isFinite() && it > 0.0 }?.coerceIn(0.2, 12.0) ?: 1.0
+        stats.aps.takeIf { it.isFinite() && it > 0.0 }?.coerceIn(0.2, 30.0) ?: 1.0
 
     private fun rollDamage(): Pair<Double, Boolean> {
         val crit = rand.nextDouble() * 100.0 < stats.critChance
@@ -995,12 +1033,58 @@ class BattleWorld(
     private fun fireAttack(target: Enemy) {
         val (damage, crit) = rollDamage()
         val angle = atan2(target.y - player.y, target.x - player.x)
+        val blink = stats.flicker &&
+            (stats.form == AttackForm.MELEE || stats.form == AttackForm.UNARMED)
+        if (blink) {
+            flickerStrike(target, damage, crit)
+            return
+        }
         when (stats.form) {
             AttackForm.MELEE, AttackForm.UNARMED -> meleeStrike(target, damage, crit, angle)
             AttackForm.BOW -> bowShot(target, damage, crit, angle)
             AttackForm.CROSSBOW -> crossbowShot(target, damage, crit, angle)
             AttackForm.CAST -> castSpell(target, damage, crit, angle)
         }
+    }
+
+    /**
+     * 점멸 타격: 걸어가지 않고 적 옆으로 순간이동해 벤다.
+     * 지나온 길에 푸른·금빛 잔상을 남기고, 도착 지점에 섬광을 터뜨린다.
+     */
+    private fun flickerStrike(target: Enemy, damage: Double, crit: Boolean) {
+        val fromX = player.x
+        val fromY = player.y
+        val toTarget = atan2(target.y - fromY, target.x - fromX)
+        val side = if (rand.nextBoolean()) 1f else -1f
+        val ring = 34f + rand.nextFloat() * 8f
+        val landing = toTarget + side * (0.55f + rand.nextFloat() * 0.5f)
+        player.x = (target.x - cos(landing) * ring).coerceIn(44f, W - 44f)
+        player.y = (target.y - sin(landing) * ring).coerceIn(84f, H - 34f)
+        player.facing = atan2(target.y - player.y, target.x - player.x)
+        player.blinkGlow = 0.26f
+
+        // 지나온 자리에 남는 잔상 2~3개 (푸른색·금빛 교대)
+        val ghostCount = if (effectiveAps() >= 6.0) 3 else 2
+        for (i in 1..ghostCount) {
+            val f = i.toFloat() / (ghostCount + 1).toFloat()
+            val ghostColor = if (i % 2 == 0) 0xFFFFD98A.toInt() else 0xFF6FD3FF.toInt()
+            addFx(
+                FxKind.AFTERIMAGE,
+                fromX + (player.x - fromX) * f,
+                fromY + (player.y - fromY) * f,
+                angle = player.facing, life = 0.20f + f * 0.10f, color = ghostColor, width = f,
+            )
+        }
+        // 이동 궤적을 잇는 섬광 선
+        addFx(
+            FxKind.STREAK, fromX, fromY - 24f,
+            x2 = player.x, y2 = player.y - 24f,
+            life = 0.13f, color = 0xFF9BE4FF.toInt(), width = 1.5f,
+        )
+        addFx(FxKind.RING, player.x, player.y - 18f, radius = 26f, life = 0.2f, color = 0xFFFFE9A8.toInt())
+        addFx(FxKind.SLASH, player.x, player.y - 20f, angle = player.facing, radius = 104f, life = 0.18f, color = 0xFFEAF4FF.toInt(), width = 1.3f)
+        meleeStrike(target, damage, crit, player.facing)
+        if (crit) shake = max(shake, 5.6f)
     }
 
     /**
@@ -1052,6 +1136,19 @@ class BattleWorld(
             else -> {
                 addFx(FxKind.SLASH, player.x, player.y - 20f, angle = angle, radius = reach, life = 0.26f, color = DamageElement.PHYSICAL.color, width = 1.5f)
                 addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 46f, life = 0.4f, color = 0xFFBFC7D5.toInt())
+            }
+        }
+        // 공속이 아주 빠르면 궤적이 한 줄로 보이지 않도록 베기 호를 여러 겹으로 남긴다.
+        val swingAps = effectiveAps()
+        if (swingAps >= 4.0) {
+            val extra = if (swingAps >= 8.0) 2 else 1
+            for (i in 1..extra) {
+                val off = (if (i % 2 == 0) -1f else 1f) * 0.30f * i
+                addFx(
+                    FxKind.SLASH, player.x, player.y - 18f,
+                    angle = angle + off, radius = reach * (0.98f - i * 0.10f),
+                    life = 0.15f + i * 0.03f, color = 0xFFEAF4FF.toInt(), width = 1.0f - i * 0.15f,
+                )
             }
         }
         val arcHalf = if (style == "sweep") 1.5f else 1.15f

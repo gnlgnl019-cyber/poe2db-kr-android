@@ -457,6 +457,16 @@ class BattleCanvasView @JvmOverloads constructor(
         c.drawOval(p.x - ringR, p.y - ringR * 0.42f, p.x + ringR, p.y + ringR * 0.42f, stroke)
 
         drawShadow(c, p.x, p.y, 1.55f)
+        // 점멸 도착 직후의 섬광
+        if (p.blinkGlow > 0f) {
+            val g = (p.blinkGlow / 0.26f).coerceIn(0f, 1f)
+            stroke.color = alpha(0xFFFFE9A8.toInt(), (190 * g).toInt())
+            stroke.strokeWidth = 2.6f
+            c.drawCircle(p.x, p.y - 26f, 26f + 22f * (1f - g), stroke)
+            stroke.color = alpha(0xFF8FE0FF.toInt(), (140 * g).toInt())
+            stroke.strokeWidth = 1.4f
+            c.drawCircle(p.x, p.y - 26f, 34f + 26f * (1f - g), stroke)
+        }
         val bodyColor = blend(0xFFF4F0E4.toInt(), 0xFFFF5555.toInt(), p.hurtFlash * 0.85f)
         drawStickman(
             c = c, x = p.x, y = p.y, s = 1.62f,
@@ -1486,10 +1496,53 @@ class BattleCanvasView @JvmOverloads constructor(
                 FxKind.PILLAR -> drawPillar(c, fx, t)
                 FxKind.MINION_HIT -> drawStarBurst(c, fx, t)
                 FxKind.METEOR -> drawMeteor(c, fx, t)
+                FxKind.AFTERIMAGE -> drawAfterImage(c, fx, t)
+                FxKind.STREAK -> drawStreak(c, fx, t)
                 FxKind.CYCLONE -> Unit
                 else -> Unit
             }
         }
+    }
+
+    /** 점멸 타격 잔상: 지나온 자리에 사람 형체가 옅게 남는다. */
+    private fun drawAfterImage(c: Canvas, fx: Fx, t: Float) {
+        val fade = (1f - t).coerceIn(0f, 1f)
+        if (fade <= 0.03f) return
+        val k = 0.35f + fx.width * 0.45f
+        val a = (120 * fade).toInt().coerceIn(0, 255)
+        val body = withAlpha(fx.color, a)
+        val accent = withAlpha(0xFFFFFFFF.toInt(), (70 * fade).toInt())
+        val s = 1.62f
+        val legLen = 17f * s
+        val torso = 19f * s
+        val headR = 6.4f * s
+        val hipY = fx.y - legLen
+        val shY = hipY - torso
+        val headY = shY - headR * 1.15f
+        stroke.color = body
+        stroke.strokeWidth = 3.2f * s * k
+        c.drawLine(fx.x, hipY, fx.x - 4.2f * s, fx.y, stroke)
+        c.drawLine(fx.x, hipY, fx.x + 4.2f * s, fx.y, stroke)
+        c.drawLine(fx.x, hipY, fx.x, shY, stroke)
+        c.drawCircle(fx.x, headY, headR * k, stroke)
+        // 뻗은 팔과 무기 자리
+        val fwd = if (cos(fx.angle) >= 0f) 1f else -1f
+        c.drawLine(fx.x, shY + 2f * s, fx.x + fwd * 13f * s, shY - 3f * s, stroke)
+        stroke.color = accent
+        stroke.strokeWidth = 1.6f * s * k
+        c.drawLine(fx.x + fwd * 13f * s, shY - 3f * s, fx.x + fwd * 24f * s, shY - 12f * s, stroke)
+    }
+
+    /** 순간이동 궤적을 잇는 번쩍이는 섬광 선 */
+    private fun drawStreak(c: Canvas, fx: Fx, t: Float) {
+        val fade = (1f - t).coerceIn(0f, 1f)
+        if (fade <= 0.03f) return
+        stroke.color = alpha(fx.color, (170 * fade).toInt())
+        stroke.strokeWidth = 4.2f * fx.width
+        c.drawLine(fx.x, fx.y, fx.x2, fx.y2, stroke)
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (210 * fade).toInt())
+        stroke.strokeWidth = 1.4f * fx.width
+        c.drawLine(fx.x, fx.y, fx.x2, fx.y2, stroke)
     }
 
     private fun drawSlash(c: Canvas, fx: Fx, t: Float) {

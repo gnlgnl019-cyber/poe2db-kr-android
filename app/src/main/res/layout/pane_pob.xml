@@ -514,6 +514,13 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
 
+                    <LinearLayout
+                        android:id="@+id/llTreeNodes"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnOpenTree"
                         style="@style/Widget.Material3.Button.TonalButton"
@@ -536,6 +543,15 @@
                         android:textColor="@color/gold"
                         android:textSize="13sp"
                         app:strokeColor="@color/gold_40" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:layout_marginBottom="16dp"
+                        android:text="@string/pob_tree_hint"
+                        android:textColor="@color/text_muted"
+                        android:textSize="11sp" />
                 </LinearLayout>
             </ScrollView>
 

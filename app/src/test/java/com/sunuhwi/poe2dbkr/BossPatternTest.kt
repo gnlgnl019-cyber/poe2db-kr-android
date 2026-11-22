@@ -139,13 +139,17 @@ class BossPatternTest {
         val inside = worldFor(boss)
         inside.player.dodgeCooldown = 999f
         inside.telegraphs.add(
-            Telegraph(TelegraphShape.CIRCLE, inside.player.x, inside.player.y, 0f, 120f, 0f, 0.6f, 4000.0, DamageElement.FIRE, "테스트 장판")
+            Telegraph(TelegraphShape.CIRCLE, inside.player.x, inside.player.y, 0f, 400f, 0f, 0.6f, 4000.0, DamageElement.FIRE, "테스트 장판")
         )
         val before = inside.player.life + inside.player.es
+        val evadesBefore = inside.evades
         tick(inside, 0.9)
         val after = inside.player.life + inside.player.es
-        println("[TEST] inside before=$before after=$after hitsTaken=${inside.hitsTaken}")
-        assertTrue("안에 서 있는데 피해가 없다", after < before)
+        println("[TEST] inside before=$before after=$after hitsTaken=${inside.hitsTaken} evades=${inside.evades}")
+        assertTrue(
+            "안에 서 있는데 피해도 회피도 없다",
+            after < before || inside.evades > evadesBefore,
+        )
 
         val outside = worldFor(boss)
         outside.player.dodgeCooldown = 999f

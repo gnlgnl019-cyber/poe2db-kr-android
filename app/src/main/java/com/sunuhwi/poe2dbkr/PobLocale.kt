@@ -59,13 +59,24 @@ object PobLocale {
 
     /** 옵션 줄 한글화. 번역이 없는 줄은 영문 그대로 둔다. */
     fun lines(dict: KrDict, item: PobItem): List<String> {
+        val own = item.lines.map { raw -> raw to dict.modLine(raw) }
+        val translated = own.count { it.second.isNotBlank() }
+        // 고유 아이템은 poe2db 아이템 창의 한글 옵션이 가장 정확하다.
+        // 줄마다 번역이 다 되면 그쪽을 쓰고(품질·방어도 같은 머리말도 살아난다),
+        // 번역이 빠진 줄이 있으면 한글 옵션 목록으로 통째로 바꾼다.
         val exact = dict.itemModsFor(item.name)
-        if (exact != null && (exact.implicits.isNotEmpty() || exact.explicits.isNotEmpty())) {
-            return exact.implicits + exact.explicits
-        }
-        return item.lines.map { line ->
-            val ko = dict.modLine(line)
-            if (ko.isNotBlank()) ko else line
+        val fixed = (exact?.implicits.orEmpty() + exact?.explicits.orEmpty()).filter { it.isNotBlank() }
+        if (fixed.isNotEmpty() && translated < own.size) return fixed
+        return own.map { (raw, ko) ->
+            when {
+                ko.isNotBlank() -> ko
+                // 사전에 옵션 틀이 없어도 베이스·고유 이름이면 그 한글명을 쓴다.
+                dict.base(raw).isNotBlank() -> dict.base(raw)
+                dict.name(raw).isNotBlank() -> dict.name(raw)
+                // "Amulet"처럼 클래스만 적힌 줄
+                dict.classKo(raw) != raw -> dict.classKo(raw)
+                else -> Market.cleanTags(raw)
+            }
         }
     }
 
