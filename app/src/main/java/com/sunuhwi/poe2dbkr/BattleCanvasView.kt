@@ -406,7 +406,7 @@ class BattleCanvasView @JvmOverloads constructor(
             }
             // 남은 시간 표시
             text.textAlign = Paint.Align.CENTER
-            text.textSize = 9.5f
+            text.textSize = 15f
             text.color = 0xFFFFFFFF.toInt()
             if (t.shape != TelegraphShape.SAFE_CIRCLE) {
                 c.drawText(t.name, t.x, t.y - t.radius - 6f, text)
