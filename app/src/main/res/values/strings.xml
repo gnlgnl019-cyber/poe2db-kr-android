@@ -128,7 +128,6 @@
     <string name="pob_tree_group_mastery">마스터리</string>
     <string name="pob_tree_hint">아래 버튼을 누르면 poe2db 트리가 열리고, 찍은 노드가 황금색으로 표시됩니다.</string>
     <string name="pob_tree_open_character">캐릭터 패시브 트리 열기</string>
-    <string name="pob_tree_point">찍은 노드</string>
     <string name="pob_open_tree">패시브 트리 열기</string>
     <string name="pob_open_atlas">아틀라스 트리 열기</string>
     <string name="pob_main_skill">메인 스킬</string>

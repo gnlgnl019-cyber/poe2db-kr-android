@@ -1890,9 +1890,7 @@ class MainActivity : AppCompatActivity() {
         addTreeGroup(box, R.string.pob_tree_group_ascendancy, summary.ascendancyNodes)
         addTreeGroup(box, R.string.pob_tree_group_keystone, summary.keystones)
         addTreeGroup(box, R.string.pob_tree_group_notable, summary.notables)
-        if (summary.ascendancyNodes.isEmpty() && summary.keystones.isEmpty() && summary.notables.isEmpty()) {
-            addTreeGroup(box, R.string.pob_tree_group_mastery, summary.masteries)
-        }
+        addTreeGroup(box, R.string.pob_tree_group_mastery, summary.masteries)
     }
 
     /** 노드 목록 한 묶음. 줄을 누르면 한글 설명이 펼쳐진다. */
@@ -1935,9 +1933,13 @@ class MainActivity : AppCompatActivity() {
                 })
             }
             row.setOnClickListener {
-                val detail = if (stats.isBlank()) node.displayName else node.displayName + "\n\n" + stats
+                val kind = getString(treeKindRes(node))
+                val detail = buildString {
+                    if (stats.isNotBlank()) append(stats).append("\n\n")
+                    append(kind)
+                }
                 androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle(getString(R.string.pob_tree_point) + " · " + getString(treeKindRes(node)))
+                    .setTitle(node.displayName)
                     .setMessage(detail)
                     .setPositiveButton(android.R.string.ok, null)
                     .show()
