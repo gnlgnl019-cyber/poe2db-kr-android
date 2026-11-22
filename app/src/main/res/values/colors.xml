@@ -15,5 +15,10 @@
     <color name="text_muted">#79808C</color>
 
     <color name="on_gold">#14161B</color>
+    <color name="unique_name">#B47AFF</color>
+    <color name="rare_name">#FFFF77</color>
+    <color name="magic_name">#8888FF</color>
+    <color name="resist_high">#98C379</color>
+    <color name="resist_low">#E06C75</color>
     <color name="ic_launcher_background">#111216</color>
 </resources>

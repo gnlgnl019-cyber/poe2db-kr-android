@@ -77,4 +77,29 @@ internal object MobileCss {
             (token ? '&token=' + encodeURIComponent(token.value) : '');
         })();
     """
+
+    const val TREE_CSS = """
+        html, body { background: #111216 !important; margin: 0 !important; padding: 0 !important;
+            overflow: hidden !important; }
+        header, nav, .navbar, .navbar-fixed-top, #topbanner970, #middlebanner, #bottom_banner,
+        #leftside_banner, #rightside_banner, #consent-box, footer, .background-image,
+        .sidebar, .advertisement, iframe[src*="banner"] { display: none !important; }
+        #passive_skill_tree { height: 100vh !important; width: 100vw !important; }
+    """
+
+    val TREE_SCRIPT: String
+        get() = """
+            (function () {
+              if (!document.getElementById('poe2db-kr-tree-style')) {
+                var style = document.createElement('style');
+                style.id = 'poe2db-kr-tree-style';
+                style.textContent = ${JSONObject.quote(TREE_CSS)};
+                (document.head || document.documentElement).appendChild(style);
+              }
+              var tree = document.getElementById('passive_skill_tree');
+              if (tree && tree.parentNode && tree.parentNode.tagName === 'BODY') {
+                tree.style.height = (window.innerHeight || 600) + 'px';
+              }
+            })();
+        """
 }

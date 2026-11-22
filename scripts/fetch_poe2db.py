@@ -75,6 +75,30 @@ TAG_KO = {
     "화폐 아이템": "화폐",
 }
 
+# 아이템 종류별 기본 아이템 페이지 (슬러그, 칩 태그)
+ITEM_CLASS_PAGES = {
+    "weapon": [
+        ("Bows", "활"), ("Crossbows", "쇠뇌"), ("Spears", "창"),
+        ("Quarterstaves", "육척봉"), ("Staves", "지팡이"), ("Wands", "마법봉"),
+        ("Sceptres", "셉터"), ("Daggers", "단검"), ("Claws", "클로"),
+        ("Flails", "도리깨"), ("One_Hand_Swords", "한손 검"), ("Two_Hand_Swords", "양손 검"),
+        ("One_Hand_Axes", "한손 도끼"), ("Two_Hand_Axes", "양손 도끼"),
+        ("One_Hand_Maces", "한손 철퇴"), ("Two_Hand_Maces", "양손 철퇴"),
+        ("Shields", "방패"), ("Foci", "집중구"), ("Quivers", "화살통"),
+        ("Talismans", "부적"), ("Traps", "덫"),
+    ],
+    "armour": [
+        ("Body_Armours", "갑옷"), ("Helmets", "투구"),
+        ("Gloves", "장갑"), ("Boots", "장화"),
+    ],
+    "jewellery": [
+        ("Rings", "반지"), ("Amulets", "목걸이"), ("Belts", "허리띠"),
+    ],
+    "rune": [
+        ("Rune", "룬"),
+    ],
+}
+
 
 def slug_name(url):
     slug = url.rsplit("/", 1)[-1]
@@ -258,6 +282,41 @@ def parse_card_page(cat, label, slug):
     return items
 
 
+def parse_item_class_pages(cat, label, pages):
+    """무기·방어구·장신구·룬 등 기본 아이템 페이지를 읽는다.
+
+    각 페이지의 탭 중 이름이 '…아이템' 또는 '룬'인 것만 가져오고,
+    '…고유'(유니크)·'…Ref'(영문 참조) 탭은 건너뛴다.
+    """
+    items = []
+    seen = set()
+    for slug, tag in pages:
+        doc = parse(fetch(BASE + slug))
+        count = 0
+        for pane in doc.xpath('//div[contains(@class,"tab-pane")]'):
+            title = section_title(pane)
+            if not title or title.endswith("고유") or "Ref" in title:
+                continue
+            if title.endswith("아이템"):
+                tag_name = title[: -len("아이템")].strip()
+            elif title == "룬":
+                tag_name = "룬"
+            else:
+                continue
+            for card in pane.xpath('.//div[@class="d-flex border-top rounded"]'):
+                item = extract_card(card)
+                if not item["name"] or not item["url"] or item["url"] in seen:
+                    continue
+                seen.add(item["url"])
+                item["cat"] = cat
+                item["catLabel"] = label
+                item["tags"] = [tag_name or tag]
+                items.append(item)
+                count += 1
+        print(f"  {label}/{slug}: {count}")
+    return items
+
+
 def parse_ascendancy():
     body = fetch(BASE + "Ascendancy_class")
     doc = parse(body)
@@ -326,6 +385,12 @@ def main():
                              ("currency", "화폐", "Currency"),
                              ("keyword", "키워드", "Keywords")]:
         page_items = parse_card_page(cat, label, slug)
+        items.extend(page_items)
+        print(f"{label}: {len(page_items)}")
+
+    for cat, label in [("weapon", "무기"), ("armour", "방어구"),
+                       ("jewellery", "장신구"), ("rune", "룬")]:
+        page_items = parse_item_class_pages(cat, label, ITEM_CLASS_PAGES[cat])
         items.extend(page_items)
         print(f"{label}: {len(page_items)}")
 

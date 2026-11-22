@@ -3,19 +3,19 @@
     <item
         android:id="@+id/nav_home"
         android:icon="@drawable/ic_home"
-        android:title="@string/tab_home" />
+        android:title="@string/tab_db" />
     <item
-        android:id="@+id/nav_skills"
-        android:icon="@drawable/ic_bolt"
-        android:title="@string/tab_skills" />
+        android:id="@+id/nav_market"
+        android:icon="@drawable/ic_market"
+        android:title="@string/tab_market" />
     <item
-        android:id="@+id/nav_uniques"
-        android:icon="@drawable/ic_shield"
-        android:title="@string/tab_uniques" />
+        android:id="@+id/nav_tree"
+        android:icon="@drawable/ic_tree"
+        android:title="@string/tab_tree" />
     <item
-        android:id="@+id/nav_others"
-        android:icon="@drawable/ic_coin"
-        android:title="@string/tab_others" />
+        android:id="@+id/nav_pob"
+        android:icon="@drawable/ic_pob"
+        android:title="@string/tab_pob" />
     <item
         android:id="@+id/nav_favorites"
         android:icon="@drawable/ic_star_border"

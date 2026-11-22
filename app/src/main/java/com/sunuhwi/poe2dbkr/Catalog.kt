@@ -44,13 +44,32 @@ object Catalog {
         private set
 
     val categories = listOf(
+        Category("weapon", R.string.chip_weapon),
+        Category("armour", R.string.chip_armour),
+        Category("jewellery", R.string.chip_jewellery),
+        Category("rune", R.string.chip_rune),
+        Category("currency", R.string.chip_currency),
+        Category("unique", R.string.chip_unique),
         Category("skill_gem", R.string.chip_skill),
         Category("support_gem", R.string.chip_support),
-        Category("unique", R.string.chip_unique),
-        Category("currency", R.string.chip_currency),
-        Category("keyword", R.string.chip_keyword),
         Category("ascendancy", R.string.chip_ascendancy),
+        Category("keyword", R.string.chip_keyword),
     )
+
+    /** 영문명 → 한글명 매핑 (시세 화면 병기용) */
+    @Volatile
+    private var koMap: Map<String, String>? = null
+
+    fun nameKo(context: Context, nameEn: String): String {
+        val map = koMap ?: buildKoMap(context).also { koMap = it }
+        return map[nameEn.lowercase().trim()] ?: ""
+    }
+
+    private fun buildKoMap(context: Context): Map<String, String> {
+        return read(context)
+            .filter { it.nameEn.isNotBlank() && it.name.isNotBlank() && it.name != it.nameEn }
+            .associateBy({ it.nameEn.lowercase().trim() }, { it.name })
+    }
 
     fun load(context: Context, onReady: (List<CatalogItem>) -> Unit) {
         cached?.let {

@@ -1,25 +1,28 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">PoE2DB KR</string>
     <string name="app_tagline">Path of Exile 2 · 한국어 데이터베이스</string>
 
-    <string name="search_hint">스킬, 유니크, 화폐, 키워드 검색</string>
+    <string name="search_hint">스킬, 유니크, 화폐, 무기, 방어구 검색</string>
     <string name="search_clear">검색어 지우기</string>
     <string name="search_action">검색</string>
 
-    <string name="tab_home">홈</string>
-    <string name="tab_skills">스킬</string>
-    <string name="tab_uniques">유니크</string>
-    <string name="tab_others">화폐·기타</string>
+    <string name="tab_db">DB</string>
+    <string name="tab_market">시세</string>
+    <string name="tab_tree">패시브</string>
+    <string name="tab_pob">PoB</string>
     <string name="tab_favorites">즐겨찾기</string>
 
     <string name="chip_all">전체</string>
+    <string name="chip_weapon">무기</string>
+    <string name="chip_armour">방어구</string>
+    <string name="chip_jewellery">장신구</string>
+    <string name="chip_rune">룬</string>
+    <string name="chip_currency">화폐</string>
+    <string name="chip_unique">유니크</string>
     <string name="chip_skill">스킬 젬</string>
     <string name="chip_support">보조 젬</string>
-    <string name="chip_unique">유니크</string>
-    <string name="chip_currency">화폐</string>
-    <string name="chip_keyword">키워드</string>
     <string name="chip_ascendancy">전직·직업</string>
+    <string name="chip_keyword">키워드</string>
 
     <string name="status_count">%1$s개 항목 · %2$s 기준</string>
     <string name="status_favorites">즐겨찾기 %1$s개</string>
@@ -30,6 +33,76 @@
     <string name="empty_action">사이트에서 검색</string>
     <string name="favorites_empty_title">저장한 항목이 없습니다</string>
     <string name="favorites_empty_hint">카드 오른쪽 별표를 누르면 여기에 모입니다.</string>
+
+    <string name="more_title">더보기</string>
+    <string name="more_atlas">아틀라스 트리</string>
+    <string name="more_websearch">웹에서 검색</string>
+    <string name="more_home">poe2db.tw 홈</string>
+
+    <string name="market_search_hint">아이템 이름 검색</string>
+    <string name="market_error">시세를 불러오지 못했습니다. 새로고침을 눌러 다시 시도하세요.</string>
+    <string name="market_status">%1$s · %2$s %3$s개 · 5분 캐시</string>
+    <string name="market_league_error">리그 목록을 불러오지 못했습니다</string>
+
+    <string name="tree_passive">패시브 트리</string>
+    <string name="tree_atlas">아틀라스 트리</string>
+    <string name="tree_error">트리를 불러오지 못했습니다</string>
+
+    <string name="pob_empty_title">빌드를 불러오세요</string>
+    <string name="pob_empty_hint">Path of Building 공유 코드 또는 pobb.in 링크를 넣거나 샘플 빌드로 바로 시험해 볼 수 있습니다.</string>
+    <string name="pob_code_title">PoB 코드 / pobb.in 링크</string>
+    <string name="pob_code_hint">공유 코드 또는 https://pobb.in/…</string>
+    <string name="pob_load">불러오기</string>
+    <string name="pob_sample">샘플 빌드</string>
+    <string name="pob_export">코드 복사</string>
+    <string name="pob_reset">초기화</string>
+    <string name="pob_dps_title">예상 DPS (PoB 기준 + 장비·설정 변동)</string>
+    <string name="pob_life">생명력</string>
+    <string name="pob_es">보호막</string>
+    <string name="pob_ehp">유효 체력</string>
+    <string name="pob_estimate_note">PoB 기준 스탯에 장착 장비·보조 젬·전투 설정 변동을 더한 간이 추정치입니다. 게임 내 실제 수치와 차이가 날 수 있습니다.</string>
+    <string name="pob_skills_title">스킬 구성</string>
+    <string name="pob_tab_overview">개요</string>
+    <string name="pob_tab_skills">스킬</string>
+    <string name="pob_tab_items">장비</string>
+    <string name="pob_tab_config">설정</string>
+    <string name="pob_tab_tree">패시브</string>
+    <string name="pob_build_summary">스킬 그룹 %1$d개 · 장착 장비 %2$d개 · 패시브 %3$d포인트</string>
+    <string name="pob_equip_save">저장</string>
+    <string name="pob_modified">변경</string>
+    <string name="pob_empty_slot">장착 아이템 없음</string>
+    <string name="pob_restore_original">원본 복구</string>
+    <string name="pob_search_unique">유니크 아이템 검색해서 장착</string>
+    <string name="pob_mod_lines">옵션 텍스트 (한 줄에 하나씩)</string>
+    <string name="pob_flask_off">플라스크 끔</string>
+    <string name="pob_flask_on">플라스크 켬</string>
+    <string name="pob_charges">충전</string>
+    <string name="pob_endurance">인내 충전</string>
+    <string name="pob_frenzy">격분 충전</string>
+    <string name="pob_power">권능 충전</string>
+    <string name="pob_onslaught">맹공 (Onslaught)</string>
+    <string name="pob_arcane_surge">비전 쇄도 (Arcane Surge)</string>
+    <string name="pob_enemy">적 유형</string>
+    <string name="enemy_normal">일반</string>
+    <string name="enemy_rare">희귀</string>
+    <string name="enemy_pinnacle">피나클 보스</string>
+    <string name="pob_ailments">적 상태 이상</string>
+    <string name="pob_tree_empty">불러온 빌드의 패시브 정보가 여기에 표시됩니다.</string>
+    <string name="pob_open_tree">패시브 트리 열기</string>
+    <string name="pob_open_atlas">아틀라스 트리 열기</string>
+    <string name="pob_main_skill">메인 스킬</string>
+    <string name="pob_level_down">레벨 낮추기</string>
+    <string name="pob_level_up">레벨 올리기</string>
+    <string name="plus_sign">+</string>
+    <string name="minus_sign">−</string>
+    <string name="pob_support_kind">보조 젬</string>
+    <string name="pob_skill_kind">스킬 젬</string>
+    <string name="pob_loaded">빌드를 불러왔습니다</string>
+    <string name="pob_load_failed">코드를 해석하지 못했습니다. PoB 공유 코드나 pobb.in 링크인지 확인하세요.</string>
+    <string name="pob_copied">PoB 코드를 클립보드에 복사했습니다</string>
+    <string name="pob_reset_done">실험 내용을 초기화했습니다</string>
+    <string name="pob_slot_restored">원본 아이템으로 되돌렸습니다</string>
+    <string name="pob_equip_saved">장비를 바꿨습니다</string>
 
     <string name="bookmark_add">즐겨찾기 저장</string>
     <string name="bookmark_remove">즐겨찾기 해제</string>
@@ -48,7 +121,7 @@
     <string name="info_title">앱 정보</string>
     <string name="info_version">버전 %1$s</string>
     <string name="info_data">내장 데이터 %1$s건 · %2$s 수집</string>
-    <string name="info_body">poe2db.tw 한국어 페이지에서 스킬 젬, 보조 젬, 유니크 아이템, 화폐, 전직, 키워드 자료를 모아 기기에 저장해 둔 앱입니다.\n\n즐겨찾기는 기기 안에만 저장되고 어디로도 전송되지 않습니다. 상세 화면과 아이콘은 poe2db.tw, cdn.poe2db.tw에서 불러옵니다.\n\nPath of Exile 2 및 poe2db.tw의 공식 앱이 아닌 팬 메이드 앱입니다.</string>
+    <string name="info_body">poe2db.tw 한국어 페이지에서 스킬 젬, 보조 젬, 유니크 아이템, 무기·방어구·장신구·룬, 화폐, 전직, 키워드 자료를 모아 기기에 저장해 둔 앱입니다. poe.ninja 공개 API로 실시간 시세를, poe2db.tw 트리 뷰어로 패시브·아틀라스 트리를 볼 수 있고, PoB 공유 코드를 불러와 장비를 바꿔 끼우며 스탯 변화를 시험해 볼 수 있습니다.\n\n즐겨찾기와 최근 PoB 빌드는 기기 안에만 저장되고 어디로도 전송되지 않습니다. 상세 화면과 아이콘은 poe2db.tw, cdn.poe2db.tw, web.poecdn.com에서 불러옵니다.\n\nPath of Exile 2 및 poe2db.tw, poe.ninja, Path of Building의 공식 앱이 아닌 팬 메이드 앱입니다.</string>
     <string name="info_close">확인</string>
 
     <string name="data_source">poe2db.tw</string>
