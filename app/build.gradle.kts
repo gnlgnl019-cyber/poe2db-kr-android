@@ -14,7 +14,11 @@ val localProps = Properties().apply {
 val keystoreFile = (
     System.getenv("KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
         ?: localProps.getProperty("storeFile")
-    )?.let(::File)
+    )?.let { raw ->
+        // keystore.properties의 경로는 프로젝트 루트 기준으로 읽는다(모듈 기준 아님).
+        val file = File(raw)
+        if (file.isAbsolute) file else rootProject.file(raw)
+    }
 val hasReleaseKey = keystoreFile?.isFile == true
 
 fun signingValue(env: String, prop: String): String? =

@@ -317,7 +317,7 @@ def feature_graphic(art):
     draw.line((80, 252, 520, 252), fill=(*GOLD, 120), width=2)
     draw.text((80, 276), "Path of Exile 2 한국어 데이터베이스", font=tag_font, fill=(226, 226, 230))
     draw.text((80, 336), "스킬 젬 · 유니크 · 화폐 · 전직 · 키워드", font=sub_font, fill=TEXT_MUTED)
-    draw.text((80, 396), "2,400+ 항목 내장 · 오프라인 목록 · 즐겨찾기", font=tag_sans, fill=(160, 165, 178))
+    draw.text((80, 396), "4,300+ 항목 내장 · 실시간 시세 · PoB 실험실", font=tag_sans, fill=(160, 165, 178))
 
     img.convert("RGB").save(STORE / "feature-graphic-1024x500.png")
 

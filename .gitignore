@@ -15,3 +15,6 @@ release/
 
 store-assets/_check.png
 dist/
+
+.github/
+__pycache__/

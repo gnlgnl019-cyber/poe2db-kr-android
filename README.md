@@ -5,9 +5,9 @@
 ## 화면 구성
 
 - **DB** — 전체 4,354건. 무기·방어구·장신구·룬·화폐·유니크·스킬 젬·보조 젬·전직·키워드 칩으로 좁혀 볼 수 있습니다.
-- **시세** — poe.ninja 실시간 시세 (화폐·룬·에센스·영혼 핵 등 9종)
+- **시세** — poe.ninja 실시간 시세 (화폐·룬·에센스·영혼 핵 등 9종 교환 품목과 고유 장비)
 - **패시브** — poe2db.tw 패시브·아틀라스 트리 뷰어 (핀치 줌)
-- **PoB** — 개요 / 스킬 / 장비 / 설정 / 패시브 / 전투
+- **PoB** — 개요 / 스킬 / 장비 / 설정 / 패시브 / 전투 / 메타
 - **즐겨찾기** — 별표로 저장한 항목
 
 ### 전투 시뮬레이터
@@ -50,6 +50,14 @@ PoB 2 빌드에 들어 있는 메타젬을 **전부** 인식해 전투에서 동
 
 검색창은 이름, 영문 이름, 태그, 설명을 한 번에 훑습니다. 카드를 누르면 상세 웹뷰가 열리고, 웹뷰에는 모바일용 CSS를 넣어 상단 메뉴와 배너를 걷어 내고 넓은 표를 가로 스크롤로 감쌉니다.
 
+### 메타 랭킹
+
+PoB 탭의 **메타** 페이지는 리그 전직 점유율과 인기 빌드 DPS를 스냅샷으로 보여 줍니다.
+poe.ninja 빌드 통계는 공개 API가 아니라 앱이 직접 받아오지 않고, U4N 티어리스트·PoB Archives에
+공개된 값을 `Meta.kt`에 옮겨 두고 화면에 출처와 기준일을 함께 적습니다.
+전직·스킬 이름은 게임 한국어 표기(poe2db.tw/kr)로 적고, DPS는 만 단위로 읽습니다.
+poe.ninja 빌드 랭킹은 같은 페이지의 버튼으로 앱 안에서 실시간으로 열 수 있습니다.
+
 ## 빌드
 
 JDK 17과 Android SDK 35가 필요합니다.
@@ -65,7 +73,20 @@ JDK 17과 Android SDK 35가 필요합니다.
 sdk.dir=/path/to/android-sdk
 ```
 
-릴리스 키가 없으면 릴리스 빌드는 디버그 키로 서명합니다. 빌드는 통과하지만 플레이스토어 업로드는 되지 않으니, 배포 전에는 `scripts/create-release-keystore.md`를 따라 키를 연결하세요.
+업로드 키는 `keystore/poe2db-upload.jks`에 있고, 루트의 `keystore.properties`를 읽어 서명합니다(둘 다 git 제외).
+키가 없으면 릴리스 빌드는 디버그 키로 서명해 빌드만 통과시키므로, 배포 전에는 `scripts/create-release-keystore.md`를 확인하세요.
+
+```bash
+./gradlew bundleRelease
+jarsigner -verify app/build/outputs/bundle/release/app-release.aab
+```
+
+스토어에 올릴 산출물은 `dist/`에 모아 둡니다.
+
+```bash
+dist/poe2db-kr-1.0.0-release-signed.aab   # 업로드 키로 서명한 AAB
+dist/poe2db-kr-1.0.0-debug.apk            # 기기에 설치해 볼 APK
+```
 
 ## 데이터 갱신
 
@@ -75,6 +96,7 @@ sdk.dir=/path/to/android-sdk
 python3 scripts/fetch_poe2db.py        # poe2db.tw/kr 파싱 → assets JSON
 python3 scripts/fetch_poe2_i18n.py     # 시세·장비 한글 사전 → assets/poe2_kr_i18n.json
 python3 scripts/make_store_assets.py   # 아이콘, 스토어 그래픽
+python3 scripts/make_store_screenshots.py  # 스토어 스크린샷 5장
 ```
 
 `fetch_poe2_i18n.py`는 poe.ninja 시세 응답의 영문 이름·옵션을 poe2db 한국어 페이지와 대조해
@@ -102,16 +124,29 @@ app/src/main/java/com/sunuhwi/poe2dbkr/
   WeaponTypes.kt      무기 판정과 공격 형태(근접·활·쇠뇌·주문)
   I18n.kt             한글 사전 로딩·이름/베이스/아이콘/옵션 변환
   PobLocale.kt        PoB 장비를 한글 이름·옵션으로 표시
+  Meta.kt             전직 점유율·인기 빌드 스냅샷
 scripts/
   fetch_poe2db.py     poe2db.tw 수집 스크립트
   fetch_poe2_i18n.py  poe.ninja·poe2db 대조 한글 사전 생성
   make_store_assets.py 아이콘·스토어 그래픽 생성
-store-assets/         스토어 등록용 아이콘, 그래픽, 문구, 개인정보 처리방침
+  make_store_screenshots.py 스토어 스크린샷(1080×1920) 생성
+store-assets/         스토어 등록용 아이콘, 그래픽, 문구, 스크린샷, 개인정보 처리방침
 ```
 
 ## 배포
 
-`.github/workflows/build-apk.yml`이 `main` 푸시와 태그 푸시에서 APK와 AAB를 만들고 아티팩트로 올립니다. `v1.0.0` 태그를 밀면 GitHub Release에도 첨부됩니다. 서명 키는 저장소 시크릿 `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`로 넣습니다.
+릴리스 AAB는 로컬에서 서명해 플레이스토어 콘솔에 직접 올립니다.
+
+```bash
+./gradlew bundleRelease
+cp app/build/outputs/bundle/release/app-release.aab dist/poe2db-kr-1.0.0-release-signed.aab
+jarsigner -verify dist/poe2db-kr-1.0.0-release-signed.aab
+```
+
+`versionCode`는 업로드할 때마다 `app/build.gradle.kts`에서 1씩 올립니다.
+업로드 키와 비밀번호는 `keystore/`(git 제외)에만 두고, 저장소나 이슈에 적지 않습니다.
+GitHub Actions로 빌드하려면 같은 값을 저장소 시크릿 `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEY_ALIAS`, `KEY_PASSWORD`로 넣으면 됩니다.
 
 ## 고지
 

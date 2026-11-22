@@ -2033,7 +2033,7 @@ class BattleWorld(
         return list
     }
 
-    // ---- 장판 추가 도우미
+    // ---- 장판 추가 함수
 
     private fun tele(x: Float, y: Float, shape: TelegraphShape, radius: Float, length: Float,
                      angle: Float, windup: Float, damage: Double, element: DamageElement,
