@@ -93,6 +93,17 @@ class MainActivity : AppCompatActivity() {
     private val pobConfig = PobCalculator.Config()
     private var pobMainGroup = 1
 
+    private lateinit var battleView: BattleCanvasView
+    private var battleFxOverride: SkillEffectType? = null
+    private var battleMode = BattleMode.MAP
+    private var battleMobCount = 25
+    private var battleAmp = false
+    private var battleBoss: BossPreset = BossPresets.ALL[0]
+    private var battleWorld: BattleWorld? = null
+    private var battleStarted = false
+    private var battleWantsPlay = false
+    private var battleSpeed = 1f
+
     private val activeTab: Int
         get() = binding.bottomNav.selectedItemId
 
@@ -238,6 +249,11 @@ class MainActivity : AppCompatActivity() {
         binding.paneTree.isVisible = pane == PANE_TREE
         binding.panePob.isVisible = pane == PANE_POB
         binding.paneDetail.isVisible = false
+        if (pane == PANE_POB) {
+            if (battleWantsPlay) battleView.resume()
+        } else {
+            battleView.pause()
+        }
         headerTitleClick(pane)
     }
 
@@ -696,6 +712,7 @@ class MainActivity : AppCompatActivity() {
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_items))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_config))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_tree))
+        pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_battle))
         pobPane.pobTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 val page = when (tab.position) {
@@ -703,14 +720,21 @@ class MainActivity : AppCompatActivity() {
                     2 -> pobPane.rvPobSlots
                     3 -> pobPane.pobPageConfig
                     4 -> pobPane.pobPageTree
+                    5 -> pobPane.pobPageBattle
                     else -> pobPane.pobPageOverview
                 }
                 listOf(
                     pobPane.pobPageOverview, pobPane.rvPobSkills, pobPane.rvPobSlots,
-                    pobPane.pobPageConfig, pobPane.pobPageTree,
+                    pobPane.pobPageConfig, pobPane.pobPageTree, pobPane.pobPageBattle,
                 ).forEach { it.isVisible = it === page }
                 if (tab.position == 2) refreshSlots()
                 if (tab.position == 1) renderSkills()
+                if (tab.position == 5) {
+                    refreshBattleHeader()
+                    if (battleWantsPlay) battleView.resume()
+                } else {
+                    battleView.pause()
+                }
             }
 
             override fun onTabUnselected(tab: TabLayout.Tab) = Unit
@@ -756,6 +780,261 @@ class MainActivity : AppCompatActivity() {
 
         pobPane.btnOpenTree.setOnClickListener { openTree(PASSIVE_TREE_URL) }
         pobPane.btnOpenAtlas.setOnClickListener { openTree(ATLAS_TREE_URL) }
+
+        setupBattle()
+    }
+
+    // ------------------------------------------------------------- 전투 시뮬레이터
+    private fun setupBattle() {
+        battleView = pobPane.battleCanvas
+        battleView.onFinished = { result -> showBattleResult(result) }
+
+        buildBattleModeChips()
+        buildBattleOptChips()
+        buildBattleFxChips()
+
+        pobPane.btnBattleStart.setOnClickListener { startBattle() }
+        pobPane.btnBattlePause.setOnClickListener { toggleBattlePause() }
+        pobPane.btnBattleReset.setOnClickListener { resetBattle() }
+        pobPane.btnBattleSpeed.setOnClickListener {
+            battleSpeed = if (battleSpeed == 1f) 2f else 1f
+            battleView.setSpeed(battleSpeed)
+            pobPane.btnBattleSpeed.text = getString(
+                if (battleSpeed == 1f) R.string.battle_speed_1x else R.string.battle_speed_2x
+            )
+        }
+    }
+
+    private fun battleChip(label: String, checked: Boolean, onPick: (Chip) -> Unit): Chip {
+        val chip = Chip(this)
+        chip.id = View.generateViewId()
+        chip.text = label
+        chip.isCheckable = true
+        chip.isChecked = checked
+        chip.setOnClickListener { view ->
+            val c = view as Chip
+            if (c.isChecked) onPick(c) else c.isChecked = true
+        }
+        return chip
+    }
+
+    private fun buildBattleModeChips() {
+        val group = pobPane.battleModeChips
+        group.removeAllViews()
+        listOf(
+            BattleMode.MAP to getString(R.string.battle_mode_map),
+            BattleMode.BOSS to getString(R.string.battle_mode_boss),
+        ).forEach { (mode, label) ->
+            group.addView(
+                battleChip(label, battleMode == mode) {
+                    battleMode = mode
+                    buildBattleOptChips()
+                    restartBattleIfRunning()
+                }
+            )
+        }
+    }
+
+    private fun buildBattleOptChips() {
+        val group = pobPane.battleOptChips
+        group.removeAllViews()
+        if (battleMode == BattleMode.MAP) {
+            listOf(10, 25, 50, 100).forEach { count ->
+                group.addView(
+                    battleChip(getString(R.string.battle_mob_count, count), battleMobCount == count) {
+                        battleMobCount = count
+                        for (i in 0 until group.childCount) {
+                            val c = group.getChildAt(i) as Chip
+                            if (c.text.toString().endsWith("마리")) c.isChecked = c.text.toString() == getString(R.string.battle_mob_count, count)
+                        }
+                        restartBattleIfRunning()
+                    }
+                )
+            }
+            group.addView(
+                battleChip(getString(R.string.battle_map_amp), battleAmp) { chip ->
+                    battleAmp = chip.isChecked
+                    restartBattleIfRunning()
+                }
+            )
+        } else {
+            BossPresets.ALL.forEach { preset ->
+                group.addView(
+                    battleChip(preset.name, battleBoss.id == preset.id) {
+                        battleBoss = preset
+                        for (i in 0 until group.childCount) {
+                            val c = group.getChildAt(i) as Chip
+                            c.isChecked = c.text == preset.name
+                        }
+                        restartBattleIfRunning()
+                    }
+                )
+            }
+        }
+    }
+
+    private fun buildBattleFxChips() {
+        val group = pobPane.battleFxChips
+        group.removeAllViews()
+        group.addView(
+            battleChip(getString(R.string.battle_fx_auto), battleFxOverride == null) {
+                battleFxOverride = null
+                for (i in 0 until group.childCount) {
+                    val c = group.getChildAt(i) as Chip
+                    c.isChecked = c.text.toString() == getString(R.string.battle_fx_auto)
+                }
+                refreshBattleHeader()
+                restartBattleIfRunning()
+            }
+        )
+        SkillEffectType.values().forEach { type ->
+            group.addView(
+                battleChip(type.label, battleFxOverride == type) {
+                    battleFxOverride = type
+                    for (i in 0 until group.childCount) {
+                        val c = group.getChildAt(i) as Chip
+                        c.isChecked = c.text == type.label
+                    }
+                    refreshBattleHeader()
+                    restartBattleIfRunning()
+                }
+            )
+        }
+    }
+
+    private fun restartBattleIfRunning() {
+        if (battleStarted) startBattle()
+    }
+
+    private fun battleStats(): BattlePlayerStats? {
+        val build = pobBuild ?: return null
+        val calc = PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig)
+        val group = build.skills.firstOrNull { it.label.toIntOrNull() == pobMainGroup }
+            ?: build.skills.firstOrNull { it.enabled && it.gems.isNotEmpty() }
+        val gems = group?.gems?.filter { it.enabled }.orEmpty()
+        val mainGem = gems.firstOrNull {
+            !PobCalculator.SUPPORT_GEMS.containsKey(it.name.lowercase().trim())
+        } ?: gems.firstOrNull()
+        val skillName = mainGem?.name ?: group?.label ?: build.className.ifBlank { "기본 공격" }
+        val fx = battleFxOverride ?: SkillEffects.detect(skillName, group?.label.orEmpty())
+        val weaponItem = pobOverrides["Weapon 1"] ?: Pob.itemForSlot(build, "Weapon 1")
+        val weapon = SkillEffects.weaponFor(fx, weaponItem?.lines.orEmpty())
+        val evade = (calc.evasionNow / (calc.evasionNow + 7500.0) * 92.0).coerceAtMost(80.0)
+        val res = calc.resists
+        return BattlePlayerStats(
+            className = listOf(build.className, build.ascendClassName)
+                .filter { it.isNotBlank() }.joinToString(" · "),
+            skillName = skillName,
+            fx = fx,
+            weapon = weapon,
+            dps = calc.dpsNow,
+            aps = calc.apsNow,
+            critChance = calc.critNow,
+            critMulti = calc.critMultiNow,
+            life = calc.lifeNow,
+            es = calc.esNow,
+            physRed = calc.physRedNow,
+            evade = evade,
+            fireRes = res.getOrNull(0)?.third ?: 0.0,
+            coldRes = res.getOrNull(1)?.third ?: 0.0,
+            lightRes = res.getOrNull(2)?.third ?: 0.0,
+            chaosRes = res.getOrNull(3)?.third ?: 0.0,
+            ehp = calc.ehpNow,
+            dpsBase = calc.dpsBase,
+        )
+    }
+
+    private fun refreshBattleHeader() {
+        val stats = battleStats()
+        if (stats == null) {
+            pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
+            return
+        }
+        val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
+        val fxLabel = if (battleFxOverride == null) stats.fx.label else stats.fx.label + " · 직접 선택"
+        pobPane.tvBattleSkill.text = getString(
+            R.string.battle_skill_line,
+            stats.skillName,
+            fxLabel,
+            stats.aps,
+            fmt.format(stats.dps.toLong()),
+        )
+    }
+
+    private fun startBattle() {
+        val stats = battleStats()
+        if (stats == null) {
+            Snackbar.make(binding.root, R.string.battle_need_build, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val world = BattleWorld(
+            stats = stats,
+            mode = battleMode,
+            mobCount = battleMobCount,
+            amp = battleAmp,
+            boss = if (battleMode == BattleMode.BOSS) battleBoss else null,
+        )
+        battleWorld = world
+        battleStarted = true
+        battleWantsPlay = true
+        pobPane.tvBattleResult.isVisible = false
+        pobPane.btnBattlePause.text = getString(R.string.battle_pause)
+        battleView.setSpeed(battleSpeed)
+        battleView.attach(world)
+        battleView.play()
+        refreshBattleHeader()
+    }
+
+    private fun toggleBattlePause() {
+        if (battleWorld == null) {
+            startBattle()
+            return
+        }
+        if (battleView.isPaused) {
+            battleView.resume()
+            battleWantsPlay = true
+            pobPane.btnBattlePause.text = getString(R.string.battle_pause)
+        } else {
+            battleView.pause()
+            battleWantsPlay = false
+            pobPane.btnBattlePause.text = getString(R.string.battle_resume)
+        }
+    }
+
+    private fun resetBattle() {
+        battleView.stop()
+        battleView.clear()
+        battleWorld = null
+        battleStarted = false
+        battleWantsPlay = false
+        pobPane.tvBattleResult.isVisible = false
+        pobPane.btnBattlePause.text = getString(R.string.battle_pause)
+        refreshBattleHeader()
+    }
+
+    private fun showBattleResult(result: BattleResult) {
+        val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
+        val head = getString(
+            if (result.victory) R.string.battle_result_win else R.string.battle_result_lose,
+            result.seconds,
+        )
+        val body = getString(
+            R.string.battle_result_body,
+            BattleWorld.formatShort(result.damageDealt),
+            BattleWorld.formatShort(result.effectiveDps),
+            result.crits,
+            result.hitsTaken,
+            result.evades,
+            result.kills,
+            result.totalEnemies,
+            result.survival,
+            fmt.format(result.lifeLeft.toLong()),
+            fmt.format(result.esLeft.toLong()),
+        )
+        pobPane.tvBattleResult.text = head + "\n" + body
+        pobPane.tvBattleResult.isVisible = true
+        pobPane.btnBattlePause.text = getString(R.string.battle_pause)
+        battleWantsPlay = false
     }
 
     private fun simpleSeek(onValue: (Int) -> Unit) = object : android.widget.SeekBar.OnSeekBarChangeListener {
@@ -988,6 +1267,8 @@ class MainActivity : AppCompatActivity() {
             "· ${group.label}: " + group.gems.filter { it.enabled }.joinToString(", ") { it.name }
         }.ifBlank { getString(R.string.pob_tree_empty) }
 
+        refreshBattleHeader()
+
         pobPane.tvTreeInfo.text = buildString {
             append("클래스: ${build.title}\n")
             append("패시브 노드: ${build.treeNodes}개\n")
@@ -1214,11 +1495,13 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         detailPane.webView.onResume()
         treePane.treeWebView.onResume()
+        if (battleWantsPlay) battleView.resume()
     }
 
     override fun onPause() {
         detailPane.webView.onPause()
         treePane.treeWebView.onPause()
+        battleView.pause()
         super.onPause()
     }
 
@@ -1227,6 +1510,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(marketTick)
         detailPane.webView.destroy()
         treePane.treeWebView.destroy()
+        battleView.stop()
         super.onDestroy()
     }
 

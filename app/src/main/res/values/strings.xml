@@ -67,6 +67,7 @@
     <string name="pob_tab_items">장비</string>
     <string name="pob_tab_config">설정</string>
     <string name="pob_tab_tree">패시브</string>
+    <string name="pob_tab_battle">전투</string>
     <string name="pob_build_summary">스킬 그룹 %1$d개 · 장착 장비 %2$d개 · 패시브 %3$d포인트</string>
     <string name="pob_equip_save">저장</string>
     <string name="pob_modified">변경</string>
@@ -103,6 +104,27 @@
     <string name="pob_reset_done">실험 내용을 초기화했습니다</string>
     <string name="pob_slot_restored">원본 아이템으로 되돌렸습니다</string>
     <string name="pob_equip_saved">장비를 바꿨습니다</string>
+
+    <string name="battle_need_build">PoB 빌드를 불러오면 그 수치 그대로 전투를 시작할 수 있습니다</string>
+    <string name="battle_start">전투 시작</string>
+    <string name="battle_pause">일시정지</string>
+    <string name="battle_resume">계속</string>
+    <string name="battle_speed_1x">1x</string>
+    <string name="battle_speed_2x">2x</string>
+    <string name="battle_reset">초기화</string>
+    <string name="battle_note">PoB 빌드 수치 기반 간이 시각 시뮬레이션 · 실제 게임 판정과 다름 (재생·보호막 충전·회피는 일반적인 값으로 가정)</string>
+    <string name="battle_skill_line">%1$s · %2$s · 초당 %3$.2f회 · DPS %4$s</string>
+    <string name="battle_mode_map">16T 맵핑</string>
+    <string name="battle_mode_boss">우버 보스</string>
+    <string name="battle_mob_count">%1$d마리</string>
+    <string name="battle_map_normal">일반 16T</string>
+    <string name="battle_map_amp">피통·피해 증폭</string>
+    <string name="battle_fx_auto">자동</string>
+    <string name="battle_boss_note">보스 체력·피해는 커뮤니티 집계 기반 추정치입니다</string>
+    <string name="battle_result_win">클리어  %1$.1fs</string>
+    <string name="battle_result_lose">사망  %1$.1fs</string>
+    <string name="battle_result_body">가한 피해 %1$s · 실전 DPS %2$s\n치명타 %3$d회 · 피격 %4$d회 / 회피 %5$d회 · 처치 %6$d/%7$d\n생존율 %8$.0f%% (생명력 %9$s · 보호막 %10$s)</string>
+    <string name="battle_fx_note">스킬 이펙트 직접 선택</string>
 
     <string name="bookmark_add">즐겨찾기 저장</string>
     <string name="bookmark_remove">즐겨찾기 해제</string>
