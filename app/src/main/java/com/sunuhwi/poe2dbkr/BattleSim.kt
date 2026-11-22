@@ -444,10 +444,10 @@ class BattleWorld(
     }
 
     private fun spawn(kind: EnemyKind, index: Int) {
-        val columns = 4
+        val columns = if (mobCount >= 50) 5 else 4
         val column = index % columns
         val row = index / columns
-        val x = 322f + column * 76f + rand.nextFloat() * 26f
+        val x = 300f + column * 64f + rand.nextFloat() * 26f
         val spread = 656f
         val rows = max(1, (mobCount + columns - 1) / columns)
         val y = 62f + spread * (row + 0.5f) / rows + (rand.nextFloat() - 0.5f) * 26f
