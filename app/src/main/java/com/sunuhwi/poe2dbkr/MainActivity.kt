@@ -958,6 +958,7 @@ class MainActivity : AppCompatActivity() {
             fxLabel,
             stats.aps,
             fmt.format(stats.dps.toLong()),
+            fmt.format(stats.ehp.toLong()),
         )
     }
 
