@@ -365,7 +365,8 @@ class PobStore(context: Context) {
     data class Entry(val code: String, val label: String, val time: Long)
 
     fun all(): List<Entry> {
-        val arr = JSONArray(prefs.getString(KEY, "[]") ?: "[]")
+        val raw = prefs.getString(KEY, "[]") ?: "[]"
+        val arr = runCatching { JSONArray(raw) }.getOrElse { return emptyList() }
         return (0 until arr.length()).mapNotNull { i ->
             val obj = arr.optJSONObject(i) ?: return@mapNotNull null
             Entry(obj.optString("code"), obj.optString("label"), obj.optLong("time"))
@@ -373,7 +374,8 @@ class PobStore(context: Context) {
     }
 
     fun add(code: String, label: String) {
-        val arr = JSONArray(prefs.getString(KEY, "[]") ?: "[]")
+        val raw = prefs.getString(KEY, "[]") ?: "[]"
+        val arr = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
         val filtered = (0 until arr.length()).mapNotNull { i ->
             arr.optJSONObject(i)?.takeIf { it.optString("code") != code }
         }

@@ -190,6 +190,7 @@ class BattleCanvasView @JvmOverloads constructor(
     // -------------------------------------------------------------- 배경
 
     private fun drawBackdrop(canvas: Canvas) {
+        if (width <= 0 || height <= 0) return
         fill.shader = RadialGradient(
             width * 0.45f, height * 0.42f, max(width, height) * 0.85f,
             intArrayOf(0xFF171B24.toInt(), 0xFF0C0E14.toInt(), 0xFF06070B.toInt()),

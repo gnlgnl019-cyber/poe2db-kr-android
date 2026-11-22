@@ -1,8 +1,6 @@
 package com.sunuhwi.poe2dbkr
 
 import android.annotation.SuppressLint
-import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,6 +13,7 @@ import android.os.Looper
 import android.os.Message
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -94,6 +93,7 @@ class MainActivity : AppCompatActivity() {
     private var pobMainGroup = 1
 
     private lateinit var battleView: BattleCanvasView
+    private val battleReady: Boolean get() = this::battleView.isInitialized
     private var battleFxOverride: SkillEffectType? = null
     private var battleMode = BattleMode.MAP
     private var battleMobCount = 25
@@ -250,8 +250,8 @@ class MainActivity : AppCompatActivity() {
         binding.panePob.isVisible = pane == PANE_POB
         binding.paneDetail.isVisible = false
         if (pane == PANE_POB) {
-            if (battleWantsPlay) battleView.resume()
-        } else {
+            if (battleWantsPlay && battleReady) battleView.resume()
+        } else if (battleReady) {
             battleView.pause()
         }
         headerTitleClick(pane)
@@ -507,7 +507,8 @@ class MainActivity : AppCompatActivity() {
     private fun openExternal(uri: Uri) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri))
-        } catch (e: ActivityNotFoundException) {
+        } catch (e: Exception) {
+            Log.w(LOG_TAG, "링크를 열지 못했습니다: $uri", e)
             Snackbar.make(binding.root, R.string.link_error, Snackbar.LENGTH_SHORT).show()
         }
     }
@@ -716,7 +717,7 @@ class MainActivity : AppCompatActivity() {
         pobPane.pobTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 val page = when (tab.position) {
-                    1 -> pobPane.rvPobSkills
+                    1 -> pobPane.pobPageSkills
                     2 -> pobPane.rvPobSlots
                     3 -> pobPane.pobPageConfig
                     4 -> pobPane.pobPageTree
@@ -724,15 +725,15 @@ class MainActivity : AppCompatActivity() {
                     else -> pobPane.pobPageOverview
                 }
                 listOf(
-                    pobPane.pobPageOverview, pobPane.rvPobSkills, pobPane.rvPobSlots,
+                    pobPane.pobPageOverview, pobPane.pobPageSkills, pobPane.rvPobSlots,
                     pobPane.pobPageConfig, pobPane.pobPageTree, pobPane.pobPageBattle,
                 ).forEach { it.isVisible = it === page }
                 if (tab.position == 2) refreshSlots()
                 if (tab.position == 1) renderSkills()
                 if (tab.position == 5) {
                     refreshBattleHeader()
-                    if (battleWantsPlay) battleView.resume()
-                } else {
+                    if (battleWantsPlay && battleReady) battleView.resume()
+                } else if (battleReady) {
                     battleView.pause()
                 }
             }
@@ -945,6 +946,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshBattleHeader() {
+        guardPob { refreshBattleHeaderBody() }
+    }
+
+    private fun refreshBattleHeaderBody() {
         val stats = battleStats()
         if (stats == null) {
             pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
@@ -1047,6 +1052,23 @@ class MainActivity : AppCompatActivity() {
         override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) = Unit
     }
 
+    /** 빌드 하나 때문에 앱이 멈추지 않게, 화면 그리기 실패는 여기서 붙잡고 안내만 남긴다. */
+    private inline fun guardPob(block: () -> Unit) {
+        try {
+            block()
+        } catch (t: Throwable) {
+            reportPobError(t)
+        }
+    }
+
+    private fun reportPobError(t: Throwable) {
+        Log.e(LOG_TAG, "빌드 화면을 갱신하지 못했습니다", t)
+        runCatching {
+            pobPane.tvBuildHint.text =
+                getString(R.string.pob_render_failed, t.javaClass.simpleName)
+        }
+    }
+
     private fun loadPob(raw: String) {
         if (raw.isBlank()) return
         network.execute {
@@ -1063,35 +1085,41 @@ class MainActivity : AppCompatActivity() {
                 pobOverrides.clear()
                 pobFlasks.clear()
                 pobMainGroup = build.mainSocketGroup
-                pobPane.tvBuildTitle.text = build.title
-                pobPane.tvBuildHint.text = getString(
-                    R.string.pob_build_summary,
-                    build.skills.size,
-                    build.slots.size,
-                    build.treeNodes,
-                )
-                runCatching { pobStore.add(Pob.encode(build), build.title) }
-                renderRecent()
-                refreshPobCalc()
-                refreshSlots()
-                renderSkills()
-                Snackbar.make(binding.root, R.string.pob_loaded, Snackbar.LENGTH_SHORT).show()
+                try {
+                    pobPane.tvBuildTitle.text = build.title
+                    pobPane.tvBuildHint.text = getString(
+                        R.string.pob_build_summary,
+                        build.skills.size,
+                        build.slots.size,
+                        build.treeNodes,
+                    )
+                    runCatching { pobStore.add(Pob.encode(build), build.title) }
+                    renderRecent()
+                    refreshPobCalc()
+                    refreshSlots()
+                    renderSkills()
+                    Snackbar.make(binding.root, R.string.pob_loaded, Snackbar.LENGTH_SHORT).show()
+                } catch (t: Throwable) {
+                    reportPobError(t)
+                }
             }
         }
     }
 
     private fun renderRecent() {
-        val entries = pobStore.all()
-        pobPane.recentScroll.isVisible = entries.isNotEmpty()
-        if (entries.isEmpty()) return
-        val group = pobPane.recentChips
-        group.removeAllViews()
-        entries.forEach { entry ->
-            val chip = Chip(this)
-            chip.text = entry.label
-            chip.isCheckable = false
-            chip.setOnClickListener { pobPane.etPobCode.setText(entry.code); loadPob(entry.code) }
-            group.addView(chip)
+        guardPob {
+            val entries = pobStore.all()
+            pobPane.recentScroll.isVisible = entries.isNotEmpty()
+            pobPane.recentChips.removeAllViews()
+            if (entries.isEmpty()) return
+            val group = pobPane.recentChips
+            entries.forEach { entry ->
+                val chip = Chip(this)
+                chip.text = entry.label
+                chip.isCheckable = false
+                chip.setOnClickListener { pobPane.etPobCode.setText(entry.code); loadPob(entry.code) }
+                group.addView(chip)
+            }
         }
     }
 
@@ -1102,8 +1130,14 @@ class MainActivity : AppCompatActivity() {
         }
         val code = Pob.encode(build)
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("PoB code", code))
-        Snackbar.make(binding.root, R.string.pob_copied, Snackbar.LENGTH_SHORT).show()
+        val copied = runCatching {
+            clipboard.setPrimaryClip(ClipData.newPlainText("PoB code", code))
+        }.isSuccess
+        Snackbar.make(
+            binding.root,
+            if (copied) R.string.pob_copied else R.string.pob_copy_failed,
+            Snackbar.LENGTH_SHORT,
+        ).show()
     }
 
     private fun resetPob() {
@@ -1128,23 +1162,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshSlots() {
-        val build = pobBuild ?: run {
-            slotAdapter.submit(emptyList(), emptySet())
-            return
+        guardPob {
+            val build = pobBuild
+            if (build == null) {
+                slotAdapter.submit(emptyList(), emptySet())
+                return
+            }
+            val rows = ArrayList<Pair<String, PobItem?>>()
+            Pob.SLOTS.forEach { (slot, _) ->
+                rows.add(slot to (pobOverrides[slot] ?: Pob.itemForSlot(build, slot)))
+            }
+            build.slots.keys.filter { it.startsWith(Pob.FLASK_PREFIX) }.sorted().forEach { flask ->
+                rows.add(flask to Pob.itemForSlot(build, flask))
+            }
+            slotAdapter.submit(rows, pobOverrides.keys)
         }
-        val rows = ArrayList<Pair<String, PobItem?>>()
-        Pob.SLOTS.forEach { (slot, _) ->
-            rows.add(slot to (pobOverrides[slot] ?: Pob.itemForSlot(build, slot)))
-        }
-        build.slots.keys.filter { it.startsWith(Pob.FLASK_PREFIX) }.sorted().forEach { flask ->
-            rows.add(flask to Pob.itemForSlot(build, flask))
-        }
-        slotAdapter.submit(rows, pobOverrides.keys)
     }
 
     private fun renderSkills() {
+        guardPob { renderSkillsBody() }
+    }
+
+    private fun renderSkillsBody() {
         val build = pobBuild ?: return
-        val container = pobPane.rvPobSkills
+        val container = pobPane.skillsContainer
         container.removeAllViews()
         val density = resources.displayMetrics.density
         build.skills.forEachIndexed { groupIndex, group ->
@@ -1210,6 +1251,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshPobCalc() {
+        guardPob { refreshPobCalcBody() }
+    }
+
+    private fun refreshPobCalcBody() {
         val build = pobBuild ?: return
         val result = PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig)
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
@@ -1304,7 +1349,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSlotDialog(slot: String) {
-        val build = pobBuild ?: return
+        val build = pobBuild ?: run {
+            Snackbar.make(binding.root, R.string.pob_empty_title, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        slotDialogReference?.takeIf { it.isShowing }?.dismiss()
+        currentSlotDialog = null
         val binding = DialogPobSlotBinding.inflate(layoutInflater)
         val dialog = SlotDialog(slot, binding)
         currentSlotDialog = dialog
@@ -1389,6 +1439,10 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.info_close, null)
             .show()
+        slotDialogReference?.setOnDismissListener {
+            currentSlotDialog = null
+            slotDialogReference = null
+        }
     }
 
     private var slotDialogReference: androidx.appcompat.app.AlertDialog? = null
@@ -1496,13 +1550,13 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         detailPane.webView.onResume()
         treePane.treeWebView.onResume()
-        if (battleWantsPlay) battleView.resume()
+        if (battleWantsPlay && battleReady) battleView.resume()
     }
 
     override fun onPause() {
         detailPane.webView.onPause()
         treePane.treeWebView.onPause()
-        battleView.pause()
+        if (battleReady) battleView.pause()
         super.onPause()
     }
 
@@ -1511,11 +1565,12 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(marketTick)
         detailPane.webView.destroy()
         treePane.treeWebView.destroy()
-        battleView.stop()
+        if (battleReady) battleView.stop()
         super.onDestroy()
     }
 
     private companion object {
+        const val LOG_TAG = "PoE2DBKR"
         const val HOME_URL = "https://poe2db.tw/kr/"
         const val PASSIVE_TREE_URL = "https://poe2db.tw/kr/passive-skill-tree/"
         const val ATLAS_TREE_URL = "https://poe2db.tw/kr/atlas-skill-tree/"

@@ -351,14 +351,20 @@
             </ScrollView>
 
             <!-- 스킬 -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvPobSkills"
+            <ScrollView
+                android:id="@+id/pobPageSkills"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
                 android:padding="12dp"
-                android:visibility="gone"
-                android:scrollbars="none" />
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/skillsContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
 
             <!-- 장비 -->
             <androidx.recyclerview.widget.RecyclerView

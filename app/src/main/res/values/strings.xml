@@ -101,9 +101,11 @@
     <string name="pob_loaded">빌드를 불러왔습니다</string>
     <string name="pob_load_failed">코드를 해석하지 못했습니다. PoB 공유 코드나 pobb.in 링크인지 확인하세요.</string>
     <string name="pob_copied">PoB 코드를 클립보드에 복사했습니다</string>
+    <string name="pob_copy_failed">클립보드에 복사하지 못했습니다</string>
     <string name="pob_reset_done">실험 내용을 초기화했습니다</string>
     <string name="pob_slot_restored">원본 아이템으로 되돌렸습니다</string>
     <string name="pob_equip_saved">장비를 바꿨습니다</string>
+    <string name="pob_render_failed">빌드를 화면에 그리지 못했습니다 (%1$s). 다른 빌드 코드로 다시 시도해 주세요.</string>
 
     <string name="battle_need_build">PoB 빌드를 불러오면 그 수치 그대로 전투를 시작할 수 있습니다</string>
     <string name="battle_start">전투 시작</string>
