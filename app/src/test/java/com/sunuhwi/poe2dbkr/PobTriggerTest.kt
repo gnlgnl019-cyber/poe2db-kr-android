@@ -129,12 +129,14 @@ class PobTriggerTest {
         val build = parse()
         val specs = PobTriggers.extract(build, 2_800_000.0)
         println("[TEST] triggers=" + specs.map { it.kind.name + ":" + it.skillNames + "=" + it.dps })
-        assertEquals(1, specs.size)
-        val spec = specs.first()
-        assertEquals(TriggerKind.CAST_ON_CRIT, spec.kind)
-        assertEquals(listOf("Comet"), spec.skills.map { it.name })
-        assertEquals(800_000.0, spec.dps, 1.0)
-        assertEquals(SkillEffectType.ICE, spec.skills.first().fx)
+        // 메타젬은 첫 그룹만 쓰지 않는다 — 빌드에 있는 CoC와 전령이 모두 잡힌다.
+        assertEquals(2, specs.size)
+        val coc = specs.first { it.kind == TriggerKind.CAST_ON_CRIT }
+        assertEquals(listOf("Comet"), coc.skills.map { it.name })
+        assertEquals(800_000.0, coc.dps, 1.0)
+        assertEquals(SkillEffectType.ICE, coc.skills.first().fx)
+        val herald = specs.first { it.kind == TriggerKind.HERALD_OF_THUNDER }
+        assertEquals(listOf("Herald of Thunder"), herald.skills.map { it.name })
     }
 
     @Test
@@ -186,9 +188,11 @@ class PobTriggerTest {
     @Test
     fun syntheticTriggerWorksWithoutPobMetaGem() {
         val specs = PobTriggers.synthetic(500_000.0)
-        assertEquals(1, specs.size)
+        // 테스트 모드는 여러 메타젬을 한꺼번에 돌려 본다.
+        assertTrue(specs.size >= 4)
         assertEquals(TriggerKind.CAST_ON_CRIT, specs.first().kind)
         assertEquals("Comet", specs.first().skills.first().name)
+        assertTrue(specs.any { it.kind == TriggerKind.HERALD_OF_ICE })
     }
 
     @Test
@@ -199,7 +203,9 @@ class PobTriggerTest {
         assertEquals("Stormshroud", weapon?.name)
         assertEquals("Thunder Wolf Séance Bow", weapon?.baseType)
         assertEquals(WeaponVisualType.BOW, weapon?.weapon)
-        assertTrue(PobTriggers.extract(build, 1.0).isEmpty())
+        // 샘플 빌드의 "천둥의 전령"도 메타젬으로 잡힌다.
+        val specs = PobTriggers.extract(build, 1.0)
+        assertTrue(specs.any { it.kind == TriggerKind.HERALD_OF_THUNDER })
         assertTrue(weapon!!.lines.any { it.contains("maximum Life") })
     }
 }

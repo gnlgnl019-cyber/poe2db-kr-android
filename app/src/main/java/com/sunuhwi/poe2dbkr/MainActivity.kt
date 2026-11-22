@@ -17,6 +17,7 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebChromeClient
@@ -37,12 +38,14 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import coil.load
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
 import com.sunuhwi.poe2dbkr.databinding.ActivityMainBinding
 import com.sunuhwi.poe2dbkr.databinding.DialogMarketItemBinding
+import com.sunuhwi.poe2dbkr.databinding.DialogPobLoadBinding
 import com.sunuhwi.poe2dbkr.databinding.DialogPobSlotBinding
 import com.sunuhwi.poe2dbkr.databinding.ItemPobGemBinding
 import com.sunuhwi.poe2dbkr.databinding.ItemPobSlotBinding
@@ -892,7 +895,7 @@ class MainActivity : AppCompatActivity() {
         pobPane.rvPobSlots.layoutManager = LinearLayoutManager(this)
         pobPane.rvPobSlots.adapter = slotAdapter
 
-        pobPane.pobTabs.tabMode = TabLayout.MODE_SCROLLABLE
+        pobPane.pobTabs.tabMode = TabLayout.MODE_FIXED
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_overview))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_skills))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_items))
@@ -921,7 +924,9 @@ class MainActivity : AppCompatActivity() {
                 if (tab.position == 6) renderMeta()
                 if (tab.position == 5) {
                     refreshBattleHeader()
-                    if (battleWantsPlay && battleReady) battleView.resume()
+                    if (battleReady) {
+                        if (battleWantsPlay) battleView.resume() else battleView.refresh()
+                    }
                 } else if (battleReady) {
                     battleView.pause()
                 }
@@ -931,10 +936,9 @@ class MainActivity : AppCompatActivity() {
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
 
-        pobPane.btnPobLoad.setOnClickListener { loadPob(pobPane.etPobCode.text?.toString().orEmpty()) }
+        pobPane.btnPobLoad.setOnClickListener { showPobLoadDialog() }
         pobPane.btnPobSample.setOnClickListener {
-            pobPane.etPobCode.setText(Pob.sampleCode())
-            loadPob(Pob.sampleCode())
+            loadPob(Pob.sampleCode(), null)
         }
         pobPane.btnPobExport.setOnClickListener { exportPob() }
         pobPane.btnPobReset.setOnClickListener { resetPob() }
@@ -1293,8 +1297,6 @@ class MainActivity : AppCompatActivity() {
         if (battleStarted) startBattle()
     }
 
-    enum class TriggerMode { AUTO, TEST, OFF }
-
     private fun buildBattleTriggerChips() {
         val group = pobPane.battleTriggerChips
         group.removeAllViews()
@@ -1317,64 +1319,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun battleStats(): BattlePlayerStats? {
-        val build = pobBuild ?: return null
-        val calc = PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig)
-        val group = Pob.mainGroup(build, pobMainGroup)
-        val gems = group?.gems?.filter { it.enabled }.orEmpty()
-        val mainGem = gems.firstOrNull { !PobCalculator.isSupport(it) && PobTriggers.kindOf(it) == null }
-            ?: gems.firstOrNull { !PobCalculator.isSupport(it) }
-            ?: gems.firstOrNull()
-        val skillName = mainGem?.name ?: group?.label?.ifBlank { null } ?: build.className.ifBlank { "기본 공격" }
-        val fx = battleFxOverride ?: SkillEffects.detect(skillName, group?.label.orEmpty())
-        val weaponItem = pobOverrides["Weapon 1"] ?: Pob.itemForSlot(build, "Weapon 1")
-        val weapon = weaponItem?.weapon?.takeIf { it != WeaponVisualType.NONE }
-            ?: WeaponTypes.detect(weaponItem?.itemClass, weaponItem?.baseType, weaponItem?.name)
-                .takeIf { it != WeaponVisualType.NONE }
-            ?: WeaponTypes.fallbackFor(fx)
-        val weaponLabel = listOf(weapon.label, weaponItem?.displayName.orEmpty())
-            .filter { it.isNotBlank() }
-            .joinToString(" · ")
-        val scale = if (calc.dpsBase > 0) calc.dpsNow / calc.dpsBase else 1.0
-        val triggers = when (battleTriggerMode) {
-            TriggerMode.OFF -> emptyList()
-            TriggerMode.TEST -> PobTriggers.synthetic(calc.dpsNow)
-            TriggerMode.AUTO -> PobTriggers.extract(build, calc.dpsNow).map { spec ->
-                spec.copy(
-                    dps = spec.dps * scale,
-                    skills = spec.skills.map { skill -> skill.copy(dps = skill.dps * scale) },
-                )
-            }
-        }
-        val evade = (calc.evasionNow / (calc.evasionNow + 7500.0) * 92.0).coerceAtMost(80.0)
-        val res = calc.resists
-        return BattlePlayerStats(
-            className = listOf(build.className, build.ascendClassName)
-                .filter { it.isNotBlank() }.joinToString(" · "),
-            skillName = skillName,
-            fx = fx,
-            weapon = weapon,
-            dps = calc.dpsNow,
-            aps = calc.apsNow,
-            critChance = calc.critNow,
-            critMulti = calc.critMultiNow,
-            life = calc.lifeNow,
-            es = calc.esNow,
-            physRed = calc.physRedNow,
-            evade = evade,
-            fireRes = res.getOrNull(0)?.third ?: 0.0,
-            coldRes = res.getOrNull(1)?.third ?: 0.0,
-            lightRes = res.getOrNull(2)?.third ?: 0.0,
-            chaosRes = res.getOrNull(3)?.third ?: 0.0,
-            ehp = calc.ehpNow,
-            dpsBase = calc.dpsBase,
-            weaponLabel = weaponLabel,
-            triggers = triggers,
-        )
-    }
+    private fun battleStats(): BattlePlayerStats? = BattleSetup.statsFor(
+        build = pobBuild,
+        overrides = pobOverrides,
+        flasks = pobFlasks,
+        config = pobConfig,
+        mainGroupPreference = pobMainGroup,
+        fxOverride = battleFxOverride,
+        triggerMode = battleTriggerMode,
+    )
 
     private fun refreshBattleHeader() {
-        guardPob { refreshBattleHeaderBody() }
+        try {
+            refreshBattleHeaderBody()
+        } catch (t: Throwable) {
+            Log.e(LOG_TAG, "전투 헤더를 갱신하지 못했습니다", t)
+            pobPane.tvBattleSkill.text = getString(R.string.pob_render_failed, t.javaClass.simpleName)
+        }
     }
 
     private fun refreshBattleHeaderBody() {
@@ -1394,11 +1355,18 @@ class MainActivity : AppCompatActivity() {
             fmt.format(stats.dps.toLong()),
             fmt.format(stats.ehp.toLong()),
         ) + if (stats.weaponLabel.isNotBlank()) "\n무기: ${stats.weaponLabel}" else ""
-        val triggerText = stats.triggerText
         when {
-            triggerText.isNotBlank() -> {
+            stats.triggers.isNotEmpty() -> {
+                // 켜져 있는 메타젬을 전부 나열한다 (첫 그룹만 쓰지 않는다).
+                val lines = stats.triggers.joinToString("\n") { spec ->
+                    "· ${spec.kind.label} · ${spec.skillNames}" + if (spec.estimated) " (추정)" else ""
+                }
                 pobPane.tvBattleTrigger.isVisible = true
-                pobPane.tvBattleTrigger.text = getString(R.string.battle_trigger_line, triggerText)
+                pobPane.tvBattleTrigger.text = getString(
+                    R.string.battle_trigger_multi,
+                    stats.triggers.size,
+                    lines,
+                )
                 pobPane.tvBattleTrigger.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
             }
             battleTriggerMode == TriggerMode.OFF -> {
@@ -1413,27 +1381,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startBattle() {
-        val stats = battleStats()
-        if (stats == null) {
-            Snackbar.make(binding.root, R.string.battle_need_build, Snackbar.LENGTH_SHORT).show()
-            return
+        try {
+            val stats = battleStats()
+            if (stats == null) {
+                Snackbar.make(binding.root, R.string.battle_need_build, Snackbar.LENGTH_SHORT).show()
+                return
+            }
+            val world = BattleWorld(
+                stats = stats,
+                mode = battleMode,
+                mobCount = battleMobCount,
+                amp = battleAmp,
+                boss = if (battleMode == BattleMode.BOSS) battleBoss else null,
+            )
+            battleWorld = world
+            battleStarted = true
+            battleWantsPlay = true
+            pobPane.tvBattleResult.isVisible = false
+            pobPane.btnBattlePause.text = getString(R.string.battle_pause)
+            battleView.setSpeed(battleSpeed)
+            battleView.attach(world)
+            battleView.play()
+            refreshBattleHeader()
+        } catch (t: Throwable) {
+            Log.e(LOG_TAG, "전투를 시작하지 못했습니다", t)
+            battleStarted = false
+            battleWantsPlay = false
+            Snackbar.make(
+                binding.root,
+                getString(R.string.battle_error, t.javaClass.simpleName),
+                Snackbar.LENGTH_LONG,
+            ).show()
         }
-        val world = BattleWorld(
-            stats = stats,
-            mode = battleMode,
-            mobCount = battleMobCount,
-            amp = battleAmp,
-            boss = if (battleMode == BattleMode.BOSS) battleBoss else null,
-        )
-        battleWorld = world
-        battleStarted = true
-        battleWantsPlay = true
-        pobPane.tvBattleResult.isVisible = false
-        pobPane.btnBattlePause.text = getString(R.string.battle_pause)
-        battleView.setSpeed(battleSpeed)
-        battleView.attach(world)
-        battleView.play()
-        refreshBattleHeader()
     }
 
     private fun toggleBattlePause() {
@@ -1482,12 +1461,15 @@ class MainActivity : AppCompatActivity() {
             fmt.format(result.lifeLeft.toLong()),
             fmt.format(result.esLeft.toLong()),
         )
+        val fired = result.triggers.filter { it.casts > 0 }
         val triggerLine = if (result.triggerCasts > 0) {
             "\n" + getString(
                 R.string.battle_result_trigger,
                 result.triggerCasts,
                 BattleWorld.formatShort(result.triggerDamage),
-            ) + if (result.triggerText.isNotBlank()) " (${result.triggerText})" else ""
+            ) + if (fired.isNotEmpty()) {
+                "\n" + fired.joinToString("\n") { "· " + it.line }
+            } else ""
         } else ""
         pobPane.tvBattleResult.text = head + "\n" + body + triggerLine
         pobPane.tvBattleResult.isVisible = true
@@ -1521,18 +1503,87 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadPob(raw: String) {
-        if (raw.isBlank()) return
+    // ------------------------------------------------------------- 빌드 불러오기 (코드 입력 시트)
+    private var loadDialog: BottomSheetDialog? = null
+    private var loadBinding: DialogPobLoadBinding? = null
+
+    private fun showPobLoadDialog() {
+        val sheet = DialogPobLoadBinding.inflate(layoutInflater)
+        val dialog = BottomSheetDialog(this)
+        dialog.setContentView(sheet.root)
+        loadDialog = dialog
+        loadBinding = sheet
+        sheet.tvLoadError.isVisible = false
+
+        sheet.btnClose.setOnClickListener { dialog.dismiss() }
+        sheet.btnPaste.setOnClickListener {
+            val pasted = clipboardText()
+            if (pasted.isBlank()) {
+                showLoadError(getString(R.string.pob_paste_empty))
+            } else {
+                sheet.etPobCode.setText(pasted)
+                sheet.etPobCode.setSelection(sheet.etPobCode.text?.length ?: 0)
+                sheet.tvLoadError.isVisible = false
+            }
+        }
+        sheet.btnPobLoadNow.setOnClickListener {
+            val raw = sheet.etPobCode.text?.toString().orEmpty().trim()
+            if (raw.isEmpty()) {
+                showLoadError(getString(R.string.pob_load_hint_need_code))
+                return@setOnClickListener
+            }
+            loadPob(raw, dialog)
+        }
+        renderRecent(sheet)
+        dialog.setOnDismissListener {
+            if (loadDialog === dialog) {
+                loadDialog = null
+                loadBinding = null
+            }
+        }
+        dialog.show()
+        dialog.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
+        sheet.etPobCode.requestFocus()
+    }
+
+    private fun showLoadError(message: String, highlight: Boolean = true) {
+        val sheet = loadBinding
+        if (sheet == null) {
+            Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
+            return
+        }
+        sheet.tvLoadError.text = message
+        sheet.tvLoadError.setTextColor(
+            ContextCompat.getColor(this, if (highlight) R.color.resist_low else R.color.text_muted)
+        )
+        sheet.tvLoadError.isVisible = true
+    }
+
+    private fun clipboardText(): String {
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return ""
+        val clip = manager.primaryClip ?: return ""
+        if (clip.itemCount == 0) return ""
+        return clip.getItemAt(0).coerceToText(this)?.toString().orEmpty().trim()
+    }
+
+    private fun loadPob(raw: String, dialog: BottomSheetDialog? = null) {
+        val code = raw.trim()
+        if (code.isEmpty()) return
+        if (loadBinding != null) showLoadError(getString(R.string.pob_loading), highlight = false)
         network.execute {
             val result = runCatching {
-                if (raw.contains("pobb.in")) Pob.fetchPobbIn(raw) else Pob.decode(raw)
+                if (code.contains("pobb.in")) Pob.fetchPobbIn(code) else Pob.decode(code)
             }
             handler.post {
                 val build = result.getOrNull()
                 if (build == null) {
-                    Snackbar.make(binding.root, R.string.pob_load_failed, Snackbar.LENGTH_LONG).show()
+                    showLoadError(getString(R.string.pob_load_failed))
                     return@post
                 }
+                val hadBattle = battleStarted
                 pobBuild = build
                 pobOverrides.clear()
                 pobFlasks.clear()
@@ -1546,11 +1597,20 @@ class MainActivity : AppCompatActivity() {
                         build.treeNodes,
                     )
                     runCatching { pobStore.add(Pob.encode(build), build.title) }
-                    renderRecent()
+                    val sheet = loadBinding
+                    if (sheet != null) renderRecent(sheet)
+                    resetBattleForNewBuild()
                     refreshPobCalc()
                     refreshSlots()
                     renderSkills()
-                    Snackbar.make(binding.root, R.string.pob_loaded, Snackbar.LENGTH_SHORT).show()
+                    refreshBattleHeader()
+                    pobPane.pobTabs.getTabAt(0)?.select()
+                    dialog?.dismiss()
+                    Snackbar.make(
+                        binding.root,
+                        if (hadBattle) R.string.battle_reset_build else R.string.pob_loaded,
+                        Snackbar.LENGTH_SHORT,
+                    ).show()
                 } catch (t: Throwable) {
                     reportPobError(t)
                 }
@@ -1558,19 +1618,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderRecent() {
+    /** 빌드를 새로 불러오면 이미 돌던 전투는 그 빌드 수치가 아니므로 비운다. */
+    private fun resetBattleForNewBuild() {
+        if (!battleReady) return
+        battleView.clear()
+        battleWorld = null
+        battleStarted = false
+        battleWantsPlay = false
+        pobPane.tvBattleResult.isVisible = false
+        pobPane.btnBattlePause.text = getString(R.string.battle_pause)
+    }
+
+    private fun renderRecent(sheet: DialogPobLoadBinding) {
         guardPob {
             val entries = pobStore.all()
-            pobPane.recentScroll.isVisible = entries.isNotEmpty()
-            pobPane.recentChips.removeAllViews()
+            sheet.recentScroll.isVisible = entries.isNotEmpty()
+            sheet.tvRecentTitle.isVisible = entries.isNotEmpty()
+            sheet.recentChips.removeAllViews()
             if (entries.isEmpty()) return
-            val group = pobPane.recentChips
             entries.forEach { entry ->
                 val chip = Chip(this)
                 chip.text = entry.label
                 chip.isCheckable = false
-                chip.setOnClickListener { pobPane.etPobCode.setText(entry.code); loadPob(entry.code) }
-                group.addView(chip)
+                chip.setOnClickListener { loadPob(entry.code, loadDialog) }
+                sheet.recentChips.addView(chip)
             }
         }
     }

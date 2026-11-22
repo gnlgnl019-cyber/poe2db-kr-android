@@ -166,16 +166,29 @@ object Market {
     ): List<MarketRate> {
         val url = "$BASE/exchange/current/overview?league=${URLEncoder.encode(league, "UTF-8")}&type=$type"
         val root = JSONObject(get(url))
+        val (_, exRate, chaosRate) = rates(root)
+        return parseExchange(root, koMap, exRate, chaosRate)
+    }
+
+    /** 교환(화폐·룬·에센스) 응답 해석. 테스트에서도 그대로 돌린다. */
+    internal fun parseExchange(
+        root: JSONObject,
+        koMap: Map<String, String>,
+        exRate: Double,
+        chaosRate: Double,
+    ): List<MarketRate> {
         val core = root.optJSONObject("core")
         val primary = core?.optString("primary", "divine").orEmpty().ifBlank { "divine" }
-        val (_, exRate, chaosRate) = rates(root)
         val lines = root.optJSONArray("lines") ?: JSONArray()
+        // poe.ninja는 품목 메타데이터를 응답 최상단 items 배열에 담아 준다.
+        // (core.items에는 기준 화폐 3개만 들어 있어서 여기만 보면 이름·아이콘이 전부 비어 버린다.)
+        val index = itemIndex(root)
 
         val result = ArrayList<MarketRate>(lines.length())
         for (i in 0 until lines.length()) {
             val line = lines.optJSONObject(i) ?: continue
             val id = line.optString("id")
-            val info = findItem(core, id)
+            val info = index[id] ?: findItem(core, id)
             val name = info?.optString("name", id).orEmpty().ifBlank { id }
             val image = info?.optString("image", "").orEmpty()
             val divine = if (primary == "divine") line.optDouble("primaryValue", 0.0) else line.optDouble("primaryValue", 0.0)
@@ -186,7 +199,7 @@ object Market {
                     koName = koMap[name.lowercase().trim()] ?: "",
                     baseType = "",
                     koBase = "",
-                    iconUrl = if (image.startsWith("http")) image else "https://web.poecdn.com$image",
+                    iconUrl = resolveIcon(image),
                     category = info?.optString("category", "").orEmpty(),
                     divine = divine,
                     exalted = divine * exRate,
@@ -211,6 +224,16 @@ object Market {
         val url = "$BASE/stash/current/item/overview?league=${URLEncoder.encode(league, "UTF-8")}&type=$type"
         val root = JSONObject(get(url))
         val (_, exRate, chaosRate) = rates(root)
+        return parseItems(root, koMap, exRate, chaosRate)
+    }
+
+    /** 고유 아이템 시세 응답 해석. 테스트에서도 그대로 돌린다. */
+    internal fun parseItems(
+        root: JSONObject,
+        koMap: Map<String, String>,
+        exRate: Double,
+        chaosRate: Double,
+    ): List<MarketRate> {
         val lines = root.optJSONArray("lines") ?: JSONArray()
 
         val result = ArrayList<MarketRate>(lines.length())
@@ -229,7 +252,7 @@ object Market {
                     koName = koMap[name.lowercase().trim()] ?: "",
                     baseType = baseType,
                     koBase = "",
-                    iconUrl = line.optString("icon"),
+                    iconUrl = resolveIcon(line.optString("icon")),
                     category = category,
                     divine = divine,
                     exalted = divine * exRate,
@@ -271,6 +294,39 @@ object Market {
             if (obj.optString("id") == id) return obj
         }
         return null
+    }
+
+    /** 응답 안의 품목 메타데이터(최상단 items + core.items)를 id/상세 id로 찾을 수 있게 모은다. */
+    private fun itemIndex(root: JSONObject): Map<String, JSONObject> {
+        val out = HashMap<String, JSONObject>()
+        fun collect(array: JSONArray?) {
+            if (array == null) return
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val id = obj.optString("id")
+                if (id.isNotBlank() && !out.containsKey(id)) out[id] = obj
+                val details = obj.optString("detailsId")
+                if (details.isNotBlank() && !out.containsKey(details)) out[details] = obj
+            }
+        }
+        collect(root.optJSONArray("items"))
+        collect(root.optJSONObject("core")?.optJSONArray("items"))
+        return out
+    }
+
+    /**
+     * poe.ninja 아이콘 경로를 실제로 열리는 주소로 만든다.
+     * 빈 값이거나 `/gen/image/...` 같은 상대 경로가 그대로 들어오면 이미지가 통째로 비어 버린다.
+     */
+    fun resolveIcon(raw: String?): String {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return ""
+        if (value.startsWith("data:")) return value
+        if (value.startsWith("//")) return "https:$value"
+        if (value.startsWith("http://")) return "https://" + value.removePrefix("http://")
+        if (value.startsWith("https://")) return value
+        val host = "https://web.poecdn.com"
+        return host + if (value.startsWith("/")) value else "/$value"
     }
 
     private fun sparkChange(line: JSONObject): Double {

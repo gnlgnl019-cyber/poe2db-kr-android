@@ -66,6 +66,14 @@
     <string name="pob_empty_hint">Path of Building 공유 코드 또는 pobb.in 링크를 넣거나 샘플 빌드로 바로 시험해 볼 수 있습니다.</string>
     <string name="pob_code_title">PoB 코드 / pobb.in 링크</string>
     <string name="pob_code_hint">공유 코드 또는 https://pobb.in/…</string>
+    <string name="pob_load_open">빌드 불러오기</string>
+    <string name="pob_paste">클립보드에서 붙여넣기</string>
+    <string name="pob_recent_title">최근 불러온 빌드</string>
+    <string name="pob_close">닫기</string>
+    <string name="pob_paste_empty">클립보드에 붙여넣을 코드가 없습니다</string>
+    <string name="pob_paste_done">클립보드의 코드를 붙여넣었습니다</string>
+    <string name="pob_loading">빌드를 해석하는 중…</string>
+    <string name="pob_load_hint_need_code">공유 코드나 링크를 먼저 붙여넣어 주세요</string>
     <string name="pob_load">불러오기</string>
     <string name="pob_sample">샘플 빌드</string>
     <string name="pob_export">코드 복사</string>
@@ -135,6 +143,8 @@
     <string name="battle_speed_1x">1x</string>
     <string name="battle_speed_2x">2x</string>
     <string name="battle_reset">초기화</string>
+    <string name="battle_error">전투를 시작하지 못했습니다 (%1$s)</string>
+    <string name="battle_reset_build">빌드를 새로 불러와 전투를 초기화했습니다. 시작을 눌러 주세요</string>
     <string name="battle_note">PoB 빌드 수치 기반 간이 시각 시뮬레이션 · 실제 게임 판정과 다름 (재생·보호막 충전·회피는 일반적인 값으로 가정)</string>
     <string name="battle_skill_line">%1$s · %2$s · 초당 %3$.2f회 · DPS %4$s · EHP %5$s</string>
     <string name="battle_mode_map">16T 맵핑</string>
@@ -151,6 +161,7 @@
     <string name="battle_trigger_auto">트리거 자동</string>
     <string name="battle_trigger_test">CoC 테스트</string>
     <string name="battle_trigger_off">트리거 끔</string>
+    <string name="battle_trigger_multi">메타젬 %1$d개\n%2$s</string>
     <string name="battle_trigger_line">트리거: %1$s</string>
     <string name="battle_trigger_none">트리거 없음 · PoB에 치명타 시 시전 같은 메타 젬이 없습니다</string>
     <string name="battle_result_trigger">트리거 발동 %1$d회 · 트리거 피해 %2$s</string>

@@ -47,6 +47,7 @@ class BattleCanvasView @JvmOverloads constructor(
     private var frameScheduled = false
     private var finishedAt = 0L
     private var lastFrameNanos = 0L
+    private var lastFrameAt = 0L
 
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -70,6 +71,7 @@ class BattleCanvasView @JvmOverloads constructor(
             var dt = (frameTimeNanos - lastFrameNanos) / 1_000_000_000.0
             lastFrameNanos = frameTimeNanos
             dt = dt.coerceIn(0.0, 0.05)
+            lastFrameAt = System.currentTimeMillis()
             val w = world
             if (w != null && !paused) {
                 w.update(dt * speed)
@@ -85,10 +87,28 @@ class BattleCanvasView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * 프레임 콜백이 한 번이라도 끊기면(탭 전환, 화면 꺼짐, 뷰 재부착 등) 루프가 영영 멈춘 채로
+     * 남을 수 있어서, 마지막 프레임 뒤로 오래 조용하면 스스로 다시 걸어 준다.
+     */
+    private val watchdog = Runnable {
+        if (running && !paused && !finished) {
+            val idle = System.currentTimeMillis() - lastFrameAt
+            if (idle > 400L) {
+                frameScheduled = false
+                lastFrameNanos = 0L
+                invalidate()
+                schedule()
+            }
+        }
+    }
+
     private fun schedule() {
         if (frameScheduled) return
         frameScheduled = true
         chrome.postFrameCallback(frameCallback)
+        removeCallbacks(watchdog)
+        postDelayed(watchdog, 650L)
     }
 
     fun attach(world: BattleWorld) {
@@ -96,6 +116,7 @@ class BattleCanvasView @JvmOverloads constructor(
         finished = false
         paused = false
         lastFrameNanos = 0L
+        lastFrameAt = System.currentTimeMillis()
         invalidate()
     }
 
@@ -112,11 +133,15 @@ class BattleCanvasView @JvmOverloads constructor(
         paused = false
         finished = false
         lastFrameNanos = 0L
+        lastFrameAt = System.currentTimeMillis()
+        invalidate()
         schedule()
     }
 
     fun pause() {
         paused = true
+        removeCallbacks(watchdog)
+        invalidate()
     }
 
     fun resume() {
@@ -124,7 +149,15 @@ class BattleCanvasView @JvmOverloads constructor(
         paused = false
         lastFrameNanos = 0L
         running = true
+        invalidate()
         schedule()
+    }
+
+    /** 탭에 다시 들어왔을 때처럼 화면만 새로 그리면 되는 경우 */
+    fun refresh() {
+        lastFrameNanos = 0L
+        invalidate()
+        if (running && !paused && !finished) schedule()
     }
 
     val isPaused: Boolean get() = paused
@@ -136,17 +169,35 @@ class BattleCanvasView @JvmOverloads constructor(
     fun stop() {
         running = false
         chrome.removeFrameCallback(frameCallback)
+        removeCallbacks(watchdog)
         frameScheduled = false
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (world != null && !running && !paused) play()
+        if (world != null && !paused) {
+            running = true
+            lastFrameNanos = 0L
+            lastFrameAt = System.currentTimeMillis()
+            schedule()
+        }
     }
 
     override fun onDetachedFromWindow() {
         stop()
         super.onDetachedFromWindow()
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        if (isVisible) {
+            invalidate()
+            if (running && !paused && !finished) {
+                lastFrameNanos = 0L
+                lastFrameAt = System.currentTimeMillis()
+                schedule()
+            }
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -173,6 +224,7 @@ class BattleCanvasView @JvmOverloads constructor(
         canvas.scale(scale, scale)
 
         drawFloor(canvas, w)
+        drawTelegraphs(canvas, w)
         drawGroundFx(canvas, w)
         drawEntities(canvas, w)
         drawProjectiles(canvas, w)
@@ -185,6 +237,8 @@ class BattleCanvasView @JvmOverloads constructor(
         drawHud(canvas, w)
         drawBanner(canvas, w)
         if (paused) drawPaused(canvas)
+        // 루프가 어떤 이유로 끊겼어도 다음 프레임은 여기서 다시 건다.
+        if (running && !paused && !finished && !frameScheduled) schedule()
     }
 
     // -------------------------------------------------------------- 배경
@@ -268,6 +322,98 @@ class BattleCanvasView @JvmOverloads constructor(
         stroke.strokeWidth = 1.2f
         rect.inset(14f, 14f)
         canvas.drawOval(rect, stroke)
+    }
+
+    // -------------------------------------------------------------- 보스 예고 장판
+
+    private fun drawTelegraphs(c: Canvas, w: BattleWorld) {
+        if (w.telegraphs.isEmpty()) return
+        val pulse = 0.6f + 0.4f * sin((w.elapsed * 14f).toFloat())
+        for (t in w.telegraphs) {
+            if (!t.active) continue
+            val p = t.progress
+            val danger = blend(t.element.color, 0xFFFF3B3B.toInt(), 0.55f)
+            val hot = alpha(danger, (70 + 90 * p + 30 * pulse).toInt().coerceIn(0, 255))
+            val edge = alpha(danger, 220)
+            when (t.shape) {
+                TelegraphShape.CIRCLE -> {
+                    fill.color = alpha(danger, 34)
+                    c.drawCircle(t.x, t.y, t.radius, fill)
+                    fill.color = hot
+                    c.drawCircle(t.x, t.y, t.radius * p, fill)
+                    stroke.color = edge
+                    stroke.strokeWidth = 2.2f
+                    c.drawCircle(t.x, t.y, t.radius, stroke)
+                    stroke.color = 0xFFFFFFFF.toInt()
+                    stroke.strokeWidth = 1.4f
+                    c.drawCircle(t.x, t.y, t.radius * p, stroke)
+                }
+                TelegraphShape.SAFE_CIRCLE -> {
+                    // 바깥은 전부 위험, 안쪽 원만 안전
+                    fill.color = alpha(danger, 30)
+                    c.drawRect(0f, 0f, BattleWorld.W, BattleWorld.H, fill)
+                    fill.color = alpha(danger, (40 + 55 * p).toInt().coerceIn(0, 255))
+                    c.drawRect(0f, 0f, BattleWorld.W, BattleWorld.H, fill)
+                    fill.color = alpha(0xFF0E1512.toInt(), 235)
+                    c.drawCircle(t.x, t.y, t.radius, fill)
+                    stroke.color = alpha(0xFF6CFFA8.toInt(), 235)
+                    stroke.strokeWidth = 2.6f
+                    c.drawCircle(t.x, t.y, t.radius, stroke)
+                    stroke.strokeWidth = 1.2f + pulse
+                    c.drawCircle(t.x, t.y, t.radius * (0.55f + 0.4f * pulse), stroke)
+                }
+                TelegraphShape.DONUT -> {
+                    val band = t.length - t.radius
+                    val mid = (t.radius + t.length) / 2f
+                    stroke.color = alpha(danger, 40)
+                    stroke.strokeWidth = band
+                    c.drawCircle(t.x, t.y, mid, stroke)
+                    stroke.color = alpha(danger, (60 + 80 * p).toInt().coerceIn(0, 255))
+                    stroke.strokeWidth = band * p
+                    c.drawCircle(t.x, t.y, mid, stroke)
+                    stroke.color = edge
+                    stroke.strokeWidth = 2f
+                    c.drawCircle(t.x, t.y, t.radius, stroke)
+                    c.drawCircle(t.x, t.y, t.length, stroke)
+                }
+                TelegraphShape.LINE -> {
+                    c.save()
+                    c.translate(t.x, t.y)
+                    c.rotate(Math.toDegrees(t.angle.toDouble()).toFloat())
+                    rect.set(0f, -t.radius, t.length, t.radius)
+                    fill.color = alpha(danger, 40)
+                    c.drawRect(rect, fill)
+                    rect.set(0f, -t.radius, t.length * p, t.radius)
+                    fill.color = hot
+                    c.drawRect(rect, fill)
+                    stroke.color = edge
+                    stroke.strokeWidth = 2f
+                    c.drawRect(0f, -t.radius, t.length, t.radius, stroke)
+                    c.restore()
+                }
+                TelegraphShape.CROSS -> {
+                    c.save()
+                    c.translate(t.x, t.y)
+                    c.rotate(Math.toDegrees(t.angle.toDouble()).toFloat())
+                    fill.color = alpha(danger, 40)
+                    c.drawRect(-t.length, -t.radius, t.length, t.radius, fill)
+                    c.drawRect(-t.radius, -t.length, t.radius, t.length, fill)
+                    fill.color = hot
+                    c.drawRect(-t.length * p, -t.radius, t.length * p, t.radius, fill)
+                    c.drawRect(-t.radius, -t.length * p, t.radius, t.length * p, fill)
+                    c.restore()
+                }
+            }
+            // 남은 시간 표시
+            text.textAlign = Paint.Align.CENTER
+            text.textSize = 9.5f
+            text.color = 0xFFFFFFFF.toInt()
+            if (t.shape != TelegraphShape.SAFE_CIRCLE) {
+                c.drawText(t.name, t.x, t.y - t.radius - 6f, text)
+            } else {
+                c.drawText(t.name, t.x, t.y - t.radius - 8f, text)
+            }
+        }
     }
 
     // -------------------------------------------------------------- 엔티티
@@ -355,19 +501,74 @@ class BattleCanvasView @JvmOverloads constructor(
             fill.shader = null
         }
 
-        drawStickman(
-            c = c, x = e.x, y = e.y, s = scale,
-            body = withAlpha(body, (255 * alphaF).toInt()),
-            accent = if (e.boss != null) e.boss!!.element.color else e.element.color,
-            facing = if (e.x > w.player.x) 3.1415927f else 0f,
-            walk = e.walkPhase, moving = true,
-            attack = e.attackAnim, weapon = if (e.ranged) WeaponVisualType.STAFF else WeaponVisualType.SWORD,
-            glow = 0f,
-            boss = e.boss != null,
-            bossColor = e.boss?.element?.color ?: baseColor,
-            alphaMul = alphaF,
-            windup = e.windup,
-        )
+        val facing = if (e.x > w.player.x) 3.1415927f else 0f
+        if (e.boss != null) {
+            drawBossFigure(c, w, e, alphaF)
+        } else {
+            // 잔몹도 종류가 보이게: 근접 돌진형(뿔·도끼), 원거리 술사형(후드·지팡이), 희귀 엘리트(왕관·오라)
+            val weapon = when (e.kind) {
+                EnemyKind.NORMAL -> WeaponVisualType.AXE
+                EnemyKind.MAGIC -> WeaponVisualType.STAFF
+                EnemyKind.RARE -> WeaponVisualType.MACE
+                EnemyKind.BOSS -> WeaponVisualType.SWORD
+            }
+            if (e.kind == EnemyKind.RARE) {
+                val pulse = 0.5f + 0.5f * sin(w.elapsed * 3.1f).toFloat()
+                fill.shader = RadialGradient(
+                    e.x, e.y - 16f * scale, 46f * scale,
+                    intArrayOf(alpha(0xFFFFC24D.toInt(), (40 + pulse * 36).toInt()), 0x00000000),
+                    null, Shader.TileMode.CLAMP,
+                )
+                c.drawCircle(e.x, e.y - 16f * scale, 46f * scale, fill)
+                fill.shader = null
+            }
+            drawStickman(
+                c = c, x = e.x, y = e.y, s = scale,
+                body = withAlpha(body, (255 * alphaF).toInt()),
+                accent = e.element.color,
+                facing = facing,
+                walk = e.walkPhase, moving = true,
+                attack = e.attackAnim, weapon = weapon,
+                glow = if (e.kind == EnemyKind.RARE) 0.6f else 0f,
+                boss = false,
+                bossColor = baseColor,
+                alphaMul = alphaF,
+                windup = e.windup,
+            )
+            // 종족 장식
+            val headY = e.y - 17f * scale - 19f * scale - 7.4f * scale
+            when (e.kind) {
+                EnemyKind.NORMAL -> {
+                    // 돌진형: 짧은 뿔 두 개
+                    stroke.strokeWidth = 2.2f * scale
+                    stroke.color = withAlpha(0xFF8A5A48.toInt(), (235 * alphaF).toInt())
+                    c.drawLine(e.x - 3.4f * scale, headY - 3f * scale, e.x - 6.4f * scale, headY - 9.6f * scale, stroke)
+                    c.drawLine(e.x + 3.4f * scale, headY - 3f * scale, e.x + 6.4f * scale, headY - 9.6f * scale, stroke)
+                }
+                EnemyKind.MAGIC -> {
+                    // 술사형: 후드
+                    path.reset()
+                    path.moveTo(e.x - 8f * scale, headY + 5f * scale)
+                    path.quadTo(e.x, headY - 12f * scale, e.x + 8f * scale, headY + 5f * scale)
+                    path.close()
+                    fill.color = withAlpha(0xFF4A5A9E.toInt(), (225 * alphaF).toInt())
+                    c.drawPath(path, fill)
+                    fill.color = withAlpha(0xFFBFD0FF.toInt(), (200 * alphaF).toInt())
+                    c.drawCircle(e.x, headY + 0.4f * scale, 1.9f * scale, fill)
+                }
+                EnemyKind.RARE -> {
+                    // 엘리트: 황금 왕관
+                    stroke.strokeWidth = 2.4f * scale
+                    stroke.color = withAlpha(0xFFFFD36A.toInt(), (245 * alphaF).toInt())
+                    val w2 = 7.2f * scale
+                    c.drawLine(e.x - w2, headY - 4.4f * scale, e.x - w2, headY - 9.4f * scale, stroke)
+                    c.drawLine(e.x, headY - 4.4f * scale, e.x, headY - 11.4f * scale, stroke)
+                    c.drawLine(e.x + w2, headY - 4.4f * scale, e.x + w2, headY - 9.4f * scale, stroke)
+                    c.drawLine(e.x - w2, headY - 4.4f * scale, e.x + w2, headY - 4.4f * scale, stroke)
+                }
+                else -> Unit
+            }
+        }
 
         if (!e.alive) return
 
@@ -603,6 +804,317 @@ class BattleCanvasView @JvmOverloads constructor(
             c.drawLine(x + headR * 0.7f, headY + up - headR * 0.7f, x + headR * 2.1f, headY + up - headR * 2.4f, stroke)
             c.drawLine(x + headR * 0.7f, headY + up - headR * 0.7f, x + headR * 2.4f, headY + up - headR * 1.5f, stroke)
             c.drawLine(x - headR * 0.7f, headY + up - headR * 0.7f, x - headR * 2.4f, headY + up - headR * 1.5f, stroke)
+        }
+    }
+
+    // -------------------------------------------------------------- 우버 보스 외형
+
+    private fun line(c: Canvas, x1: Float, y1: Float, x2: Float, y2: Float, color: Int, width: Float) {
+        stroke.color = color
+        stroke.strokeWidth = width
+        c.drawLine(x1, y1, x2, y2, stroke)
+    }
+
+    private fun disc(c: Canvas, x: Float, y: Float, r: Float, color: Int) {
+        fill.shader = null
+        fill.color = color
+        c.drawCircle(x, y, r, fill)
+    }
+
+    private fun glowAt(c: Canvas, x: Float, y: Float, r: Float, color: Int, inner: Int) {
+        fill.shader = RadialGradient(
+            x, y, r,
+            intArrayOf(alpha(color, inner), alpha(color, inner / 3), 0x00000000),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(x, y, r, fill)
+        fill.shader = null
+    }
+
+    /** 보스 5종을 각자의 인게임 인상으로 그린다 (큰 스틱맨이 아니라 전용 실루엣). */
+    private fun drawBossFigure(c: Canvas, w: BattleWorld, e: Enemy, alphaMul: Float) {
+        val boss = e.boss ?: return
+        val s = e.scale
+        val facing = if (e.x > w.player.x) 3.1415927f else 0f
+        val fwd = if (cos(facing) >= 0f) 1f else -1f
+        val legLen = 22f * s
+        val torso = 27f * s
+        val headR = 8.2f * s
+        val hipY = e.y - legLen
+        val shY = hipY - torso
+        val headY = shY - headR * 1.2f
+        val bob = sin(e.walkPhase * 2f) * 1.1f * s
+        val up = -bob
+        val p2 = w.bossPhase >= 2
+        val accent = boss.element.color
+        val skin = blend(0xFF2A2F3A.toInt(), accent, 0.25f)
+        val skinC = withAlpha(skin, (255 * alphaMul).toInt())
+        val accentC = withAlpha(accent, (255 * alphaMul).toInt())
+        val hitWhite = if (e.hitFlash > 0.01f) e.hitFlash * 0.8f else 0f
+
+        fun body(color: Int) = if (hitWhite > 0f) blend(color, 0xFFFFFFFF.toInt(), hitWhite) else color
+        val glowBoost = if (p2) 1.7f else 1f
+
+        // 공통: 바닥 그림자
+        drawShadow(c, e.x, e.y, s * 1.15f)
+
+        // 다리
+        val swing = sin(e.walkPhase) * 6f * s
+        line(c, e.x, hipY + up, e.x - 5f * s + swing, e.y, withAlpha(body(skin), (255 * alphaMul).toInt()), 4.4f * s)
+        line(c, e.x, hipY + up, e.x + 5f * s - swing, e.y, withAlpha(body(skin), (255 * alphaMul).toInt()), 4.4f * s)
+        // 몸통
+        line(c, e.x, hipY + up, e.x, shY + up, withAlpha(body(skin), (255 * alphaMul).toInt()), 5.6f * s)
+        // 머리
+        disc(c, e.x, headY + up, headR, withAlpha(body(skin), (255 * alphaMul).toInt()))
+
+        when (boss.id) {
+            "arbiter" -> {
+                val fire = 0xFFFF6A2B.toInt()
+                // 불꽃 후광 (머리 뒤)
+                glowAt(c, e.x, headY + up, 62f * s, fire, (70 * glowBoost).toInt().coerceAtMost(255))
+                // 긴 망토
+                path.reset()
+                path.moveTo(e.x - 12f * s, shY + up)
+                path.quadTo(e.x - 26f * s, e.y - 30f * s, e.x - 15f * s + sin(e.walkPhase) * 3f * s, e.y - 2f * s)
+                path.lineTo(e.x + 15f * s + sin(e.walkPhase) * 3f * s, e.y - 2f * s)
+                path.quadTo(e.x + 26f * s, e.y - 30f * s, e.x + 12f * s, shY + up)
+                path.close()
+                fill.shader = null
+                fill.color = withAlpha(0xFF6C1B12.toInt(), (220 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                stroke.color = alpha(fire, (140 * glowBoost).toInt().coerceAtMost(255))
+                stroke.strokeWidth = 2f * s
+                c.drawPath(path, stroke)
+                // 불꽃 왕관
+                repeat(5) { i ->
+                    val bx = e.x + (i - 2) * 4.6f * s
+                    val h = if (i == 2) 22f * s else 14f * s + (i % 2) * 3f * s
+                    path.reset()
+                    path.moveTo(bx - 2.6f * s, headY + up - headR * 0.7f)
+                    path.quadTo(bx + (i - 2) * 1.6f * s, headY + up - headR - h * 0.6f, bx, headY + up - headR - h)
+                    path.quadTo(bx - 1.4f * s, headY + up - headR - h * 0.5f, bx + 2.6f * s, headY + up - headR * 0.7f)
+                    path.close()
+                    fill.color = alpha(fire, (200 + (i % 2) * 40))
+                    c.drawPath(path, fill)
+                }
+                // 팔 + 거대한 불타는 대검
+                val swing = facing - 1.05f + (1f - e.attackAnim) * 2.0f
+                val handX = e.x + cos(swing) * 16f * s
+                val handY = shY + 8f * s + sin(swing) * 13f * s + up
+                line(c, e.x, shY + 2f * s + up, handX, handY, withAlpha(body(skin), (255 * alphaMul).toInt()), 3.4f * s)
+                line(c, e.x, shY + 2f * s + up, e.x - fwd * 10f * s, shY + 14f * s + up, withAlpha(body(skin), (255 * alphaMul).toInt()), 3.4f * s)
+                c.save()
+                c.translate(handX, handY)
+                c.rotate(Math.toDegrees((swing + 0.5f).toDouble()).toFloat())
+                line(c, -6f * s, 0f, 6f * s, 0f, 0xFF3A2A22.toInt(), 3f * s)
+                path.reset()
+                path.moveTo(6f * s, -4.6f * s)
+                path.lineTo(60f * s, -2.2f * s)
+                path.lineTo(66f * s, 0f)
+                path.lineTo(60f * s, 2.2f * s)
+                path.lineTo(6f * s, 4.6f * s)
+                path.close()
+                fill.color = alpha(0xFFFFB06A.toInt(), (235 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                stroke.color = alpha(fire, (220 * glowBoost).toInt().coerceAtMost(255))
+                stroke.strokeWidth = 1.6f * s
+                c.drawPath(path, stroke)
+                c.restore()
+                if (p2) glowAt(c, e.x, e.y - 40f * s, 120f * s, fire, 46)
+            }
+            "xesht" -> {
+                val purple = 0xFFA855F7.toInt()
+                glowAt(c, e.x, headY + up, 66f * s, purple, (75 * glowBoost).toInt().coerceAtMost(255))
+                // 여러 개의 균열 팔
+                val arms = listOf(-1.9f, -1.15f, -0.5f, 0.5f, 1.15f, 1.9f)
+                arms.forEachIndexed { i, a ->
+                    val len = (30f + (i % 3) * 9f) * s
+                    val ex = e.x + cos(a) * len
+                    val ey = shY + 6f * s + sin(a) * len * 0.75f + up
+                    val mx = e.x + cos(a) * len * 0.55f
+                    val my = shY + 6f * s + sin(a) * len * 0.45f + up
+                    line(c, e.x, shY + 6f * s + up, mx, my, withAlpha(0xFF4C1D72.toInt(), (230 * alphaMul).toInt()), 3.2f * s)
+                    line(c, mx, my, ex, ey, withAlpha(0xFF6D28A8.toInt(), (220 * alphaMul).toInt()), 2.6f * s)
+                    // 갈고리 손
+                    line(c, ex, ey, ex + cos(a - 0.6f) * 7f * s, ey + sin(a - 0.6f) * 7f * s, withAlpha(purple, (230 * alphaMul).toInt()), 1.8f * s)
+                    line(c, ex, ey, ex + cos(a + 0.6f) * 7f * s, ey + sin(a + 0.6f) * 7f * s, withAlpha(purple, (230 * alphaMul).toInt()), 1.8f * s)
+                }
+                // 균열 눈 (머리 위 마름모)
+                path.reset()
+                path.moveTo(e.x, headY + up - headR - 16f * s)
+                path.lineTo(e.x + 7f * s, headY + up - headR - 9f * s)
+                path.lineTo(e.x, headY + up - headR - 2f * s)
+                path.lineTo(e.x - 7f * s, headY + up - headR - 9f * s)
+                path.close()
+                fill.color = alpha(purple, (240 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                disc(c, e.x, headY + up - headR - 9f * s, 2.2f * s, 0xFFFFFFFF.toInt())
+                // 뿔
+                line(c, e.x - 5.5f * s, headY + up - headR * 0.7f, e.x - 12f * s, headY + up - headR * 2.6f, withAlpha(0xFF3B0F5E.toInt(), (240 * alphaMul).toInt()), 2.6f * s)
+                line(c, e.x + 5.5f * s, headY + up - headR * 0.7f, e.x + 12f * s, headY + up - headR * 2.6f, withAlpha(0xFF3B0F5E.toInt(), (240 * alphaMul).toInt()), 2.6f * s)
+                if (p2) glowAt(c, e.x, e.y - 40f * s, 130f * s, purple, 44)
+            }
+            "king" -> {
+                val moss = 0xFF4E7A5C.toInt()
+                val violet = 0xFF8B7BD8.toInt()
+                glowAt(c, e.x, headY + up, 58f * s, violet, (55 * glowBoost).toInt().coerceAtMost(255))
+                // 의식 망토
+                path.reset()
+                path.moveTo(e.x - 13f * s, shY + up)
+                path.quadTo(e.x - 30f * s, e.y - 40f * s, e.x - 20f * s, e.y - 1f * s)
+                path.lineTo(e.x + 20f * s, e.y - 1f * s)
+                path.quadTo(e.x + 30f * s, e.y - 40f * s, e.x + 13f * s, shY + up)
+                path.close()
+                fill.shader = null
+                fill.color = withAlpha(moss, (215 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                stroke.color = alpha(violet, (160 * alphaMul).toInt())
+                stroke.strokeWidth = 1.8f * s
+                c.drawPath(path, stroke)
+                // 사슴 뿔 왕관
+                val antler = withAlpha(0xFFE8DFC8.toInt(), (240 * alphaMul).toInt())
+                fun branch(x: Float, y: Float, dx: Float, dy: Float, len: Float) {
+                    line(c, x, y, x + dx * len, y + dy * len, antler, 2.2f * s)
+                    line(c, x + dx * len * 0.55f, y + dy * len * 0.55f, x + dx * len * 0.55f + dx * 6f * s, y + dy * len * 0.55f - 8f * s, antler, 1.7f * s)
+                }
+                branch(e.x - 4.5f * s, headY + up - headR * 0.8f, -0.5f, -1f, 20f * s)
+                branch(e.x + 4.5f * s, headY + up - headR * 0.8f, 0.5f, -1f, 20f * s)
+                // 의식 해골 지팡이
+                val handX = e.x + fwd * 15f * s
+                val handY = shY + 10f * s + up
+                line(c, e.x, shY + 3f * s + up, handX, handY, withAlpha(body(skin), (255 * alphaMul).toInt()), 3.2f * s)
+                line(c, handX, handY + 22f * s, handX, handY - 30f * s, 0xFF6B5B45.toInt(), 2.8f * s)
+                disc(c, handX, handY - 33f * s, 5.4f * s, withAlpha(0xFFE8E2D0.toInt(), (235 * alphaMul).toInt())
+                )
+                disc(c, handX - 2f * s, handY - 34.5f * s, 1.5f * s, 0xFF1A1A1A.toInt())
+                disc(c, handX + 2f * s, handY - 34.5f * s, 1.5f * s, 0xFF1A1A1A.toInt())
+                glowAt(c, handX, handY - 33f * s, 16f * s, 0xFF7DFFB0.toInt(), 120)
+                // 안개 오라
+                repeat(3) { i ->
+                    stroke.color = alpha(violet, (40 - i * 8).coerceAtLeast(8))
+                    stroke.strokeWidth = 1.4f * s
+                    c.drawCircle(e.x, e.y - 8f * s, (34f + i * 13f) * s, stroke)
+                }
+                if (p2) glowAt(c, e.x, e.y - 40f * s, 120f * s, violet, 46)
+            }
+            "olroth" -> {
+                val ice = 0xFF7FE0FF.toInt()
+                glowAt(c, e.x, headY + up, 62f * s, ice, (60 * glowBoost).toInt().coerceAtMost(255))
+                // 룬 원형 후광
+                stroke.color = alpha(ice, (150 * alphaMul).toInt())
+                stroke.strokeWidth = 2f * s
+                c.drawCircle(e.x, shY + up - 4f * s, 42f * s, stroke)
+                repeat(8) { i ->
+                    val a = i * 0.785f + e.walkPhase * 0.1f
+                    line(
+                        c,
+                        e.x + cos(a) * 38f * s, shY + up - 4f * s + sin(a) * 38f * s,
+                        e.x + cos(a) * 44f * s, shY + up - 4f * s + sin(a) * 44f * s,
+                        alpha(ice, (180 * alphaMul).toInt()), 1.6f * s,
+                    )
+                }
+                // 룬 갑옷 윤곽
+                path.reset()
+                path.moveTo(e.x - 11f * s, shY + up)
+                path.lineTo(e.x, shY + up + 13f * s)
+                path.lineTo(e.x + 11f * s, shY + up)
+                path.lineTo(e.x, shY + up - 3f * s)
+                path.close()
+                fill.shader = null
+                fill.color = withAlpha(0xFF1B3B4A.toInt(), (235 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                stroke.color = alpha(ice, (200 * alphaMul).toInt())
+                stroke.strokeWidth = 1.6f * s
+                c.drawPath(path, stroke)
+                // 대형 룬 방패
+                val shieldX = e.x - fwd * 20f * s
+                val shieldY = shY + 8f * s + up
+                path.reset()
+                path.moveTo(shieldX - 11f * s, shieldY - 14f * s)
+                path.lineTo(shieldX + 11f * s, shieldY - 14f * s)
+                path.quadTo(shieldX + 12f * s, shieldY + 6f * s, shieldX, shieldY + 18f * s)
+                path.quadTo(shieldX - 12f * s, shieldY + 6f * s, shieldX - 11f * s, shieldY - 14f * s)
+                path.close()
+                fill.color = withAlpha(0xFF12303C.toInt(), (240 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                stroke.color = alpha(ice, (215 * alphaMul).toInt())
+                stroke.strokeWidth = 2f * s
+                c.drawPath(path, stroke)
+                disc(c, shieldX, shieldY, 4.2f * s, alpha(ice, (200 * alphaMul).toInt()))
+                // 서리 대검 (반대손)
+                val swing = facing - 1.1f + (1f - e.attackAnim) * 2.1f
+                val handX = e.x + cos(swing) * 14f * s
+                val handY = shY + 8f * s + sin(swing) * 12f * s + up
+                line(c, e.x, shY + 2f * s + up, handX, handY, withAlpha(body(skin), (255 * alphaMul).toInt()), 3.2f * s)
+                c.save()
+                c.translate(handX, handY)
+                c.rotate(Math.toDegrees((swing + 0.55f).toDouble()).toFloat())
+                path.reset()
+                path.moveTo(4f * s, -3.4f * s)
+                path.lineTo(44f * s, -1.6f * s)
+                path.lineTo(50f * s, 0f)
+                path.lineTo(44f * s, 1.6f * s)
+                path.lineTo(4f * s, 3.4f * s)
+                path.close()
+                fill.color = alpha(0xFFD6F6FF.toInt(), (240 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                c.restore()
+                if (p2) glowAt(c, e.x, e.y - 40f * s, 125f * s, ice, 46)
+                if (e.shield > 0) {
+                    stroke.color = alpha(ice, (120 + 80 * sin(w.elapsed.toFloat() * 6f)).toInt().coerceIn(0, 255))
+                    stroke.strokeWidth = 3f * s
+                    c.drawCircle(e.x, e.y - 40f * s, 52f * s, stroke)
+                }
+            }
+            else -> {
+                // 자로크 외 기본
+                val gold = 0xFFFFCF6A.toInt()
+                val teal = 0xFF5FE0D0.toInt()
+                glowAt(c, e.x, headY + up, 64f * s, gold, (60 * glowBoost).toInt().coerceAtMost(255))
+                // 등 뒤 시간 고리 + 모래시계
+                stroke.color = alpha(teal, (140 * alphaMul).toInt())
+                stroke.strokeWidth = 2f * s
+                c.drawCircle(e.x, shY + up - 6f * s, 40f * s, stroke)
+                c.drawCircle(e.x, shY + up - 6f * s, 30f * s, stroke)
+                val hgX = e.x
+                val hgY = shY + up - 6f * s
+                stroke.color = alpha(gold, (230 * alphaMul).toInt())
+                stroke.strokeWidth = 2.4f * s
+                c.drawCircle(hgX, hgY, 13f * s, stroke)
+                path.reset()
+                path.moveTo(hgX - 7f * s, hgY - 8f * s)
+                path.lineTo(hgX + 7f * s, hgY - 8f * s)
+                path.lineTo(hgX, hgY)
+                path.close()
+                fill.color = alpha(gold, (200 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                path.reset()
+                path.moveTo(hgX - 7f * s, hgY + 8f * s)
+                path.lineTo(hgX + 7f * s, hgY + 8f * s)
+                path.lineTo(hgX, hgY)
+                path.close()
+                fill.color = alpha(0xFFFFF0B0.toInt(), (220 * alphaMul).toInt())
+                c.drawPath(path, fill)
+                // 황금 어깨 장식
+                line(c, e.x - 12f * s, shY + up + 2f * s, e.x - 3f * s, shY + up - 2f * s, alpha(gold, (235 * alphaMul).toInt()), 3f * s)
+                line(c, e.x + 12f * s, shY + up + 2f * s, e.x + 3f * s, shY + up - 2f * s, alpha(gold, (235 * alphaMul).toInt()), 3f * s)
+                // 황금 지팡이
+                val handX = e.x + fwd * 15f * s
+                val handY = shY + 10f * s + up
+                line(c, e.x, shY + 3f * s + up, handX, handY, withAlpha(body(skin), (255 * alphaMul).toInt()), 3.2f * s)
+                line(c, handX, handY + 24f * s, handX, handY - 34f * s, alpha(gold, (235 * alphaMul).toInt()), 2.8f * s)
+                disc(c, handX, handY - 37f * s, 4.6f * s, alpha(0xFFFFF3C4.toInt(), (245 * alphaMul).toInt()))
+                glowAt(c, handX, handY - 37f * s, 20f * s, gold, 120)
+                if (p2) {
+                    repeat(4) { i ->
+                        val a = i * 1.5708f + w.elapsed.toFloat()
+                        stroke.color = alpha(teal, (150 * alphaMul).toInt())
+                        stroke.strokeWidth = 1.6f * s
+                        c.drawCircle(e.x + cos(a) * 36f * s, shY + up - 6f * s + sin(a) * 36f * s, 3.2f * s, stroke)
+                    }
+                    glowAt(c, e.x, e.y - 40f * s, 130f * s, gold, 44)
+                }
+            }
         }
     }
 
@@ -1251,10 +1763,16 @@ class BattleCanvasView @JvmOverloads constructor(
         textLight.textAlign = Paint.Align.LEFT
         textLight.textSize = 10f * dp
         val chipW = textLight.measureText(chipText) + 12f * dp
-        val triggerText = st.triggerText
+        // 전투 중에는 메타젬별 발동 횟수, 시작 전에는 어떤 메타젬이 붙어 있는지 보여 준다.
+        val liveTrigger = w.triggerHud()
+        val triggerText = if (liveTrigger.isNotBlank()) liveTrigger else st.triggerText
         val hasTrigger = triggerText.isNotBlank()
-        val badgeH = (if (hasTrigger) 41f else 27f) * dp
         val badgeW = min(width - pad * 2f, nameW + chipW + 30f * dp)
+        textLight.textSize = 9.5f * dp
+        // 메타젬이 여럿이면 배지를 두 줄까지 늘려 이름과 발동 횟수를 최대한 보여 준다.
+        val triggerLines = if (!hasTrigger) emptyList()
+        else wrapText("⟳ $triggerText", max(80f * dp, badgeW - 20f * dp), 2)
+        val badgeH = (27f + triggerLines.size * 11f) * dp
 
         rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
@@ -1276,15 +1794,12 @@ class BattleCanvasView @JvmOverloads constructor(
         textLight.color = alpha(element.color, 255)
         c.drawText(chipText, chipX + 6f * dp, pad + 16.6f * dp, textLight)
 
-        if (hasTrigger) {
+        if (triggerLines.isNotEmpty()) {
             textLight.color = 0xFFCFF3FF.toInt()
             textLight.textSize = 9.5f * dp
-            var label = "⟳ $triggerText"
-            val limit = badgeW - 22f * dp
-            while (label.isNotEmpty() && textLight.measureText(label) > limit) {
-                label = label.dropLast(2) + "…"
+            triggerLines.forEachIndexed { index, line ->
+                c.drawText(line, pad + 10f * dp, pad + (33f + index * 11f) * dp, textLight)
             }
-            c.drawText(label, pad + 10f * dp, pad + 33f * dp, textLight)
             textLight.textSize = 10f * dp
         }
 
@@ -1302,10 +1817,10 @@ class BattleCanvasView @JvmOverloads constructor(
         val barW = min(width * 0.46f, 220f * dp)
         val barX = pad
         val barY = pad + badgeH + 6f * dp
-        drawPoolBar(c, barX, barY, barW, st.life, w.player.life, 0xFFD9534F.toInt())
-        drawPoolBar(c, barX, barY + 8f * dp, barW, st.es, w.player.es, 0xFF4FA8D9.toInt())
+        drawPoolBar(c, barX, barY, barW, w.player.baseLife, w.player.life, 0xFFD9534F.toInt())
+        drawPoolBar(c, barX, barY + 8f * dp, barW, w.player.baseEs, w.player.es, 0xFF4FA8D9.toInt())
 
-        // 보스 체력
+        // 보스 체력 · 페이즈 · 패턴
         val boss = w.bossEnemy
         if (boss != null) {
             val barY2 = pad + badgeH + 28f * dp
@@ -1313,7 +1828,17 @@ class BattleCanvasView @JvmOverloads constructor(
             text.textAlign = Paint.Align.LEFT
             text.textSize = 10.5f * dp
             text.color = 0xFFFFD9C9.toInt()
+            val phaseLabel = if (w.bossPhase >= 2) "P2" else "P1"
+            val phaseColorText = if (w.bossPhase >= 2) 0xFFFF8A5C.toInt() else 0xFFBFE9FF.toInt()
             c.drawText("${boss.boss?.name.orEmpty()}  ·  ${boss.boss?.pattern.orEmpty()}", pad, barY2 - 3f * dp, text)
+            text.textAlign = Paint.Align.RIGHT
+            text.color = phaseColorText
+            text.textSize = 11.5f * dp
+            val pattern = if (w.bossPatternName.isBlank()) "대기" else w.bossPatternName
+            c.drawText("$phaseLabel  ·  $pattern", width - pad, barY2 - 3f * dp, text)
+            text.textAlign = Paint.Align.LEFT
+            text.textSize = 10.5f * dp
+            text.color = 0xFFFFD9C9.toInt()
             rect.set(pad, barY2, pad + w2, barY2 + 8f * dp)
             fill.color = 0xCC241012.toInt()
             c.drawRoundRect(rect, 3f * dp, 3f * dp, fill)
@@ -1325,6 +1850,12 @@ class BattleCanvasView @JvmOverloads constructor(
             )
             c.drawRoundRect(rect, 3f * dp, 3f * dp, fill)
             fill.shader = null
+            if (boss.shield > 0.0) {
+                val sFrac = (boss.shield / boss.maxHp).toFloat().coerceIn(0f, 1f)
+                rect.set(pad, barY2 + 9f * dp, pad + w2 * sFrac, barY2 + 13f * dp)
+                fill.color = 0xFF7FE0FF.toInt()
+                c.drawRoundRect(rect, 2f * dp, 2f * dp, fill)
+            }
         }
     }
 
@@ -1366,6 +1897,36 @@ class BattleCanvasView @JvmOverloads constructor(
         text.textSize = 15f * dp
         text.color = 0xFFE8E2D4.toInt()
         c.drawText("일시정지", width / 2f, height / 2f, text)
+    }
+
+    /** 폭에 맞춰 말줄임까지 붙여 maxLines 줄로 나눈다. */
+    private fun wrapText(value: String, limit: Float, maxLines: Int): List<String> {
+        val words = value.split(' ')
+        val lines = ArrayList<String>()
+        var current = StringBuilder()
+        for (word in words) {
+            val candidate = if (current.isEmpty()) word else "$current $word"
+            if (textLight.measureText(candidate) <= limit) {
+                current = StringBuilder(candidate)
+                continue
+            }
+            if (current.isNotEmpty()) lines.add(current.toString())
+            if (lines.size == maxLines) break
+            current = StringBuilder(word)
+        }
+        if (lines.size < maxLines && current.isNotEmpty()) {
+            var last = current.toString()
+            while (last.isNotEmpty() && textLight.measureText(last) > limit) last = last.dropLast(1)
+            lines.add(last)
+        }
+        // 남은 조각이 있으면 마지막 줄에 말줄임을 붙인다.
+        if (lines.size == maxLines) {
+            val last = lines.last()
+            if (textLight.measureText(last) + textLight.measureText(" …") <= limit) {
+                lines[lines.size - 1] = "$last …"
+            }
+        }
+        return lines
     }
 
     // -------------------------------------------------------------- 색 유틸

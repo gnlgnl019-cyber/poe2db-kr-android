@@ -207,8 +207,12 @@ object BossPresets {
 class PlayerState(stats: BattlePlayerStats) {
     var x = 185f
     var y = 400f
-    var life = stats.life
-    var es = stats.es
+    // 생명력/보호막이 0으로 들어오면 첫 틱에 즉시 패배해 시뮬레이션이 멈춘 것처럼 보인다.
+    // 재생 상한도 이 값으로 잡아야 0으로 되돌아가지 않는다.
+    val baseLife: Double = stats.life.coerceAtLeast(1.0)
+    val baseEs: Double = stats.es.coerceAtLeast(0.0)
+    var life = baseLife
+    var es = baseEs
     var facing = 0f
     var attackTimer = 0.3f
     var attackAnim = 0f
@@ -252,6 +256,14 @@ class Enemy(
     var vy = 0f
     var deadFade = 0f
     var attackAnim = 0f
+    // 상태이상 타이머(초). 0보다 크면 그 상태이상이 걸려 있다.
+    var shockT = 0f
+    var freezeT = 0f
+    var igniteT = 0f
+    var igniteDps = 0.0
+    /** 올로스의 룬 보호막처럼 피해를 흡수하는 임시 보호막 */
+    var shield = 0.0
+    val shocked: Boolean get() = shockT > 0f
 }
 
 enum class FxKind {
@@ -334,9 +346,93 @@ data class BattleResult(
     val triggerCasts: Int = 0,
     val triggerDamage: Double = 0.0,
     val triggerText: String = "",
+    val triggers: List<TriggerReport> = emptyList(),
 )
 
+/** 메타젬 하나의 전투 결과 */
+data class TriggerReport(
+    val label: String,
+    val short: String,
+    val skillNames: String,
+    val casts: Int,
+    val damage: Double,
+    val estimated: Boolean,
+) {
+    val line: String
+        get() = "$label · $skillNames — ${casts}회" +
+            if (damage > 0) " · ${BattleWorld.formatShort(damage)}" else ""
+}
+
 /** 트리거(메타) 스킬 하나의 전투 중 상태 */
+/** 보스 스킬 예고 장판 모양 */
+enum class TelegraphShape { CIRCLE, LINE, DONUT, SAFE_CIRCLE, CROSS }
+
+/**
+ * 보스 스킬의 예고 장판.
+ * windup 동안 바닥에 경고 영역이 차오르고, 끝나는 순간 그 안에 있으면 피해를 받는다.
+ */
+class Telegraph(
+    val shape: TelegraphShape,
+    var x: Float,
+    var y: Float,
+    var angle: Float,
+    var radius: Float,
+    var length: Float,
+    val windup: Float,
+    val damage: Double,
+    val element: DamageElement,
+    val name: String,
+    var delay: Float = 0f,
+) {
+    var elapsed = 0f
+        private set
+    var resolved = false
+        private set
+
+    val progress: Float get() = if (windup <= 0f) 1f else ((elapsed - delay) / windup).coerceIn(0f, 1f)
+    val active: Boolean get() = elapsed >= delay
+    val aboutToLand: Boolean get() = active && progress >= 0.55f
+
+    fun advance(dt: Float): Boolean {
+        elapsed += dt
+        if (!active) return false
+        if (elapsed - delay >= windup) resolved = true
+        return resolved
+    }
+
+    /** 주어진 좌표가 이 장판의 피해 범위 안인지 */
+    fun contains(px: Float, py: Float): Boolean {
+        val dx = px - x
+        val dy = py - y
+        val dist = hypot(dx, dy)
+        return when (shape) {
+            TelegraphShape.CIRCLE -> dist <= radius
+            TelegraphShape.SAFE_CIRCLE -> dist > radius
+            TelegraphShape.DONUT -> dist in radius..length
+            TelegraphShape.CROSS -> {
+                val along = dx * cos(angle) + dy * sin(angle)
+                val across = -dx * sin(angle) + dy * cos(angle)
+                (abs(across) <= radius && abs(along) <= length) ||
+                    (abs(along) <= radius && abs(across) <= length)
+            }
+            TelegraphShape.LINE -> {
+                val along = dx * cos(angle) + dy * sin(angle)
+                val across = -dx * sin(angle) + dy * cos(angle)
+                along >= -10f && along <= length && abs(across) <= radius
+            }
+        }
+    }
+
+    /** 플레이어가 벗어나야 할 방향 (장판 밖으로) */
+    fun escapeAngle(px: Float, py: Float): Float = when (shape) {
+        TelegraphShape.SAFE_CIRCLE -> atan2(y - py, x - px)
+        else -> atan2(py - y, px - x)
+    }
+}
+
+/** 보스 패턴 하나 (이름 + 다음 사용까지의 간격 + 동작) */
+private class BossPattern(val name: String, val cooldown: Float, val action: () -> Unit)
+
 class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
     var energy = 0.0
         private set
@@ -344,25 +440,36 @@ class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
         private set
     var casts = 0
         private set
+    var damage = 0.0
+        private set
     private var nextSkill = 0
+    private var auraClock = 0f
 
     /** 조건을 몇 번 채워야 한 번 터지는지 */
-    val threshold: Double = when (spec.kind.condition) {
-        TriggerCondition.CRIT -> 4.0
-        TriggerCondition.MINION_DEATH -> 1.0
-        else -> 3.0
-    }
-    val cooldownMax: Float = when (spec.kind) {
-        TriggerKind.CAST_ON_CRIT -> 0.35f
-        else -> 0.5f
-    }
+    val threshold: Double = spec.kind.energyNeeded.coerceAtLeast(1.0)
 
-    /** 트리거가 자연히 터지는 간격(초) */
+    val cooldownMax: Float = spec.kind.cooldown
+
+    /** 트리거가 자연히 터지는 간격(초) — 한 번 발동의 피해를 정할 때 쓴다. */
     val interval: Double = maxOf(cooldownMax.toDouble(), threshold / critRate.coerceAtLeast(0.08))
-        .coerceAtMost(4.0)
+        .coerceAtMost(6.0)
 
     fun tick(dt: Float) {
         if (cooldown > 0f) cooldown = maxOf(0f, cooldown - dt)
+    }
+
+    /** 지속 오라(신성모독)는 시간이 흐르며 스스로 에너지를 채운다. */
+    fun tickAura(dt: Float): Boolean {
+        if (spec.kind.condition != TriggerCondition.AURA) return false
+        auraClock += dt
+        val pulse = 0.9f
+        var gained = false
+        while (auraClock >= pulse) {
+            auraClock -= pulse
+            addEnergy(1.0)
+            gained = true
+        }
+        return gained
     }
 
     fun addEnergy(amount: Double = 1.0) {
@@ -381,8 +488,21 @@ class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
         return skill
     }
 
+    fun addDamage(value: Double) {
+        if (value.isFinite() && value > 0) damage += value
+    }
+
     /** 한 번 발동할 때의 피해: 그 스킬의 지속 DPS × 발동 간격 */
     fun castDamage(skill: TriggeredSkill): Double = (skill.dps * interval).coerceAtLeast(1.0)
+
+    fun report(): TriggerReport = TriggerReport(
+        label = spec.kind.label,
+        short = spec.kind.short,
+        skillNames = spec.skillNames,
+        casts = casts,
+        damage = damage,
+        estimated = spec.estimated,
+    )
 }
 
 class BattleWorld(
@@ -461,6 +581,21 @@ class BattleWorld(
     var triggerDamage = 0.0
         private set
 
+    // ---------------------------------------------------------- 보스 패턴 상태
+    val telegraphs = ArrayList<Telegraph>()
+    var bossPhase = 1
+        private set
+    var bossPatternName = ""
+        private set
+    private var bossPatternTimer = 2.2f
+    private var bossPatternIndex = 0
+    private var phaseTwoAnnounced = false
+    /** 지금까지 사용한 보스 패턴 이름 (HUD·테스트 확인용) */
+    val patternHistory = ArrayList<String>()
+    /** 화면에 그려진 예고 장판 수 (테스트 확인용) */
+    var telegraphsSpawned = 0
+        private set
+
     private class PendingStrike(
         val x: Float,
         val y: Float,
@@ -470,6 +605,7 @@ class BattleWorld(
         val name: String,
         val kind: FxKind,
         var delay: Float,
+        val trigger: TriggerRuntime? = null,
     )
 
     private val pendingStrikes = ArrayList<PendingStrike>()
@@ -477,7 +613,7 @@ class BattleWorld(
     val totalEnemies: Int get() = enemies.size
     val aliveCount: Int get() = enemies.count { it.alive }
     val bossEnemy: Enemy? get() = enemies.firstOrNull { it.boss != null }
-    val maxPool: Double get() = stats.life + stats.es
+    val maxPool: Double get() = player.baseLife + player.baseEs
 
     init {
         buildEncounter()
@@ -582,6 +718,9 @@ class BattleWorld(
             meleeBudget = 2
         }
         updatePlayer(dt)
+        updateBossPatterns(dt)
+        updateTelegraphs(dt)
+        updateAilments(dt)
         updateEnemies(dt)
         updateProjectiles(dt)
         updateDots(dt)
@@ -637,22 +776,35 @@ class BattleWorld(
     private fun updatePlayer(dt: Float) {
         // 재생 · 보호막 충전 · 흡수
         if (player.life > 0) {
-            player.life = min(stats.life, player.life + stats.life * 0.009 * dt)
+            player.life = min(player.baseLife, player.life + player.baseLife * 0.009 * dt)
             if (leechPool > 0.0) {
-                val heal = min(leechPool, stats.life * 0.03 * dt)
+                val heal = min(leechPool, player.baseLife * 0.03 * dt)
                 leechPool -= heal
-                player.life = min(stats.life, player.life + heal)
+                player.life = min(player.baseLife, player.life + heal)
             }
         }
         player.esDelay = max(0f, player.esDelay - dt)
-        if (player.esDelay <= 0f && player.es < stats.es) {
-            player.es = min(stats.es, player.es + stats.es * 0.22 * dt)
+        if (player.esDelay <= 0f && player.es < player.baseEs) {
+            player.es = min(player.baseEs, player.es + player.baseEs * 0.22 * dt)
         }
         player.attackAnim = max(0f, player.attackAnim - dt / 0.26f)
         player.dodgeCooldown = max(0f, player.dodgeCooldown - dt)
 
         val nearest = nearestEnemy()
         var moving = false
+
+        // 보스 장판이 곧 떨어지면 옆으로 구른다
+        if (player.dodgeCooldown <= 0f) {
+            val danger = dangerTelegraph()
+            if (danger != null) {
+                val a = danger.escapeAngle(player.x, player.y) + (rand.nextFloat() - 0.5f) * 0.35f
+                player.dashTimer = 0.34f
+                player.dashVx = cos(a) * 380f
+                player.dashVy = sin(a) * 380f
+                player.dodgeCooldown = 1.0f
+                addPopup(player.x, player.y - 70f, "구르기", false, 0.55f, 0xFF8CE8C0.toInt(), 0.8f)
+            }
+        }
 
         if (player.dashTimer > 0f) {
             player.dashTimer -= dt
@@ -711,7 +863,7 @@ class BattleWorld(
         if (player.attackTimer <= 0f) {
             val target = nearest
             if (target != null) {
-                player.attackTimer = (1.0 / stats.aps.coerceIn(0.2, 12.0)).toFloat()
+                player.attackTimer = (1.0 / effectiveAps()).toFloat()
                 player.attackAnim = 1f
                 player.attackCount++
                 fireAttack(target)
@@ -737,10 +889,17 @@ class BattleWorld(
 
     /** PoB DPS를 평균 피해로 환산 (치명타 기대값 포함) */
     private fun baseHitDamage(): Double {
+        val aps = effectiveAps()
+        val dps = stats.dps.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val critFactor = 1.0 + (stats.critChance / 100.0) * (stats.critMulti / 100.0 - 1.0)
-        val perHit = stats.dps / stats.aps
-        return (perHit / critFactor).coerceAtLeast(1.0)
+        val perHit = dps / aps
+        val factor = critFactor.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        return (perHit / factor).coerceAtLeast(1.0)
     }
+
+    /** 초당 공격 횟수가 0/NaN으로 들어와도 루프가 멈추지 않게 한다. */
+    private fun effectiveAps(): Double =
+        stats.aps.takeIf { it.isFinite() && it > 0.0 }?.coerceIn(0.2, 12.0) ?: 1.0
 
     private fun rollDamage(): Pair<Double, Boolean> {
         val crit = rand.nextDouble() * 100.0 < stats.critChance
@@ -866,9 +1025,29 @@ class BattleWorld(
 
     // ------------------------------------------------------------ 적
 
+    /** 감전·빙결·점화 타이머를 줄이고 점화 피해를 준다. */
+    private fun updateAilments(dt: Float) {
+        for (e in enemies) {
+            if (!e.alive) continue
+            if (e.shockT > 0f) e.shockT = max(0f, e.shockT - dt)
+            if (e.freezeT > 0f) e.freezeT = max(0f, e.freezeT - dt)
+            if (e.igniteT <= 0f) continue
+            e.igniteT = max(0f, e.igniteT - dt)
+            val tick = e.igniteDps * dt
+            if (tick <= 0) continue
+            e.hp -= tick
+            damageDealt += tick
+            if (rand.nextDouble() < 0.12) {
+                addPopup(e.x, e.y - 46f * e.scale, formatShort(tick), false, 0.5f, 0xFFFF8A3D.toInt(), 0.7f)
+            }
+            if (e.hp <= 0) killEnemy(e)
+        }
+    }
+
     private fun updateEnemies(dt: Float) {
         for (e in enemies) {
             if (!e.alive) continue
+            val frozen = e.freezeT > 0f
             val walkRate = if (e.kind == EnemyKind.BOSS && e.boss != null) 5f else 8f
             e.walkPhase += dt * walkRate
             val dx = player.x - e.x
@@ -905,7 +1084,8 @@ class BattleWorld(
                 val ax = aimX - e.x
                 val ay = aimY - e.y
                 val ad = hypot(ax, ay).coerceAtLeast(0.001f)
-                val sp = e.speed * pull * (if (e.windup > 0f) 0.25f else 1f)
+                val sp = e.speed * pull * (if (e.windup > 0f) 0.25f else 1f) *
+                    (if (frozen) 0.35f else 1f)
                 e.vx = ax / ad * sp
                 e.vy = ay / ad * sp
                 e.x += e.vx * dt
@@ -921,6 +1101,10 @@ class BattleWorld(
             e.y = e.y.coerceIn(56f, H - 30f)
 
             if (e.windup > 0f) continue
+            if (frozen) {
+                e.attackTimer = max(e.attackTimer, 0.35)
+                continue
+            }
             e.attackTimer -= dt
             val inRange = if (e.ranged) dist < 300f else dist < stop + 24f
             if (e.attackTimer <= 0f && inRange) {
@@ -1028,10 +1212,20 @@ class BattleWorld(
 
     // ------------------------------------------------------------ 피해 처리
 
+    /** 룬 보호막이 있으면 피해를 먼저 흡수한다. */
+    private fun applyShield(e: Enemy, damage: Double): Double {
+        if (e.shield <= 0.0) return damage
+        val absorbed = min(e.shield, damage * 0.6)
+        e.shield -= absorbed
+        return damage - absorbed
+    }
+
     private fun hitEnemy(e: Enemy, damage: Double, crit: Boolean, angle: Float, scale: Float = 1f) {
         if (!e.alive) return
-        e.hp -= damage
-        damageDealt += damage
+        // 감전된 적은 피해를 더 받는다
+        val dealt = applyShield(e, if (e.shocked) damage * 1.15 else damage)
+        e.hp -= dealt
+        damageDealt += dealt
         e.hitFlash = 1f
         if (crit) {
             critCount++
@@ -1040,45 +1234,79 @@ class BattleWorld(
         addPopup(
             e.x + (rand.nextFloat() - 0.5f) * 20f,
             e.y - 52f * e.scale - rand.nextFloat() * 10f,
-            if (crit) "CRIT! ${formatShort(damage)}" else formatShort(damage),
+            if (crit) "CRIT! ${formatShort(dealt)}" else formatShort(dealt),
             crit,
             if (crit) 1.0f else 0.62f,
             if (crit) 0xFFFFC24D.toInt() else 0xFFF5F1E8.toInt(),
             if (crit) 1.32f else 0.92f * scale,
         )
-        leechPool += damage * 0.006
+        leechPool += dealt * 0.006
         onSkillHit(e, crit, angle)
-        feedTriggers(e, crit)
+        applyAilments(e, crit)
+        if (crit) fireEvent(TriggerCondition.CRIT, e)
         if (e.hp <= 0) killEnemy(e)
+    }
+
+    /** 명중한 피해 속성으로 상태이상을 굴린다. 주 속성은 확률이 높고 다른 속성도 낮은 확률로 걸린다. */
+    private fun applyAilments(e: Enemy, crit: Boolean) {
+        val element = stats.fx.element
+        fun roll(ailment: DamageElement, match: Double, other: Double): Boolean {
+            val base = if (element == ailment) match else other
+            val chance = base + if (crit) 0.35 else 0.0
+            return rand.nextDouble() < chance
+        }
+        if (roll(DamageElement.LIGHTNING, 0.30, 0.10)) {
+            e.shockT = max(e.shockT, 4.0f)
+            fireEvent(TriggerCondition.SHOCK, e)
+            addPopup(e.x, e.y - 74f * e.scale, "감전", false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
+        }
+        if (roll(DamageElement.COLD, 0.22, 0.07)) {
+            e.freezeT = max(e.freezeT, 2.4f)
+            fireEvent(TriggerCondition.FREEZE, e)
+            addPopup(e.x + 16f, e.y - 74f * e.scale, "빙결", false, 0.5f, 0xFF9BE8FF.toInt(), 0.72f)
+            addFx(FxKind.ICE_CONE, e.x, e.y, radius = 26f, life = 0.3f, color = 0xFFBFF4FF.toInt())
+        }
+        if (roll(DamageElement.FIRE, 0.30, 0.09)) {
+            val ignite = baseHitDamage() * 0.22
+            e.igniteT = max(e.igniteT, 3.2f)
+            e.igniteDps = max(e.igniteDps, ignite)
+            fireEvent(TriggerCondition.IGNITE, e)
+            addPopup(e.x - 14f, e.y - 74f * e.scale, "점화", false, 0.5f, 0xFFFF8A3D.toInt(), 0.72f)
+        }
     }
 
     // ------------------------------------------------------------ 트리거(치명타·감전·빙결·점화 시 시전)
 
-    private fun feedTriggers(e: Enemy, crit: Boolean) {
+    /**
+     * 조건 사건 하나를 모든 메타젬에 전달한다.
+     * 각 메타젬은 자기 조건(accepts)에 맞는 사건만 받아 독립적으로 에너지를 채우고 발동한다.
+     */
+    private fun fireEvent(condition: TriggerCondition, target: Enemy? = null) {
         if (triggers.isEmpty()) return
-        val element = stats.fx.element
         for (rt in triggers) {
+            if (!rt.spec.kind.accepts.contains(condition)) continue
             if (rt.cooldown > 0f || rt.energy >= rt.threshold) continue
-            val hit = when (rt.spec.kind.condition) {
-                TriggerCondition.CRIT -> crit
-                TriggerCondition.SHOCK -> element == DamageElement.LIGHTNING &&
-                    (crit || rand.nextDouble() < 0.25)
-                TriggerCondition.FREEZE -> element == DamageElement.COLD &&
-                    (crit || rand.nextDouble() < 0.20)
-                TriggerCondition.IGNITE -> element == DamageElement.FIRE &&
-                    (crit || rand.nextDouble() < 0.30)
-                TriggerCondition.MINION_DEATH -> false
-            }
-            if (!hit) continue
             rt.addEnergy(1.0)
-            if (rt.ready()) castTrigger(rt, e)
+            if (rt.ready()) {
+                val victim = target?.takeIf { it.alive } ?: nearestEnemy()
+                if (victim != null) castTrigger(rt, victim)
+            }
         }
     }
 
     private fun updateTriggers(dt: Float) {
         for (rt in triggers) {
             rt.tick(dt)
-            if (rt.ready()) {
+            // 신성모독 같은 지속 오라는 스스로 에너지를 채운다.
+            val grew = rt.tickAura(dt)
+            if (grew && rt.ready()) {
+                val target = nearestEnemy()
+                if (target != null) castTrigger(rt, target)
+            }
+            // 소환수 빌드는 소환수가 쓰러지는 사건이 계속 생긴다.
+            if (rt.spec.kind.accepts.contains(TriggerCondition.MINION_DEATH) &&
+                stats.fx == SkillEffectType.MINION && rt.ready()
+            ) {
                 val target = nearestEnemy()
                 if (target != null) castTrigger(rt, target)
             }
@@ -1097,18 +1325,18 @@ class BattleWorld(
             false, 0.7f, 0xFFCFF3FF.toInt(), 0.86f,
         )
         when (skill.fx) {
-            SkillEffectType.ICE -> spawnMeteor(target, damage, skill.name)
-            SkillEffectType.LIGHTNING -> triggerLightning(target, damage, skill.name)
-            SkillEffectType.FIRE -> triggerFire(target, damage, skill.name)
-            SkillEffectType.CHAOS -> triggerChaos(target, damage, skill.name)
-            SkillEffectType.MELEE -> triggerSlam(target, damage, skill.name)
-            SkillEffectType.MINION -> triggerMinions(target, damage, skill.name)
+            SkillEffectType.ICE -> spawnMeteor(target, damage, skill.name, rt)
+            SkillEffectType.LIGHTNING -> triggerLightning(target, damage, skill.name, rt)
+            SkillEffectType.FIRE -> triggerFire(target, damage, skill.name, rt)
+            SkillEffectType.CHAOS -> triggerChaos(target, damage, skill.name, rt)
+            SkillEffectType.MELEE -> triggerSlam(target, damage, skill.name, rt)
+            SkillEffectType.MINION -> triggerMinions(target, damage, skill.name, rt)
         }
         addFx(FxKind.AURA, player.x, player.y, radius = 54f, life = 0.3f, color = color)
     }
 
     /** 혜성: 하늘에서 얼음 덩어리가 떨어져 착탄 지점에 광역 피해 */
-    private fun spawnMeteor(target: Enemy, damage: Double, label: String) {
+    private fun spawnMeteor(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
         val fall = 0.55f
         val radius = 96f
         val x = target.x + (rand.nextFloat() - 0.5f) * 18f
@@ -1120,11 +1348,11 @@ class BattleWorld(
         )
         addFx(FxKind.GROUND_CRACK, x, y, radius = radius, life = fall, color = 0xFF7FD8FF.toInt())
         pendingStrikes.add(
-            PendingStrike(x, y, radius, damage, DamageElement.COLD, label, FxKind.METEOR, fall)
+            PendingStrike(x, y, radius, damage, DamageElement.COLD, label, FxKind.METEOR, fall, rt)
         )
     }
 
-    private fun triggerLightning(target: Enemy, damage: Double, label: String) {
+    private fun triggerLightning(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
         val victims = (listOf(target) + nearbyEnemies(target, 140f, 2)).distinct().take(3)
         var prev = target
         victims.forEachIndexed { index, victim ->
@@ -1137,32 +1365,32 @@ class BattleWorld(
         addFx(FxKind.PILLAR, target.x, target.y, radius = 30f, life = 0.4f, color = 0xFFFFF6C8.toInt())
         addFx(FxKind.RING, target.x, target.y, radius = 76f, life = 0.4f, color = 0xFFFFE272.toInt())
         addBurst(target.x, target.y, 12, 0xFFFFF3A8.toInt(), 250f, 0.5f)
-        dealAreaDamage(target, damage, 88f, DamageElement.LIGHTNING, label)
+        dealAreaDamage(target, damage, 88f, DamageElement.LIGHTNING, label, rt)
         shake = max(shake, 4.2f)
     }
 
-    private fun triggerFire(target: Enemy, damage: Double, label: String) {
+    private fun triggerFire(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
         addFx(FxKind.RING, target.x, target.y, radius = 92f, life = 0.5f, color = 0xFFFF8A3D.toInt(), width = 1.2f)
         addFx(FxKind.RING, target.x, target.y, radius = 52f, life = 0.36f, color = 0xFFFFD27A.toInt(), width = 0.8f)
         addBurst(target.x, target.y, 16, 0xFFFFA64D.toInt(), 280f, 0.8f, gravity = -80f)
-        dealAreaDamage(target, damage, 92f, DamageElement.FIRE, label)
+        dealAreaDamage(target, damage, 92f, DamageElement.FIRE, label, rt)
         shake = max(shake, 4.6f)
     }
 
-    private fun triggerChaos(target: Enemy, damage: Double, label: String) {
+    private fun triggerChaos(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
         addFx(FxKind.AURA, target.x, target.y, radius = 82f, life = 0.7f, color = DamageElement.CHAOS.color)
         addBurst(target.x, target.y, 14, 0xFFC182FF.toInt(), 200f, 0.9f, gravity = -50f)
-        dealAreaDamage(target, damage, 84f, DamageElement.CHAOS, label)
+        dealAreaDamage(target, damage, 84f, DamageElement.CHAOS, label, rt)
     }
 
-    private fun triggerSlam(target: Enemy, damage: Double, label: String) {
+    private fun triggerSlam(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
         addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 78f, life = 0.45f, color = 0xFFFFD89A.toInt(), width = 1.4f)
         addBurst(target.x, target.y, 10, 0xFFFFC24D.toInt(), 230f, 0.55f)
-        dealAreaDamage(target, damage, 76f, DamageElement.PHYSICAL, label)
+        dealAreaDamage(target, damage, 76f, DamageElement.PHYSICAL, label, rt)
         shake = max(shake, 3.6f)
     }
 
-    private fun triggerMinions(target: Enemy, damage: Double, label: String) {
+    private fun triggerMinions(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
         val fan = listOf(target) + nearbyEnemies(target, 200f, 2)
         fan.forEachIndexed { index, enemy ->
             val angle = atan2(enemy.y - player.y, enemy.x - player.x)
@@ -1173,16 +1401,17 @@ class BattleWorld(
         }
     }
 
-    private fun dealAreaDamage(center: Enemy, damage: Double, radius: Float, element: DamageElement, label: String) {
+    private fun dealAreaDamage(center: Enemy, damage: Double, radius: Float, element: DamageElement, label: String, rt: TriggerRuntime? = null) {
         var hits = 0
         for (other in enemies) {
             if (!other.alive) continue
             if (hypot(other.x - center.x, other.y - center.y) > radius) continue
-            val taken = damage * if (other === center) 1.0 else 0.62
+            val taken = applyShield(other, damage * if (other === center) 1.0 else 0.62)
             other.hp -= taken
             other.hitFlash = 1f
             damageDealt += taken
             triggerDamage += taken
+            rt?.addDamage(taken)
             hits++
             addPopup(
                 other.x + (rand.nextFloat() - 0.5f) * 18f,
@@ -1211,7 +1440,7 @@ class BattleWorld(
             addBurst(strike.x, strike.y, 18, 0xFFBFF4FF.toInt(), 300f, 0.75f, gravity = -60f)
             val target = enemies.firstOrNull { it.alive && hypot(it.x - strike.x, it.y - strike.y) < 1f }
             if (target != null) {
-                dealAreaDamage(target, strike.damage, strike.radius, strike.element, strike.name)
+                dealAreaDamage(target, strike.damage, strike.radius, strike.element, strike.name, strike.trigger)
             } else {
                 for (other in enemies) {
                     if (!other.alive) continue
@@ -1221,6 +1450,7 @@ class BattleWorld(
                     other.hitFlash = 1f
                     damageDealt += taken
                     triggerDamage += taken
+                    strike.trigger?.addDamage(taken)
                     addPopup(other.x, other.y - 50f * other.scale, formatShort(taken), false, 0.6f, strike.element.color, 0.9f)
                     if (other.hp <= 0) killEnemy(other)
                 }
@@ -1314,15 +1544,10 @@ class BattleWorld(
         addBurst(e.x, e.y, if (e.kind == EnemyKind.BOSS) 40 else 12, 0xFFE8D9B8.toInt(), if (e.kind == EnemyKind.BOSS) 420f else 250f, 0.9f)
         addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
         if (e.kind == EnemyKind.BOSS) shake = 10f
-        // 소환수가 적을 잡으면 "소환수 사망 시 시전" 대신 처치 에너지로 쌓아 준다
-        if (stats.fx == SkillEffectType.MINION && triggers.isNotEmpty()) {
-            for (rt in triggers) {
-                if (rt.spec.kind.condition != TriggerCondition.MINION_DEATH) continue
-                if (rt.cooldown > 0f || rt.energy >= rt.threshold) continue
-                rt.addEnergy(1.0)
-                if (rt.ready()) castTrigger(rt, e)
-            }
-        }
+        // 전령류·근접 처치 시 시전은 처치 사건으로 돈다
+        fireEvent(TriggerCondition.KILL, null)
+        // 소환수 빌드에서 적을 잡으면 소환수가 쓰러진 것으로 쳐 준다
+        if (stats.fx == SkillEffectType.MINION) fireEvent(TriggerCondition.MINION_DEATH, null)
     }
 
     private fun hitPlayer(raw: Double, element: DamageElement, canEvade: Boolean, fromX: Float, fromY: Float, heavy: Boolean = false) {
@@ -1330,6 +1555,7 @@ class BattleWorld(
         if (canEvade && rand.nextDouble() * 100.0 < stats.evade) {
             evades++
             addPopup(player.x + (rand.nextFloat() - 0.5f) * 16f, player.y - 62f, "회피", false, 0.7f, 0xFF8CE8C0.toInt(), 0.86f)
+            fireEvent(TriggerCondition.DODGE, null)
             return
         }
         val mit = when (element) {
@@ -1352,6 +1578,7 @@ class BattleWorld(
         player.hurtFlash = 1f
         hitsTaken++
         damageTaken += dmg
+        fireEvent(TriggerCondition.HIT_TAKEN, null)
         addPopup(
             player.x + (rand.nextFloat() - 0.5f) * 18f,
             player.y - 64f,
@@ -1474,6 +1701,365 @@ class BattleWorld(
         popups.add(Popup(x, y, text, crit, life, color, size))
     }
 
+    /** HUD에 보여줄 메타젬별 발동 현황 — 활성화된 메타젬을 전부 나열한다. */
+    fun triggerHud(): String =
+        triggers.joinToString("  ") { rt -> "${rt.spec.kind.short} ${rt.casts}" }
+
+    // ------------------------------------------------------------ 보스 패턴·페이즈
+
+    private fun updateBossPatterns(dt: Float) {
+        val b = bossEnemy ?: return
+        if (!b.alive) return
+        if (bossPhase == 1 && b.hp <= b.maxHp * 0.5) enterPhaseTwo(b)
+        bossPatternTimer -= dt
+        if (bossPatternTimer > 0f) return
+        val patterns = bossPatterns(b)
+        if (patterns.isEmpty()) return
+        val pattern = patterns[bossPatternIndex % patterns.size]
+        bossPatternIndex++
+        bossPatternName = pattern.name
+        patternHistory.add(pattern.name)
+        pattern.action()
+        bossPatternTimer = pattern.cooldown * (if (bossPhase >= 2) 0.78f else 1f)
+    }
+
+    private fun enterPhaseTwo(b: Enemy) {
+        bossPhase = 2
+        phaseTwoAnnounced = true
+        b.enraged = true
+        bossPatternTimer = 1.0f
+        bossPatternIndex = 0
+        bannerText = "${b.boss?.name.orEmpty()} · 2페이즈"
+        banner = 2.4f
+        shake = max(shake, 9f)
+        addFx(FxKind.AURA, b.x, b.y, radius = 200f, life = 1.2f, color = b.boss?.element?.color ?: 0xFFFF6A3D.toInt())
+        addFx(FxKind.RING, b.x, b.y, radius = 150f, life = 0.8f, color = 0xFFFFFFFF.toInt(), width = 2f)
+        addBurst(b.x, b.y - 40f * b.scale, 30, b.boss?.element?.color ?: 0xFFFF6A3D.toInt(), 360f, 1.1f)
+    }
+
+    private fun bossPatterns(b: Enemy): List<BossPattern> {
+        val id = b.boss?.id ?: return emptyList()
+        val second = bossPhase >= 2
+        val list = ArrayList<BossPattern>()
+        when (id) {
+            "arbiter" -> {
+                list.add(BossPattern("화염 검기", 2.7f) { arbiterSlash(b) })
+                list.add(BossPattern("불기둥", 3.0f) { arbiterPillar(b) })
+                if (second) {
+                    list.add(BossPattern("심판의 안전지대", 4.6f) { arbiterJudgment(b) })
+                    list.add(BossPattern("유성 낙하", 4.0f) { arbiterMeteors(b) })
+                }
+            }
+            "xesht" -> {
+                list.add(BossPattern("균열 구체 연사", 2.6f) { xeshtVolley(b) })
+                list.add(BossPattern("거대 손 내려찍기", 3.4f) { xeshtHand(b) })
+                if (second) list.add(BossPattern("균열 쫄 소환", 5.0f) { xeshtAdds(b) })
+            }
+            "king" -> {
+                list.add(BossPattern("의식 투사체", 2.8f) { kingVolley(b) })
+                list.add(BossPattern("순간이동", 3.2f) { kingBlink(b) })
+                if (second) {
+                    list.add(BossPattern("저주 장판", 4.2f) { kingCurse(b) })
+                    list.add(BossPattern("분신", 5.2f) { kingClones(b) })
+                }
+            }
+            "zarokh" -> {
+                list.add(BossPattern("시간 구체", 2.7f) { zarokhVolley(b) })
+                list.add(BossPattern("모래시계", 3.6f) { zarokhHourglass(b) })
+                if (second) {
+                    list.add(BossPattern("시간 왜곡", 3.8f) { zarokhWarp(b) })
+                    list.add(BossPattern("번개 구슬 회전", 4.4f) { zarokhOrbit(b) })
+                }
+            }
+            "olroth" -> {
+                list.add(BossPattern("룬 검기", 2.7f) { olrothSlash(b) })
+                list.add(BossPattern("빙결 파편", 3.0f) { olrothShards(b) })
+                if (second) {
+                    list.add(BossPattern("룬 보호막", 6.0f) { olrothShield(b) })
+                    list.add(BossPattern("광역 냉기 폭발", 4.2f) { olrothNova(b) })
+                }
+            }
+            else -> list.add(BossPattern("강타", 3.0f) { beginSlam(b) })
+        }
+        return list
+    }
+
+    // ---- 장판 추가 도우미
+
+    private fun tele(x: Float, y: Float, shape: TelegraphShape, radius: Float, length: Float,
+                     angle: Float, windup: Float, damage: Double, element: DamageElement,
+                     name: String, delay: Float = 0f) {
+        telegraphs.add(Telegraph(shape, x, y, angle, radius, length, windup, damage, element, name, delay))
+        telegraphsSpawned++
+        addFx(
+            if (shape == TelegraphShape.LINE) FxKind.SLASH else FxKind.GROUND_CRACK,
+            x, y, angle = angle, radius = if (shape == TelegraphShape.LINE) length else radius,
+            life = windup + delay, color = alphaOf(element.color, 150),
+        )
+    }
+
+    private fun alphaOf(color: Int, a: Int): Int =
+        (color and 0x00FFFFFF) or ((a.coerceIn(0, 255) and 0xFF) shl 24)
+
+    private fun circleAtPlayer(radius: Float, windup: Float, damage: Double, element: DamageElement, name: String) {
+        tele(player.x, player.y, TelegraphShape.CIRCLE, radius, 0f, 0f, windup, damage, element, name)
+    }
+
+    private fun lineAtPlayer(radius: Float, length: Float, windup: Float, damage: Double, element: DamageElement, name: String, spread: Float = 0f) {
+        val b = bossEnemy ?: return
+        val angle = atan2(player.y - b.y, player.x - b.x) + spread
+        tele(b.x, b.y, TelegraphShape.LINE, radius, length, angle, windup, damage, element, name)
+    }
+
+    // ---- 재의 중재자
+
+    private fun arbiterSlash(b: Enemy) {
+        val dmg = b.hit * 2.1
+        lineAtPlayer(24f, 460f, 0.95f, dmg, DamageElement.FIRE, "화염 검기")
+        lineAtPlayer(24f, 460f, 1.15f, dmg * 0.85, DamageElement.FIRE, "화염 검기", spread = 0.34f)
+        lineAtPlayer(24f, 460f, 1.15f, dmg * 0.85, DamageElement.FIRE, "화염 검기", spread = -0.34f)
+    }
+
+    private fun arbiterPillar(b: Enemy) {
+        circleAtPlayer(88f, 1.05f, b.hit * 1.9, DamageElement.FIRE, "불기둥")
+        repeat(2) {
+            val x = player.x + (rand.nextFloat() - 0.5f) * 220f
+            val y = player.y + (rand.nextFloat() - 0.5f) * 220f
+            tele(x, y, TelegraphShape.CIRCLE, 70f, 0f, 0f, 1.3f, b.hit * 1.5, DamageElement.FIRE, "불기둥")
+        }
+    }
+
+    private fun arbiterJudgment(b: Enemy) {
+        // 전장 전체가 불타고 가운데 안전 원만 남는다
+        telegraphs.add(
+            Telegraph(
+                TelegraphShape.SAFE_CIRCLE,
+                BattleWorld.W / 2f, BattleWorld.H / 2f, 0f,
+                92f, 0f, 2.3f, b.hit * 2.6, DamageElement.FIRE, "심판의 안전지대",
+            )
+        )
+        addFx(FxKind.AURA, BattleWorld.W / 2f, BattleWorld.H / 2f, radius = 92f, life = 2.3f, color = 0xFF7DFFB0.toInt())
+    }
+
+    private fun arbiterMeteors(b: Enemy) {
+        repeat(6) { i ->
+            val x = player.x + if (i == 0) 0f else (rand.nextFloat() - 0.5f) * 360f
+            val y = player.y + if (i == 0) 0f else (rand.nextFloat() - 0.5f) * 420f
+            tele(
+                x.coerceIn(40f, BattleWorld.W - 40f), y.coerceIn(60f, BattleWorld.H - 30f),
+                TelegraphShape.CIRCLE, 74f, 0f, 0f, 1.5f + i * 0.12f, b.hit * 1.7,
+                DamageElement.FIRE, "유성 낙하",
+            )
+        }
+    }
+
+    // ---- 균열 군주 크세쉬
+
+    private fun xeshtVolley(b: Enemy) {
+        bossVolley(b, 5, DamageElement.CHAOS, 0.16f, 380f)
+        addFx(FxKind.AURA, b.x, b.y - 50f * b.scale, radius = 60f, life = 0.4f, color = DamageElement.CHAOS.color)
+    }
+
+    private fun xeshtHand(b: Enemy) {
+        val dmg = b.hit * 2.4
+        circleAtPlayer(120f, 1.15f, dmg, DamageElement.PHYSICAL, "거대 손 내려찍기")
+        lineAtPlayer(40f, 300f, 1.15f, dmg * 0.8, DamageElement.CHAOS, "균열 손아귀")
+    }
+
+    private fun xeshtAdds(b: Enemy) {
+        bossPatternName = "균열 쫄 소환"
+        repeat(3) {
+            val angle = rand.nextFloat() * 6.283f
+            val x = (b.x + cos(angle) * 120f).coerceIn(60f, BattleWorld.W - 40f)
+            val y = (b.y + sin(angle) * 120f).coerceIn(60f, BattleWorld.H - 30f)
+            val e = Enemy(
+                kind = EnemyKind.MAGIC, x = x, y = y,
+                maxHp = 210_000.0, hit = 420.0, interval = 1.5,
+                element = DamageElement.CHAOS, ranged = true, speed = 78f, scale = 1.2f,
+                slotAngle = rand.nextFloat() * 6.283f,
+            )
+            enemies.add(e)
+            addFx(FxKind.AURA, x, y, radius = 46f, life = 0.6f, color = DamageElement.CHAOS.color)
+            addBurst(x, y, 10, 0xFFC182FF.toInt(), 190f, 0.6f)
+        }
+    }
+
+    // ---- 안개 속의 왕
+
+    private fun kingVolley(b: Enemy) {
+        bossVolley(b, 4, DamageElement.COLD, 0.2f, 320f)
+    }
+
+    private fun kingBlink(b: Enemy) {
+        val angle = rand.nextFloat() * 6.283f
+        val x = (player.x + cos(angle) * 150f).coerceIn(60f, BattleWorld.W - 40f)
+        val y = (player.y + sin(angle) * 150f).coerceIn(70f, BattleWorld.H - 30f)
+        addBurst(b.x, b.y - 40f * b.scale, 18, 0xFF9A7DFF.toInt(), 260f, 0.7f)
+        addFx(FxKind.AURA, b.x, b.y, radius = 70f, life = 0.5f, color = 0xFF7A5ACC.toInt())
+        b.x = x
+        b.y = y
+        addFx(FxKind.AURA, x, y, radius = 90f, life = 0.6f, color = 0xFFB79CFF.toInt())
+        circleAtPlayer(96f, 0.9f, b.hit * 1.8, DamageElement.COLD, "안개의 손아귀")
+    }
+
+    private fun kingCurse(b: Enemy) {
+        // 가운데만 안전한 저주 고리
+        telegraphs.add(
+            Telegraph(
+                TelegraphShape.DONUT, player.x, player.y, 0f,
+                74f, 260f, 2.1f, b.hit * 2.0, DamageElement.CHAOS, "저주 장판",
+            )
+        )
+        addFx(FxKind.RING, player.x, player.y, radius = 260f, life = 2.1f, color = 0xFF8E6BE0.toInt(), width = 1.6f)
+    }
+
+    private fun kingClones(b: Enemy) {
+        bossPatternName = "분신"
+        repeat(2) { i ->
+            val angle = if (i == 0) 0.6f else 3.6f
+            val x = (b.x + cos(angle) * 130f).coerceIn(60f, BattleWorld.W - 40f)
+            val y = (b.y + sin(angle) * 130f).coerceIn(60f, BattleWorld.H - 30f)
+            enemies.add(
+                Enemy(
+                    kind = EnemyKind.MAGIC, x = x, y = y,
+                    maxHp = 260_000.0, hit = 380.0, interval = 1.7,
+                    element = DamageElement.COLD, ranged = true, speed = 70f, scale = 1.15f,
+                    slotAngle = angle,
+                )
+            )
+            addFx(FxKind.AURA, x, y, radius = 52f, life = 0.7f, color = 0xFFB79CFF.toInt())
+        }
+    }
+
+    // ---- 자로크
+
+    private fun zarokhVolley(b: Enemy) {
+        bossVolley(b, 4, DamageElement.LIGHTNING, 0.14f, 400f)
+    }
+
+    private fun zarokhHourglass(b: Enemy) {
+        val angle = rand.nextFloat() * 3.14f
+        tele(player.x, player.y, TelegraphShape.CROSS, 26f, 220f, angle, 1.2f, b.hit * 2.0, DamageElement.LIGHTNING, "모래시계")
+        addFx(FxKind.RING, player.x, player.y, radius = 90f, life = 1.2f, color = 0xFFFFE9A8.toInt())
+    }
+
+    private fun zarokhWarp(b: Enemy) {
+        // 시간이 느려진 틈에 사방에서 구체가 날아온다
+        bossVolley(b, 8, DamageElement.LIGHTNING, 0.38f, 300f)
+        addFx(FxKind.AURA, player.x, player.y, radius = 120f, life = 0.7f, color = 0xFFB79CFF.toInt())
+    }
+
+    private fun zarokhOrbit(b: Enemy) {
+        repeat(10) { i ->
+            val a = i * 0.628f + elapsed.toFloat()
+            projectiles.add(
+                Projectile(
+                    x = b.x + cos(a) * 60f, y = b.y + sin(a) * 60f,
+                    dirX = cos(a), dirY = sin(a), speed = 300f,
+                    damage = b.hit * 0.95, crit = false, target = null, hostile = true,
+                    element = DamageElement.LIGHTNING, kind = ProjKind.ENEMY_BOLT,
+                )
+            )
+        }
+        addFx(FxKind.RING, b.x, b.y, radius = 90f, life = 0.5f, color = 0xFFFFF3A8.toInt(), width = 1.4f)
+    }
+
+    // ---- 올로스
+
+    private fun olrothSlash(b: Enemy) {
+        lineAtPlayer(26f, 420f, 0.95f, b.hit * 2.0, DamageElement.COLD, "룬 검기")
+    }
+
+    private fun olrothShards(b: Enemy) {
+        val dmg = b.hit * 1.4
+        lineAtPlayer(22f, 340f, 1.0f, dmg, DamageElement.COLD, "빙결 파편", spread = -0.28f)
+        lineAtPlayer(22f, 340f, 1.0f, dmg, DamageElement.COLD, "빙결 파편")
+        lineAtPlayer(22f, 340f, 1.0f, dmg, DamageElement.COLD, "빙결 파편", spread = 0.28f)
+    }
+
+    private fun olrothShield(b: Enemy) {
+        b.shield = b.maxHp * 0.10
+        b.freezeT = 0f
+        addFx(FxKind.AURA, b.x, b.y - 40f * b.scale, radius = 110f, life = 1.0f, color = 0xFF7FE0FF.toInt())
+        addFx(FxKind.RING, b.x, b.y, radius = 100f, life = 0.8f, color = 0xFFBFF4FF.toInt(), width = 1.6f)
+        addBurst(b.x, b.y - 40f * b.scale, 16, 0xFF9BE8FF.toInt(), 220f, 0.7f)
+        bannerText = "룬 보호막"
+        banner = 1.4f
+    }
+
+    private fun olrothNova(b: Enemy) {
+        tele(b.x, b.y, TelegraphShape.CIRCLE, 230f, 0f, 0f, 1.6f, b.hit * 2.2, DamageElement.COLD, "광역 냉기 폭발")
+        repeat(4) { i ->
+            val a = i * 1.57f
+            tele(b.x + cos(a) * 150f, b.y + sin(a) * 150f, TelegraphShape.CIRCLE, 70f, 0f, 0f, 1.9f, b.hit * 1.3, DamageElement.COLD, "서리 파편")
+        }
+    }
+
+    // ---- 공용
+
+    private fun bossVolley(b: Enemy, count: Int, element: DamageElement, spread: Float, speed: Float) {
+        val base = atan2(player.y - b.y, player.x - b.x)
+        repeat(count) { i ->
+            val a = base + (i - (count - 1) / 2f) * spread
+            projectiles.add(
+                Projectile(
+                    x = b.x, y = b.y - 46f * b.scale,
+                    dirX = cos(a), dirY = sin(a), speed = speed,
+                    damage = b.hit * 0.8, crit = false, target = null, hostile = true,
+                    element = element, kind = ProjKind.ENEMY_BOLT,
+                )
+            )
+        }
+        addFx(FxKind.AURA, b.x, b.y - 46f * b.scale, radius = 54f, life = 0.35f, color = element.color)
+    }
+
+    private fun updateTelegraphs(dt: Float) {
+        var i = 0
+        while (i < telegraphs.size) {
+            val t = telegraphs[i]
+            val done = t.advance(dt)
+            if (!done) {
+                i++
+                continue
+            }
+            resolveTelegraph(t)
+            telegraphs.removeAt(i)
+            if (state != State.RUNNING) return
+        }
+    }
+
+    private fun resolveTelegraph(t: Telegraph) {
+        val color = t.element.color
+        when (t.shape) {
+            TelegraphShape.LINE -> {
+                addFx(FxKind.SLASH, t.x, t.y, angle = t.angle, radius = t.length, life = 0.3f, color = color, width = 2.2f)
+                addFx(FxKind.SHOCKWAVE, t.x + cos(t.angle) * t.length * 0.5f, t.y + sin(t.angle) * t.length * 0.5f, radius = t.radius * 2.2f, life = 0.35f, color = color)
+            }
+            TelegraphShape.CIRCLE, TelegraphShape.DONUT, TelegraphShape.SAFE_CIRCLE -> {
+                addFx(FxKind.SHOCKWAVE, t.x, t.y, radius = if (t.shape == TelegraphShape.DONUT) t.length else t.radius, life = 0.5f, color = color, width = 1.8f)
+                addFx(FxKind.RING, t.x, t.y, radius = t.radius, life = 0.4f, color = color)
+                addBurst(t.x, t.y, 20, color, 320f, 0.8f)
+            }
+            TelegraphShape.CROSS -> {
+                repeat(4) { i ->
+                    val a = t.angle + i * 1.5708f
+                    addFx(FxKind.BOLT, t.x, t.y, x2 = t.x + cos(a) * t.length, y2 = t.y + sin(a) * t.length, life = 0.25f, color = color, width = 1.6f)
+                }
+                addFx(FxKind.RING, t.x, t.y, radius = 70f, life = 0.45f, color = color)
+            }
+        }
+        shake = max(shake, 6.5f)
+        if (t.contains(player.x, player.y)) {
+            hitPlayer(t.damage, t.element, true, t.x, t.y, heavy = true)
+        } else {
+            addPopup(player.x, player.y - 76f, "회피 성공", false, 0.7f, 0xFF8CE8C0.toInt(), 0.82f)
+        }
+    }
+
+    /** 지금 피해야 할 장판 (곧 떨어지고, 안에 서 있으면 맞는다) */
+    fun dangerTelegraph(): Telegraph? =
+        telegraphs.firstOrNull { it.aboutToLand && it.contains(player.x, player.y) }
+
     fun result(): BattleResult {
         val seconds = max(0.1, elapsed)
         return BattleResult(
@@ -1493,6 +2079,7 @@ class BattleWorld(
             triggerCasts = triggerCasts,
             triggerDamage = triggerDamage,
             triggerText = stats.triggerText,
+            triggers = triggers.map { it.report() },
         )
     }
 

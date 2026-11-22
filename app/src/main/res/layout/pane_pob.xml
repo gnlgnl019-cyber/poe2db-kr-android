@@ -12,11 +12,15 @@
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/pobTabs"
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="42dp"
             android:background="@color/surface"
             app:tabGravity="fill"
             app:tabIndicatorColor="@color/gold"
-            app:tabMode="scrollable"
+            app:tabMode="fixed"
+            app:tabMinWidth="0dp"
+            app:tabPaddingStart="0dp"
+            app:tabPaddingEnd="0dp"
+            app:tabTextAppearance="@style/TextAppearance.PoE2DB.Tab"
             app:tabSelectedTextColor="@color/gold"
             app:tabTextColor="@color/text_secondary" />
 
@@ -75,71 +79,31 @@
                         android:orientation="vertical"
                         android:padding="12dp">
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/pob_code_title"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-
-                        <EditText
-                            android:id="@+id/etPobCode"
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnPobLoad"
+                            style="@style/Widget.Material3.Button"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="6dp"
-                            android:background="@null"
-                            android:gravity="top"
-                            android:hint="@string/pob_code_hint"
-                            android:importantForAutofill="no"
-                            android:inputType="textMultiLine"
-                            android:maxLines="4"
-                            android:minLines="2"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_muted"
-                            android:textSize="12sp" />
-
-                        <HorizontalScrollView
-                            android:id="@+id/recentScroll"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:scrollbars="none"
-                            android:visibility="gone">
-
-                            <com.google.android.material.chip.ChipGroup
-                                android:id="@+id/recentChips"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                app:chipSpacingHorizontal="6dp"
-                                app:singleLine="true" />
-                        </HorizontalScrollView>
+                            android:minHeight="48dp"
+                            android:text="@string/pob_load_open"
+                            android:textColor="@color/on_gold"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            app:backgroundTint="@color/gold"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp" />
 
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
+                            android:layout_marginTop="6dp"
                             android:orientation="horizontal">
-
-                            <com.google.android.material.button.MaterialButton
-                                android:id="@+id/btnPobLoad"
-                                style="@style/Widget.Material3.Button.TonalButton"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_marginEnd="3dp"
-                                android:layout_weight="1"
-                                android:minHeight="42dp"
-                                android:text="@string/pob_load"
-                                android:textColor="@color/text_primary"
-                                android:textSize="12sp"
-                                android:insetLeft="2dp"
-                                android:insetRight="2dp" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/btnPobSample"
                                 style="@style/Widget.Material3.Button.TonalButton"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
-                                android:layout_marginStart="3dp"
                                 android:layout_marginEnd="3dp"
                                 android:layout_weight="1"
                                 android:minHeight="42dp"
@@ -175,9 +139,9 @@
                                 android:text="@string/pob_reset"
                                 android:textColor="@color/gold"
                                 android:textSize="12sp"
-                                app:strokeColor="@color/gold_40"
                                 android:insetLeft="2dp"
-                                android:insetRight="2dp" />
+                                android:insetRight="2dp"
+                                app:strokeColor="@color/gold_40" />
                         </LinearLayout>
                     </LinearLayout>
 
@@ -661,201 +625,204 @@
                 android:fillViewport="true"
                 android:visibility="gone">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tvBattleSkill"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="12dp"
-                    android:paddingTop="6dp"
-                    android:paddingEnd="12dp"
-                    android:paddingBottom="2dp"
-                    android:text="@string/battle_need_build"
-                    android:textColor="@color/gold"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvBattleTrigger"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="12dp"
-                    android:paddingEnd="12dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp"
-                    android:visibility="gone" />
-
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:clipToPadding="false"
-                    android:scrollbars="none">
-
-                    <com.google.android.material.chip.ChipGroup
-                        android:id="@+id/battleModeChips"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        app:chipSpacingHorizontal="5dp"
-                        app:singleLine="true"
-                        app:singleSelection="true" />
-                </HorizontalScrollView>
-
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:clipToPadding="false"
-                    android:scrollbars="none">
-
-                    <com.google.android.material.chip.ChipGroup
-                        android:id="@+id/battleOptChips"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        app:chipSpacingHorizontal="5dp"
-                        app:singleLine="true" />
-                </HorizontalScrollView>
-
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:clipToPadding="false"
-                    android:scrollbars="none">
-
-                    <com.google.android.material.chip.ChipGroup
-                        android:id="@+id/battleFxChips"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        app:chipSpacingHorizontal="5dp"
-                        app:singleLine="true"
-                        app:singleSelection="true" />
-                </HorizontalScrollView>
-
-                <HorizontalScrollView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:clipToPadding="false"
-                    android:scrollbars="none">
-
-                    <com.google.android.material.chip.ChipGroup
-                        android:id="@+id/battleTriggerChips"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        app:chipSpacingHorizontal="5dp"
-                        app:singleLine="true"
-                        app:singleSelection="true" />
-                </HorizontalScrollView>
-
-                <com.sunuhwi.poe2dbkr.BattleCanvasView
-                    android:id="@+id/battleCanvas"
-                    android:layout_width="match_parent"
-                    android:layout_height="420dp"
-                    android:layout_marginTop="6dp" />
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingStart="10dp"
-                    android:paddingTop="6dp"
-                    android:paddingEnd="10dp">
+                    android:orientation="vertical">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnBattleStart"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
+                    <TextView
+                        android:id="@+id/tvBattleSkill"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginEnd="3dp"
-                        android:layout_weight="1.1"
-                        android:minHeight="42dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:text="@string/battle_start"
-                        android:textColor="@color/text_primary"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnBattlePause"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="3dp"
-                        android:layout_marginEnd="3dp"
-                        android:layout_weight="1"
-                        android:minHeight="42dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:text="@string/battle_pause"
-                        android:textColor="@color/text_primary"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnBattleSpeed"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="3dp"
-                        android:layout_marginEnd="3dp"
-                        android:layout_weight="0.7"
-                        android:minHeight="42dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:text="@string/battle_speed_1x"
+                        android:paddingStart="12dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="2dp"
+                        android:text="@string/battle_need_build"
                         android:textColor="@color/gold"
                         android:textSize="12sp"
-                        app:strokeColor="@color/gold_40" />
+                        android:textStyle="bold" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnBattleReset"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
+                    <TextView
+                        android:id="@+id/tvBattleTrigger"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="3dp"
-                        android:layout_weight="0.8"
-                        android:minHeight="42dp"
-                        android:insetTop="0dp"
-                        android:insetBottom="0dp"
-                        android:text="@string/battle_reset"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
                         android:textColor="@color/text_secondary"
-                        android:textSize="12sp"
-                        app:strokeColor="@color/divider" />
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:clipToPadding="false"
+                        android:scrollbars="none">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/battleModeChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:chipSpacingHorizontal="5dp"
+                            app:singleLine="true"
+                            app:singleSelection="true" />
+                    </HorizontalScrollView>
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:clipToPadding="false"
+                        android:scrollbars="none">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/battleOptChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:chipSpacingHorizontal="5dp"
+                            app:singleLine="true" />
+                    </HorizontalScrollView>
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:clipToPadding="false"
+                        android:scrollbars="none">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/battleFxChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:chipSpacingHorizontal="5dp"
+                            app:singleLine="true"
+                            app:singleSelection="true" />
+                    </HorizontalScrollView>
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:clipToPadding="false"
+                        android:scrollbars="none">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/battleTriggerChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:chipSpacingHorizontal="5dp"
+                            app:singleLine="true"
+                            app:singleSelection="true" />
+                    </HorizontalScrollView>
+
+                    <!-- 시작 버튼은 캔버스 위에 둔다. 아래에 두면 작은 화면에서 스크롤해야 보인다. -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingStart="10dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="10dp">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnBattleStart"
+                            style="@style/Widget.Material3.Button"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="3dp"
+                            android:layout_weight="1.2"
+                            android:minHeight="44dp"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/battle_start"
+                            android:textColor="@color/on_gold"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            app:backgroundTint="@color/gold" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnBattlePause"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:layout_marginEnd="3dp"
+                            android:layout_weight="1"
+                            android:minHeight="44dp"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/battle_pause"
+                            android:textColor="@color/text_primary"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnBattleSpeed"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:layout_marginEnd="3dp"
+                            android:layout_weight="0.7"
+                            android:minHeight="44dp"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/battle_speed_1x"
+                            android:textColor="@color/gold"
+                            android:textSize="12sp"
+                            app:strokeColor="@color/gold_40" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnBattleReset"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:layout_weight="0.8"
+                            android:minHeight="44dp"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/battle_reset"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp"
+                            app:strokeColor="@color/divider" />
+                    </LinearLayout>
+
+                    <com.sunuhwi.poe2dbkr.BattleCanvasView
+                        android:id="@+id/battleCanvas"
+                        android:layout_width="match_parent"
+                        android:layout_height="420dp"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:id="@+id/tvBattleResult"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_marginTop="6dp"
+                        android:layout_marginEnd="10dp"
+                        android:background="@drawable/bg_search"
+                        android:lineSpacingExtra="2dp"
+                        android:padding="10dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="12dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="6dp"
+                        android:text="@string/battle_note"
+                        android:textColor="@color/text_muted"
+                        android:textSize="10sp" />
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/tvBattleResult"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginEnd="10dp"
-                    android:background="@drawable/bg_search"
-                    android:lineSpacingExtra="2dp"
-                    android:padding="10dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="12dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="12dp"
-                    android:paddingBottom="6dp"
-                    android:text="@string/battle_note"
-                    android:textColor="@color/text_muted"
-                    android:textSize="10sp" />
-            </LinearLayout>
             </ScrollView>
         </FrameLayout>
     </LinearLayout>
