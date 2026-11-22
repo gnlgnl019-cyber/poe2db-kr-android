@@ -102,13 +102,17 @@ class MetaOverflowTest {
     fun burstQueueDrainsAsCastsFire() {
         val withTrigger = stats().copy(triggers = listOf(comet))
         val world = BattleWorld(withTrigger, BattleMode.MAP, 20, false, null)
-        tick(world, 1.0)
-        val early = world.triggers.first().queued
-        tick(world, 6.0)
-        val later = world.triggers.first().queued
-        println("[TEST] 남은 연발 1초=$early · 7초=$later · 발동=${world.triggerCasts}")
-        // 예약한 연발은 시간이 지나면 실제로 떨어져 큐가 줄어야 한다.
-        assertTrue("연발이 하나도 예약되지 않았다", world.triggerCasts > 0)
-        assertTrue("연발 큐가 줄지 않는다: $early → $later", later < early || early == 0)
+        tick(world, 8.0)
+        val reserved = world.burstCasts
+        val fired = world.triggerCasts
+        val remaining = world.triggers.first().queued
+        println("[TEST] 예약 $reserved · 발동 $fired · 남은 연발 $remaining")
+        // 예약한 연발은 시간이 지나면 실제로 떨어진다 (큐에만 쌓이지 않는다).
+        assertTrue("연발이 예약되지 않았다", reserved > 0)
+        assertTrue(
+            "예약한 연발이 실제로 떨어지지 않는다: 예약 $reserved · 발동 $fired",
+            fired >= reserved - TriggerRuntime.MAX_BURST * 2,
+        )
+        assertTrue("연발 큐가 무한정 쌓인다: $remaining", remaining <= TriggerRuntime.MAX_BURST * 2)
     }
 }
