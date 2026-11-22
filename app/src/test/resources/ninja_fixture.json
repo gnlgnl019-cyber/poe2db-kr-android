@@ -1,0 +1,3779 @@
+{
+ "exchange": {
+  "Currency": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "alch",
+     "name": "Orb of Alchemy",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lVcGdyYWRlVG9SYXJlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/9b80b44821/CurrencyUpgradeToRare.png",
+     "category": "Currency",
+     "detailsId": "orb-of-alchemy"
+    },
+    {
+     "id": "exalted",
+     "name": "Exalted Orb",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRNb2RUb1JhcmUiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/ad7c366789/CurrencyAddModToRare.png",
+     "category": "Currency",
+     "detailsId": "exalted-orb"
+    },
+    {
+     "id": "ancient-infuser",
+     "name": "Ancient Infuser",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvSW5jdXJzaW9uQ3JhZnRpbmdPcmJzL0luY3Vyc2lvbkFuY2llbnRJbmZ1c2lvbiIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/7d23730590/IncursionAncientInfusion.png",
+     "category": "Vaal",
+     "detailsId": "ancient-infuser"
+    },
+    {
+     "id": "chaos",
+     "name": "Chaos Orb",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lSZXJvbGxSYXJlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/c0ca392a78/CurrencyRerollRare.png",
+     "category": "Currency",
+     "detailsId": "chaos-orb"
+    },
+    {
+     "id": "divine",
+     "name": "Divine Orb",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lNb2RWYWx1ZXMiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/2986e220b3/CurrencyModValues.png",
+     "category": "Currency",
+     "detailsId": "divine-orb"
+    },
+    {
+     "id": "annul",
+     "name": "Orb of Annulment",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQW5udWxsT3JiIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/2daba8ccca/AnnullOrb.png",
+     "category": "Currency",
+     "detailsId": "orb-of-annulment"
+    },
+    {
+     "id": "architects-orb",
+     "name": "Architect's Orb",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvSW5jdXJzaW9uQ3JhZnRpbmdPcmJzL0luY3Vyc2lvbkdyZWF0ZXJWYWFsT3JiIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/7ba6f79f63/IncursionGreaterVaalOrb.png",
+     "category": "Vaal",
+     "detailsId": "architects-orb"
+    },
+    {
+     "id": "artificers",
+     "name": "Artificer's Orb",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQ3VycmVuY3lBZGRFcXVpcG1lbnRTb2NrZXQiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/5131fd4774/CurrencyAddEquipmentSocket.png",
+     "category": "Currency",
+     "detailsId": "artificers-orb"
+    }
+   ],
+   "lines": [
+    {
+     "id": "alch",
+     "primaryValue": 0.004577,
+     "volumePrimaryValue": 2.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 218.5,
+     "sparkline": {
+      "totalChange": -30.88,
+      "data": [
+       -15.76,
+       -23.73,
+       -61.21,
+       -52.54,
+       -29.88,
+       -28.69,
+       -30.88
+      ]
+     }
+    },
+    {
+     "id": "exalted",
+     "primaryValue": 0.001758,
+     "volumePrimaryValue": 49.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 568.8,
+     "sparkline": {
+      "totalChange": -2.29,
+      "data": [
+       2.59,
+       3.96,
+       1.83,
+       7.35,
+       5.7,
+       0.76,
+       -2.29
+      ]
+     }
+    },
+    {
+     "id": "ancient-infuser",
+     "primaryValue": 0.459,
+     "volumePrimaryValue": 4.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2.18,
+     "sparkline": {
+      "totalChange": 3.41,
+      "data": [
+       44.95,
+       37.68,
+       100.6,
+       137.2,
+       117.1,
+       47.23,
+       3.41
+      ]
+     }
+    },
+    {
+     "id": "chaos",
+     "primaryValue": 0.1324,
+     "volumePrimaryValue": 777.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 7.55,
+     "sparkline": {
+      "totalChange": -11.02,
+      "data": [
+       -3.2,
+       -7.6,
+       0.06,
+       -6.68,
+       -10.41,
+       -9.98,
+       -11.02
+      ]
+     }
+    },
+    {
+     "id": "divine",
+     "primaryValue": 1,
+     "volumePrimaryValue": 777.5,
+     "maxVolumeCurrency": "chaos",
+     "maxVolumeRate": 0.1324,
+     "sparkline": {
+      "totalChange": 11.84,
+      "data": [
+       3.23,
+       7.89,
+       -0.39,
+       6.66,
+       11.17,
+       10.56,
+       11.84
+      ]
+     }
+    },
+    {
+     "id": "annul",
+     "primaryValue": 0.4204,
+     "volumePrimaryValue": 114.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2.38,
+     "sparkline": {
+      "totalChange": 3.84,
+      "data": [
+       5.74,
+       1.61,
+       3.0,
+       0.87,
+       6.43,
+       2.04,
+       3.84
+      ]
+     }
+    },
+    {
+     "id": "architects-orb",
+     "primaryValue": 8.44,
+     "volumePrimaryValue": 185.7,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.1185,
+     "sparkline": {
+      "totalChange": 2.07,
+      "data": [
+       1.42,
+       1.58,
+       1.31,
+       0.33,
+       1.45,
+       1.61,
+       2.07
+      ]
+     }
+    },
+    {
+     "id": "artificers",
+     "primaryValue": 0.01205,
+     "volumePrimaryValue": 0.1667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 83,
+     "sparkline": {
+      "totalChange": -63.86,
+      "data": [
+       0,
+       -2.13,
+       -3.23,
+       -3.23,
+       -27.24,
+       -49.73,
+       -63.86
+      ]
+     }
+    }
+   ]
+  },
+  "Runes": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "aldurs-legacy",
+     "name": "Aldur's Legacy",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvR2FtZVdhcnBSdW5lVW5pcXVlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/0eca412563/GameWarpRuneUnique.png",
+     "category": "Runes",
+     "detailsId": "aldurs-legacy"
+    },
+    {
+     "id": "ancient-rune-of-prowess",
+     "name": "Ancient Rune of Prowess",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvRW5kZ2FtZVJ1bmU1Iiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/12ef31a014/EndgameRune5.png",
+     "category": "Runes",
+     "detailsId": "ancient-rune-of-prowess"
+    },
+    {
+     "id": "ancient-rune-of-the-horde",
+     "name": "Ancient Rune of the Horde",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvRW5kZ2FtZVJ1bmUxMCIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/72c7d9d707/EndgameRune10.png",
+     "category": "Runes",
+     "detailsId": "ancient-rune-of-the-horde"
+    },
+    {
+     "id": "ancient-rune-of-the-titan",
+     "name": "Ancient Rune of the Titan",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvRW5kZ2FtZVJ1bmUzIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/2f9ef606d4/EndgameRune3.png",
+     "category": "Runes",
+     "detailsId": "ancient-rune-of-the-titan"
+    },
+    {
+     "id": "astrids-creativity",
+     "name": "Astrid's Creativity",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvR2FtZVdhcnBSdW5lMSIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/96e9eecf72/GameWarpRune1.png",
+     "category": "Runes",
+     "detailsId": "astrids-creativity"
+    },
+    {
+     "id": "betrayal-of-aldur",
+     "name": "Betrayal of Aldur",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvRWxlbWVudGFsQ29udmVyc2lvblJ1bmVDaGFvcyIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/691fe14404/ElementalConversionRuneChaos.png",
+     "category": "Runes",
+     "detailsId": "betrayal-of-aldur"
+    },
+    {
+     "id": "breath-of-aldur",
+     "name": "Breath of Aldur",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvRWxlbWVudGFsQ29udmVyc2lvblJ1bmVDb2xkIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/508c419670/ElementalConversionRuneCold.png",
+     "category": "Runes",
+     "detailsId": "breath-of-aldur"
+    },
+    {
+     "id": "cadigans-epiphany",
+     "name": "Cadigan's Epiphany",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXhwZWRpdGlvbjIvR2FtZVdhcnBSdW5lMyIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/884c6d6f83/GameWarpRune3.png",
+     "category": "Runes",
+     "detailsId": "cadigans-epiphany"
+    }
+   ],
+   "lines": [
+    {
+     "id": "aldurs-legacy",
+     "primaryValue": 272.1,
+     "volumePrimaryValue": 725.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.003676,
+     "sparkline": {
+      "totalChange": 21.57,
+      "data": [
+       1.98,
+       7.99,
+       16.99,
+       19.01,
+       13.5,
+       12.52,
+       21.57
+      ]
+     }
+    },
+    {
+     "id": "ancient-rune-of-prowess",
+     "primaryValue": 0.003516,
+     "volumePrimaryValue": 0.000586,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.5,
+     "sparkline": {
+      "totalChange": 100,
+      "data": [
+       null,
+       0,
+       null,
+       null,
+       null,
+       null,
+       100
+      ]
+     }
+    },
+    {
+     "id": "ancient-rune-of-the-horde",
+     "primaryValue": 0.07032,
+     "volumePrimaryValue": 0.01172,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.025,
+     "sparkline": {
+      "totalChange": 135.3,
+      "data": [
+       0,
+       -94.12,
+       5.88,
+       null,
+       null,
+       8.82,
+       135.3
+      ]
+     }
+    },
+    {
+     "id": "ancient-rune-of-the-titan",
+     "primaryValue": 0.001758,
+     "volumePrimaryValue": 0.000293,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 1,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       0
+      ]
+     }
+    },
+    {
+     "id": "astrids-creativity",
+     "primaryValue": 2,
+     "volumePrimaryValue": 4.33,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.5,
+     "sparkline": {
+      "totalChange": -21.13,
+      "data": [
+       -12.22,
+       -43.57,
+       -51.89,
+       -41.51,
+       -25.54,
+       -22.66,
+       -21.13
+      ]
+     }
+    },
+    {
+     "id": "betrayal-of-aldur",
+     "primaryValue": 0.1213,
+     "volumePrimaryValue": 0.02022,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.01449,
+     "sparkline": {
+      "totalChange": 53.33,
+      "data": [
+       0,
+       null,
+       -70.56,
+       11.11,
+       -97.78,
+       -61.48,
+       53.33
+      ]
+     }
+    },
+    {
+     "id": "breath-of-aldur",
+     "primaryValue": 0.03516,
+     "volumePrimaryValue": 0.00586,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.05,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       -10,
+       0,
+       25,
+       25,
+       null,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "id": "cadigans-epiphany",
+     "primaryValue": 1.07,
+     "volumePrimaryValue": 10.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.9333,
+     "sparkline": {
+      "totalChange": -62.73,
+      "data": [
+       -32.29,
+       -52.55,
+       -38.03,
+       -19.09,
+       -40.23,
+       -38.91,
+       -62.73
+      ]
+     }
+    }
+   ]
+  },
+  "Essences": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "essence-of-the-breach",
+     "name": "Essence of the Breach",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9CcmVhY2hFc3NlbmNlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/60e81fa5eb/BreachEssence.png",
+     "category": "Essences",
+     "detailsId": "essence-of-the-breach"
+    },
+    {
+     "id": "perfect-essence-of-abrasion",
+     "name": "Perfect Essence of Abrasion",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9QaHlzaWNhbEVzc2VuY2VQZXJmZWN0Iiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/9690e5eb39/PhysicalEssencePerfect.png",
+     "category": "Essences",
+     "detailsId": "perfect-essence-of-abrasion"
+    },
+    {
+     "id": "essence-of-delirium",
+     "name": "Essence of Delirium",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9Db3JydXB0ZWRFc3NlbmNlRGVsaXJpdW0iLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/d67329e6ed/CorruptedEssenceDelirium.png",
+     "category": "Essences",
+     "detailsId": "essence-of-delirium"
+    },
+    {
+     "id": "essence-of-sorcery",
+     "name": "Essence of Sorcery",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9DYXN0ZXJFc3NlbmNlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/6bb099115a/CasterEssence.png",
+     "category": "Essences",
+     "detailsId": "essence-of-sorcery"
+    },
+    {
+     "id": "greater-essence-of-ruin",
+     "name": "Greater Essence of Ruin",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9HcmVhdGVyQ2hhb3NFc3NlbmNlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/5c71ec7418/GreaterChaosEssence.png",
+     "category": "Essences",
+     "detailsId": "greater-essence-of-ruin"
+    },
+    {
+     "id": "perfect-essence-of-alacrity",
+     "name": "Perfect Essence of Alacrity",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9TcGVlZENhc3RlckVzc2VuY2VQZXJmZWN0Iiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/7108cba28f/SpeedCasterEssencePerfect.png",
+     "category": "Essences",
+     "detailsId": "perfect-essence-of-alacrity"
+    },
+    {
+     "id": "perfect-essence-of-battle",
+     "name": "Perfect Essence of Battle",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9BdHRhY2tFc3NlbmNlUGVyZmVjdCIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/4e86ee5d8d/AttackEssencePerfect.png",
+     "category": "Essences",
+     "detailsId": "perfect-essence-of-battle"
+    },
+    {
+     "id": "perfect-essence-of-opulence",
+     "name": "Perfect Essence of Opulence",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRXNzZW5jZS9SYXJpdHlSZXNpc3RhbmNlRXNzZW5jZVBlcmZlY3QiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/86dd0d0b4d/RarityResistanceEssencePerfect.png",
+     "category": "Essences",
+     "detailsId": "perfect-essence-of-opulence"
+    }
+   ],
+   "lines": [
+    {
+     "id": "essence-of-the-breach",
+     "primaryValue": 0.2895,
+     "volumePrimaryValue": 1.83,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 3.45,
+     "sparkline": {
+      "totalChange": 114.0,
+      "data": [
+       47.89,
+       54.05,
+       133.6,
+       136.8,
+       198.0,
+       202.8,
+       114.0
+      ]
+     }
+    },
+    {
+     "id": "perfect-essence-of-abrasion",
+     "primaryValue": 0.2649,
+     "volumePrimaryValue": 0.08829,
+     "maxVolumeCurrency": "chaos",
+     "maxVolumeRate": 0.5,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       0,
+       -25.0,
+       -16.67,
+       null,
+       null,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "id": "essence-of-delirium",
+     "primaryValue": 1,
+     "volumePrimaryValue": 2.33,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 1,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       26.47,
+       161.3,
+       76.42,
+       50.0,
+       16.48,
+       3.92,
+       0
+      ]
+     }
+    },
+    {
+     "id": "essence-of-sorcery",
+     "primaryValue": 2,
+     "volumePrimaryValue": 0.3333,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.5,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       0
+      ]
+     }
+    },
+    {
+     "id": "greater-essence-of-ruin",
+     "primaryValue": 0.1,
+     "volumePrimaryValue": 0.1667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 10,
+     "sparkline": {
+      "totalChange": -80,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       null,
+       null,
+       -80
+      ]
+     }
+    },
+    {
+     "id": "perfect-essence-of-alacrity",
+     "primaryValue": 1,
+     "volumePrimaryValue": 0.6667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 1,
+     "sparkline": {
+      "totalChange": 38.89,
+      "data": [
+       null,
+       null,
+       null,
+       null,
+       0,
+       null,
+       38.89
+      ]
+     }
+    },
+    {
+     "id": "perfect-essence-of-battle",
+     "primaryValue": 0.5,
+     "volumePrimaryValue": 0.6667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       0,
+       -4.76,
+       0,
+       -27.78,
+       0,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "id": "perfect-essence-of-opulence",
+     "primaryValue": 0.3,
+     "volumePrimaryValue": 2.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 3.33,
+     "sparkline": {
+      "totalChange": -10.0,
+      "data": [
+       null,
+       null,
+       null,
+       0,
+       null,
+       0,
+       -10.0
+      ]
+     }
+    }
+   ]
+  },
+  "SoulCores": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "atmohuas-soul-core-of-retreat",
+     "name": "Atmohua's Soul Core of Retreat",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL05ld1NvdWxDb3JlRW5lcmd5U2hpZWxkIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/10e16bc3ea/NewSoulCoreEnergyShield.png",
+     "category": "Vaal",
+     "detailsId": "atmohuas-soul-core-of-retreat"
+    },
+    {
+     "id": "atziris-soul-core-of-alacrity",
+     "name": "Atziri's Soul Core of Alacrity",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL1NvdWxDb3JlU3BlY2lhbEdsb3ZlcyIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/bfd1353fac/SoulCoreSpecialGloves.png",
+     "category": "Vaal",
+     "detailsId": "atziris-soul-core-of-alacrity"
+    },
+    {
+     "id": "soul-core-of-citaqualotl",
+     "name": "Soul Core of Citaqualotl",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL0dyZWF0ZXJTb3VsQ29yZUVsZW1lbnRhbFJlc2lzdCIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/b8926e8826/GreaterSoulCoreElementalResist.png",
+     "category": "Vaal",
+     "detailsId": "soul-core-of-citaqualotl"
+    },
+    {
+     "id": "soul-core-of-tacati",
+     "name": "Soul Core of Tacati",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL0dyZWF0ZXJTb3VsQ29yZUNoYW9zIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/cd9c4fb0a7/GreaterSoulCoreChaos.png",
+     "category": "Vaal",
+     "detailsId": "soul-core-of-tacati"
+    },
+    {
+     "id": "soul-core-of-topotante",
+     "name": "Soul Core of Topotante",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL0dyZWF0ZXJTb3VsQ29yZVRyaUVsZW1lbnQiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/ae7a949b3a/GreaterSoulCoreTriElement.png",
+     "category": "Vaal",
+     "detailsId": "soul-core-of-topotante"
+    },
+    {
+     "id": "xopecs-soul-core-of-power",
+     "name": "Xopec's Soul Core of Power",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL05ld1NvdWxDb3JlUG93ZXJDaGFyZ2UiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/083d39a63b/NewSoulCorePowerCharge.png",
+     "category": "Vaal",
+     "detailsId": "xopecs-soul-core-of-power"
+    },
+    {
+     "id": "atziris-soul-core-of-devotion",
+     "name": "Atziri's Soul Core of Devotion",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL1NvdWxDb3JlU3BlY2lhbEhlbG1ldCIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/8794f35eaf/SoulCoreSpecialHelmet.png",
+     "category": "Vaal",
+     "detailsId": "atziris-soul-core-of-devotion"
+    },
+    {
+     "id": "atziris-soul-core-of-inoculation",
+     "name": "Atziri's Soul Core of Inoculation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL1NvdWxDb3JlU3BlY2lhbEJvb3RzIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/4770c53928/SoulCoreSpecialBoots.png",
+     "category": "Vaal",
+     "detailsId": "atziris-soul-core-of-inoculation"
+    }
+   ],
+   "lines": [
+    {
+     "id": "atmohuas-soul-core-of-retreat",
+     "primaryValue": 7,
+     "volumePrimaryValue": 1.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.1429,
+     "sparkline": {
+      "totalChange": 180,
+      "data": [
+       0,
+       20,
+       20,
+       -40,
+       -20,
+       100,
+       180
+      ]
+     }
+    },
+    {
+     "id": "atziris-soul-core-of-alacrity",
+     "primaryValue": 12,
+     "volumePrimaryValue": 4.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.08333,
+     "sparkline": {
+      "totalChange": 166.7,
+      "data": [
+       -33.33,
+       -11.11,
+       16.67,
+       211.1,
+       233.3,
+       166.7,
+       166.7
+      ]
+     }
+    },
+    {
+     "id": "soul-core-of-citaqualotl",
+     "primaryValue": 1.37,
+     "volumePrimaryValue": 3.2,
+     "maxVolumeCurrency": "chaos",
+     "maxVolumeRate": 0.09655,
+     "sparkline": {
+      "totalChange": -12.47,
+      "data": [
+       -7.75,
+       0.7,
+       1.41,
+       0.28,
+       -31.81,
+       -47.01,
+       -12.47
+      ]
+     }
+    },
+    {
+     "id": "soul-core-of-tacati",
+     "primaryValue": 0.4348,
+     "volumePrimaryValue": 1.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2.3,
+     "sparkline": {
+      "totalChange": 4.95,
+      "data": [
+       1.51,
+       0.13,
+       1.36,
+       14.1,
+       6.77,
+       -6.75,
+       4.95
+      ]
+     }
+    },
+    {
+     "id": "soul-core-of-topotante",
+     "primaryValue": 0.03516,
+     "volumePrimaryValue": 0.00586,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.05,
+     "sparkline": {
+      "totalChange": 1.27,
+      "data": [
+       -15.61,
+       0,
+       -14.77,
+       -56.33,
+       -49.37,
+       -20.25,
+       1.27
+      ]
+     }
+    },
+    {
+     "id": "xopecs-soul-core-of-power",
+     "primaryValue": 1.59,
+     "volumePrimaryValue": 0.7946,
+     "maxVolumeCurrency": "chaos",
+     "maxVolumeRate": 0.08333,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       0,
+       null,
+       null,
+       null,
+       null,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "id": "atziris-soul-core-of-devotion",
+     "primaryValue": 18,
+     "volumePrimaryValue": 6.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.05556,
+     "sparkline": {
+      "totalChange": 125,
+      "data": [
+       -48.75,
+       -18.75,
+       79.17,
+       43.75,
+       247.9,
+       -43.75,
+       125
+      ]
+     }
+    },
+    {
+     "id": "atziris-soul-core-of-inoculation",
+     "primaryValue": 3,
+     "volumePrimaryValue": 1.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.3333,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       33.33,
+       0
+      ]
+     }
+    }
+   ]
+  },
+  "Fragments": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "breachlord-sac",
+     "name": "Breachlord Sac",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvUXVlc3RJdGVtcy9CcmVhY2hsb3JkU2FjIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/07670f51fe/BreachlordSac.png",
+     "category": "Fragments",
+     "detailsId": "breachlord-sac"
+    },
+    {
+     "id": "call-of-the-shadows",
+     "name": "Call of the Shadows",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUml0dWFsL1JpdHVhbEVmZmlneVBpZWNlcyIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/6fb287c8f4/RitualEffigyPieces.png",
+     "category": "Ritual",
+     "detailsId": "call-of-the-shadows"
+    },
+    {
+     "id": "deadly-fate",
+     "name": "Deadly Fate",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvU291bENvcmVzL1RyaWFsbWFzdGVyS2V5MiIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/cccae44832/TrialmasterKey2.png",
+     "category": "Fragments",
+     "detailsId": "deadly-fate"
+    },
+    {
+     "id": "faded-crisis-fragment",
+     "name": "Faded Crisis Fragment",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvUXVlc3RJdGVtcy9QaW5uYWNsZUtleTIiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/5709c39ee7/PinnacleKey2.png",
+     "category": "Fragments",
+     "detailsId": "faded-crisis-fragment"
+    },
+    {
+     "id": "kulemaks-invitation",
+     "name": "Kulemak's Invitation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvS3VsZW1ha3NJbnZpdGF0aW9uIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/c7e6e86681/KulemaksInvitation.png",
+     "category": "Fragments",
+     "detailsId": "kulemaks-invitation"
+    },
+    {
+     "id": "ravens-reflection",
+     "name": "Raven's Reflection",
+     "category": "Fragments",
+     "detailsId": "ravens-reflection"
+    },
+    {
+     "id": "twilight-reliquary-key",
+     "name": "Twilight Reliquary Key",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvTWFwcy9Ud2lsaWdodE9yZGVyUmVsaXF1YXJ5S2V5V29ybGQiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/27f2d492e7/TwilightOrderReliquaryKeyWorld.png",
+     "category": "Fragments",
+     "detailsId": "twilight-reliquary-key"
+    },
+    {
+     "id": "ancient-crisis-fragment",
+     "name": "Ancient Crisis Fragment",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvUXVlc3RJdGVtcy9QaW5uYWNsZUtleTEiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/ef329c74d1/PinnacleKey1.png",
+     "category": "Fragments",
+     "detailsId": "ancient-crisis-fragment"
+    }
+   ],
+   "lines": [
+    {
+     "id": "breachlord-sac",
+     "primaryValue": 14.58,
+     "volumePrimaryValue": 63.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.0686,
+     "sparkline": {
+      "totalChange": -15.87,
+      "data": [
+       -7.06,
+       8.23,
+       8.72,
+       -8.16,
+       -19.2,
+       -17.12,
+       -15.87
+      ]
+     }
+    },
+    {
+     "id": "call-of-the-shadows",
+     "primaryValue": 0.5992,
+     "volumePrimaryValue": 48.83,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 1.67,
+     "sparkline": {
+      "totalChange": 66.26,
+      "data": [
+       0.32,
+       -8.83,
+       -10.54,
+       4.38,
+       30.45,
+       -20.76,
+       66.26
+      ]
+     }
+    },
+    {
+     "id": "deadly-fate",
+     "primaryValue": 4.75,
+     "volumePrimaryValue": 46.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.2107,
+     "sparkline": {
+      "totalChange": -8.84,
+      "data": [
+       -9.12,
+       -13.45,
+       -17.73,
+       -13.36,
+       -10.15,
+       -10.22,
+       -8.84
+      ]
+     }
+    },
+    {
+     "id": "faded-crisis-fragment",
+     "primaryValue": 3.66,
+     "volumePrimaryValue": 37.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.2735,
+     "sparkline": {
+      "totalChange": -43.14,
+      "data": [
+       -14.94,
+       -15.05,
+       -18.02,
+       -23.24,
+       -26.18,
+       -35.53,
+       -43.14
+      ]
+     }
+    },
+    {
+     "id": "kulemaks-invitation",
+     "primaryValue": 1.38,
+     "volumePrimaryValue": 28.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.7251,
+     "sparkline": {
+      "totalChange": -15.45,
+      "data": [
+       0.15,
+       0.81,
+       -9.76,
+       -16.73,
+       -3.05,
+       -13.29,
+       -15.45
+      ]
+     }
+    },
+    {
+     "id": "ravens-reflection",
+     "primaryValue": 0.2632,
+     "volumePrimaryValue": 5.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 3.8,
+     "sparkline": {
+      "totalChange": -6.35,
+      "data": [
+       23.08,
+       -3.32,
+       -23.5,
+       -29.18,
+       18.21,
+       16.34,
+       -6.35
+      ]
+     }
+    },
+    {
+     "id": "twilight-reliquary-key",
+     "primaryValue": 0.01598,
+     "volumePrimaryValue": 0.0293,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.11,
+     "sparkline": {
+      "totalChange": 50.15,
+      "data": [
+       -0.64,
+       -0.16,
+       75.56,
+       41.11,
+       12.12,
+       2.45,
+       50.15
+      ]
+     }
+    },
+    {
+     "id": "ancient-crisis-fragment",
+     "primaryValue": 0.9024,
+     "volumePrimaryValue": 6.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 1.11,
+     "sparkline": {
+      "totalChange": -45.47,
+      "data": [
+       -32.2,
+       -27.63,
+       -17.89,
+       -23.93,
+       -13.15,
+       -17.88,
+       -45.47
+      ]
+     }
+    }
+   ]
+  },
+  "UncutGems": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "uncut-skill-gem-17",
+     "name": "Uncut Skill Gem (Level 17)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/97f0ceba15/UncutSkillGem.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-skill-gem-level-17"
+    },
+    {
+     "id": "uncut-skill-gem-19",
+     "name": "Uncut Skill Gem (Level 19)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/97f0ceba15/UncutSkillGem.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-skill-gem-level-19"
+    },
+    {
+     "id": "uncut-spirit-gem-19",
+     "name": "Uncut Spirit Gem (Level 19)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtQnVmZiIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/ab25e9aa3b/UncutSkillGemBuff.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-spirit-gem-level-19"
+    },
+    {
+     "id": "uncut-spirit-gem-5",
+     "name": "Uncut Spirit Gem (Level 5)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtQnVmZiIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/ab25e9aa3b/UncutSkillGemBuff.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-spirit-gem-level-5"
+    },
+    {
+     "id": "uncut-skill-gem-14",
+     "name": "Uncut Skill Gem (Level 14)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/97f0ceba15/UncutSkillGem.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-skill-gem-level-14"
+    },
+    {
+     "id": "uncut-skill-gem-7",
+     "name": "Uncut Skill Gem (Level 7)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/97f0ceba15/UncutSkillGem.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-skill-gem-level-7"
+    },
+    {
+     "id": "uncut-skill-gem-9",
+     "name": "Uncut Skill Gem (Level 9)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/97f0ceba15/UncutSkillGem.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-skill-gem-level-9"
+    },
+    {
+     "id": "uncut-spirit-gem-12",
+     "name": "Uncut Spirit Gem (Level 12)",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvR2Vtcy9VbmN1dFNraWxsR2VtQnVmZiIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/ab25e9aa3b/UncutSkillGemBuff.png",
+     "category": "UncutGems",
+     "detailsId": "uncut-spirit-gem-level-12"
+    }
+   ],
+   "lines": [
+    {
+     "id": "uncut-skill-gem-17",
+     "primaryValue": 0.0003139,
+     "volumePrimaryValue": 0.001465,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 5.6,
+     "sparkline": {
+      "totalChange": -17.62,
+      "data": [
+       104.2,
+       42.79,
+       41.89,
+       25.38,
+       -28.88,
+       -44.88,
+       -17.62
+      ]
+     }
+    },
+    {
+     "id": "uncut-skill-gem-19",
+     "primaryValue": 0.2,
+     "volumePrimaryValue": 0.6667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 5,
+     "sparkline": {
+      "totalChange": 23.08,
+      "data": [
+       38.66,
+       49.9,
+       61.34,
+       75.82,
+       17.95,
+       -6.12,
+       23.08
+      ]
+     }
+    },
+    {
+     "id": "uncut-spirit-gem-19",
+     "primaryValue": 0.05816,
+     "volumePrimaryValue": 0.2326,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.03023,
+     "sparkline": {
+      "totalChange": -37.28,
+      "data": [
+       16.44,
+       0.25,
+       -12.53,
+       -2.13,
+       -33.12,
+       -37.48,
+       -37.28
+      ]
+     }
+    },
+    {
+     "id": "uncut-spirit-gem-5",
+     "primaryValue": 0.6667,
+     "volumePrimaryValue": 0.3333,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 1.5,
+     "sparkline": {
+      "totalChange": -83.33,
+      "data": [
+       -37.5,
+       null,
+       null,
+       -62.5,
+       -83.33,
+       -79.17,
+       -83.33
+      ]
+     }
+    },
+    {
+     "id": "uncut-skill-gem-14",
+     "primaryValue": 0.000879,
+     "volumePrimaryValue": 0.001758,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 2,
+     "sparkline": {
+      "totalChange": 191.4,
+      "data": [
+       -33.25,
+       482.9,
+       -34.7,
+       21.43,
+       64.26,
+       91.28,
+       191.4
+      ]
+     }
+    },
+    {
+     "id": "uncut-skill-gem-7",
+     "primaryValue": 2,
+     "volumePrimaryValue": 0.3333,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.5,
+     "sparkline": {
+      "totalChange": 3.23,
+      "data": [
+       3.23,
+       3.23,
+       -13.98,
+       3.23,
+       -9.68,
+       -13.98,
+       3.23
+      ]
+     }
+    },
+    {
+     "id": "uncut-skill-gem-9",
+     "primaryValue": 0.5,
+     "volumePrimaryValue": 0.1667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2,
+     "sparkline": {
+      "totalChange": 16.67,
+      "data": [
+       16.67,
+       -61.11,
+       16.67,
+       16.67,
+       16.67,
+       16.67,
+       16.67
+      ]
+     }
+    },
+    {
+     "id": "uncut-spirit-gem-12",
+     "primaryValue": 2,
+     "volumePrimaryValue": 0.3333,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.5,
+     "sparkline": {
+      "totalChange": 7.69,
+      "data": [
+       7.69,
+       -46.15,
+       null,
+       -82.05,
+       -59.62,
+       7.69,
+       7.69
+      ]
+     }
+    }
+   ]
+  },
+  "Ritual": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "an-audience-with-the-king",
+     "name": "An Audience with the King",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvUml0dWFsL1Zvb2Rvb0tpbmdFZmZpZ3kiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/0b02c113cc/VoodooKingEffigy.png",
+     "category": "Ritual",
+     "detailsId": "an-audience-with-the-king"
+    },
+    {
+     "id": "omen-of-abyssal-echoes",
+     "name": "Omen of Abyssal Echoes",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvT21lbk9uQWJ5c3NSZXJvbGxPcHRpb25zIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/9690f99016/OmenOnAbyssRerollOptions.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-abyssal-echoes"
+    },
+    {
+     "id": "omen-of-chaotic-quantity",
+     "name": "Omen of Chaotic Quantity",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvT21lbk9uQ2hhb3NNYXBQYWNrU2l6ZSIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/9ea6c86009/OmenOnChaosMapPackSize.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-chaotic-quantity"
+    },
+    {
+     "id": "omen-of-dextral-crystallisation",
+     "name": "Omen of Dextral Crystallisation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvT21lbk9uUGVyZmVjdEVzc2VuY2VTdWZmaXgiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/7ec019819e/OmenOnPerfectEssenceSuffix.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-dextral-crystallisation"
+    },
+    {
+     "id": "omen-of-greater-exaltation",
+     "name": "Omen of Greater Exaltation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvVm9vZG9vT21lbnMxWWVsbG93Iiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/22d9b6478d/VoodooOmens1Yellow.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-greater-exaltation"
+    },
+    {
+     "id": "omen-of-light",
+     "name": "Omen of Light",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvT21lbk9uQW5udWxSZW1vdmVBYnlzc01vZCIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/eb39bcb3d7/OmenOnAnnulRemoveAbyssMod.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-light"
+    },
+    {
+     "id": "omen-of-sinistral-crystallisation",
+     "name": "Omen of Sinistral Crystallisation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvT21lbk9uUGVyZmVjdEVzc2VuY2VQcmVmaXgiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/75263d6201/OmenOnPerfectEssencePrefix.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-sinistral-crystallisation"
+    },
+    {
+     "id": "omen-of-sinistral-exaltation",
+     "name": "Omen of Sinistral Exaltation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvT21lbnMvVm9vZG9vT21lbnMyWWVsbG93Iiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/6d316b47ee/VoodooOmens2Yellow.png",
+     "category": "Ritual",
+     "detailsId": "omen-of-sinistral-exaltation"
+    }
+   ],
+   "lines": [
+    {
+     "id": "an-audience-with-the-king",
+     "primaryValue": 0.2148,
+     "volumePrimaryValue": 4.83,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 4.66,
+     "sparkline": {
+      "totalChange": -71.38,
+      "data": [
+       -24.0,
+       86.4,
+       47.04,
+       109.1,
+       -10.82,
+       -38.74,
+       -71.38
+      ]
+     }
+    },
+    {
+     "id": "omen-of-abyssal-echoes",
+     "primaryValue": 0.1054,
+     "volumePrimaryValue": 9.83,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 9.49,
+     "sparkline": {
+      "totalChange": 45.0,
+      "data": [
+       -9.05,
+       -15.8,
+       -7.04,
+       6.22,
+       -7.81,
+       -4.84,
+       45.0
+      ]
+     }
+    },
+    {
+     "id": "omen-of-chaotic-quantity",
+     "primaryValue": 0.161,
+     "volumePrimaryValue": 27.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 6.21,
+     "sparkline": {
+      "totalChange": 2.55,
+      "data": [
+       -8.83,
+       -0.25,
+       3.11,
+       14.71,
+       4.66,
+       -12.43,
+       2.55
+      ]
+     }
+    },
+    {
+     "id": "omen-of-dextral-crystallisation",
+     "primaryValue": 0.3611,
+     "volumePrimaryValue": 6.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2.77,
+     "sparkline": {
+      "totalChange": 39.29,
+      "data": [
+       52.84,
+       64.09,
+       7.88,
+       44.96,
+       7.52,
+       9.94,
+       39.29
+      ]
+     }
+    },
+    {
+     "id": "omen-of-greater-exaltation",
+     "primaryValue": 0.04,
+     "volumePrimaryValue": 1.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 25,
+     "sparkline": {
+      "totalChange": -30.67,
+      "data": [
+       0.54,
+       -3.7,
+       -5.34,
+       -11.64,
+       -14.71,
+       -27.64,
+       -30.67
+      ]
+     }
+    },
+    {
+     "id": "omen-of-light",
+     "primaryValue": 7.71,
+     "volumePrimaryValue": 844.2,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.1297,
+     "sparkline": {
+      "totalChange": -5.06,
+      "data": [
+       -4.04,
+       -3.16,
+       -2.57,
+       -1.57,
+       -2.75,
+       -5.76,
+       -5.06
+      ]
+     }
+    },
+    {
+     "id": "omen-of-sinistral-crystallisation",
+     "primaryValue": 0.2683,
+     "volumePrimaryValue": 3.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 3.73,
+     "sparkline": {
+      "totalChange": -6.57,
+      "data": [
+       1.42,
+       -34.71,
+       -0.63,
+       9.7,
+       -36.51,
+       -4.15,
+       -6.57
+      ]
+     }
+    },
+    {
+     "id": "omen-of-sinistral-exaltation",
+     "primaryValue": 0.08163,
+     "volumePrimaryValue": 1.33,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 12.25,
+     "sparkline": {
+      "totalChange": -4.76,
+      "data": [
+       -1.72,
+       52.31,
+       42.48,
+       67.8,
+       32.53,
+       -6.47,
+       -4.76
+      ]
+     }
+    }
+   ]
+  },
+  "Delirium": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "ancient-concentrated-liquid-isolation",
+     "name": "Ancient Concentrated Liquid Isolation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvVGltZWxvc3RDb25jZW50cmF0ZWREaXN0aWxsZWRJc29sYXRpb24iLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/fa4fd8531b/TimelostConcentratedDistilledIsolation.png",
+     "category": "Delirium",
+     "detailsId": "ancient-concentrated-liquid-isolation"
+    },
+    {
+     "id": "ancient-potent-liquid-contempt",
+     "name": "Ancient Potent Liquid Contempt",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvVGltZWxlc3NVbmlxdWVCZWFzdEVtb3Rpb24iLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/9a1f8acc0e/TimelessUniqueBeastEmotion.png",
+     "category": "Delirium",
+     "detailsId": "ancient-potent-liquid-contempt"
+    },
+    {
+     "id": "ancient-liquid-despair",
+     "name": "Ancient Liquid Despair",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvVGltZWxvc3REaXN0aWxsZWREZXNwYWlyIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/20d8801d9f/TimelostDistilledDespair.png",
+     "category": "Delirium",
+     "detailsId": "ancient-liquid-despair"
+    },
+    {
+     "id": "liquid-despair",
+     "name": "Liquid Despair",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvRGlzdGlsbGVkRGVzcGFpciIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/c676bf7dae/DistilledDespair.png",
+     "category": "Delirium",
+     "detailsId": "liquid-despair"
+    },
+    {
+     "id": "liquid-envy",
+     "name": "Liquid Envy",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvRGlzdGlsbGVkRW52eSIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/abf219916e/DistilledEnvy.png",
+     "category": "Delirium",
+     "detailsId": "liquid-envy"
+    },
+    {
+     "id": "concentrated-liquid-fear",
+     "name": "Concentrated Liquid Fear",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvQ29uY2VudHJhdGVkRGlzdGlsbGVkRmVhciIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/2c3300fcdf/ConcentratedDistilledFear.png",
+     "category": "Delirium",
+     "detailsId": "concentrated-liquid-fear"
+    },
+    {
+     "id": "concentrated-liquid-isolation",
+     "name": "Concentrated Liquid Isolation",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvQ29uY2VudHJhdGVkRGlzdGlsbGVkSXNvbGF0aW9uIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/44ca2d19b9/ConcentratedDistilledIsolation.png",
+     "category": "Delirium",
+     "detailsId": "concentrated-liquid-isolation"
+    },
+    {
+     "id": "concentrated-liquid-suffering",
+     "name": "Concentrated Liquid Suffering",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvRGlzdGlsbGVkRW1vdGlvbnMvQ29uY2VudHJhdGVkRGlzdGlsbGVkU3VmZmVyaW5nIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/10b12c3875/ConcentratedDistilledSuffering.png",
+     "category": "Delirium",
+     "detailsId": "concentrated-liquid-suffering"
+    }
+   ],
+   "lines": [
+    {
+     "id": "ancient-concentrated-liquid-isolation",
+     "primaryValue": 0.5,
+     "volumePrimaryValue": 0.1667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2,
+     "sparkline": {
+      "totalChange": -50.0,
+      "data": [
+       -50.0,
+       -66.67,
+       -38.89,
+       null,
+       null,
+       -55.0,
+       -50.0
+      ]
+     }
+    },
+    {
+     "id": "ancient-potent-liquid-contempt",
+     "primaryValue": 9.54,
+     "volumePrimaryValue": 20.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.1048,
+     "sparkline": {
+      "totalChange": -5.27,
+      "data": [
+       -6.42,
+       -6.15,
+       -6.84,
+       -6.09,
+       -6.02,
+       -2.03,
+       -5.27
+      ]
+     }
+    },
+    {
+     "id": "ancient-liquid-despair",
+     "primaryValue": 0.08333,
+     "volumePrimaryValue": 0.1667,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 12,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       null,
+       null,
+       0,
+       null,
+       null,
+       null,
+       0
+      ]
+     }
+    },
+    {
+     "id": "liquid-despair",
+     "primaryValue": 0.1518,
+     "volumePrimaryValue": 0.07589,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.01158,
+     "sparkline": {
+      "totalChange": 601.9,
+      "data": [
+       191.1,
+       333.2,
+       319.4,
+       423.6,
+       419.1,
+       635.5,
+       601.9
+      ]
+     }
+    },
+    {
+     "id": "liquid-envy",
+     "primaryValue": 0.00879,
+     "volumePrimaryValue": 0.00293,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 0.2,
+     "sparkline": {
+      "totalChange": 4.04,
+      "data": [
+       141.9,
+       76.87,
+       35.25,
+       -58.38,
+       -58.38,
+       20.68,
+       4.04
+      ]
+     }
+    },
+    {
+     "id": "concentrated-liquid-fear",
+     "primaryValue": 0.3333,
+     "volumePrimaryValue": 0.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 3,
+     "sparkline": {
+      "totalChange": 0,
+      "data": [
+       0,
+       -40.0,
+       53.33,
+       2.98,
+       -1.65,
+       9.52,
+       0
+      ]
+     }
+    },
+    {
+     "id": "concentrated-liquid-isolation",
+     "primaryValue": 1.97,
+     "volumePrimaryValue": 10.5,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.5079,
+     "sparkline": {
+      "totalChange": 114.2,
+      "data": [
+       9.55,
+       -18.91,
+       -20.46,
+       -7.94,
+       -2.19,
+       -5.56,
+       114.2
+      ]
+     }
+    },
+    {
+     "id": "concentrated-liquid-suffering",
+     "primaryValue": 0.8636,
+     "volumePrimaryValue": 3.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 1.16,
+     "sparkline": {
+      "totalChange": 71.2,
+      "data": [
+       48.67,
+       33.72,
+       78.03,
+       81.71,
+       65.19,
+       68.33,
+       71.2
+      ]
+     }
+    }
+   ]
+  },
+  "Breach": {
+   "core": {
+    "rates": {
+     "exalted": 568.8,
+     "chaos": 7.55
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [
+    {
+     "id": "adaptive-catalyst",
+     "name": "Adaptive Catalyst",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0JyZWFjaENhdGFseXN0QXR0cmlidXRlIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/015f6c9ac8/BreachCatalystAttribute.png",
+     "category": "Breach",
+     "detailsId": "adaptive-catalyst"
+    },
+    {
+     "id": "breach-splinter",
+     "name": "Breach Splinter",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0JyZWFjaHN0b25lU3BsaW50ZXIiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/4abb17ea8e/BreachstoneSplinter.png",
+     "category": "Breach",
+     "detailsId": "breach-splinter"
+    },
+    {
+     "id": "breachstone",
+     "name": "Breachstone",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0JyZWFjaHN0b25lIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/d60587d724/Breachstone.png",
+     "category": "Breach",
+     "detailsId": "breachstone"
+    },
+    {
+     "id": "eshs-catalyst",
+     "name": "Esh's Catalyst",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0JyZWFjaENhdGFseXN0TGlnaHRuaW5nIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/299e62fc33/BreachCatalystLightning.png",
+     "category": "Breach",
+     "detailsId": "eshs-catalyst"
+    },
+    {
+     "id": "necrotic-catalyst",
+     "name": "Necrotic Catalyst",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0JyZWFjaENhdGFseXN0TmVjcm90aWMiLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/5e20b43820/BreachCatalystNecrotic.png",
+     "category": "Breach",
+     "detailsId": "necrotic-catalyst"
+    },
+    {
+     "id": "reaver-catalyst",
+     "name": "Reaver Catalyst",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0JyZWFjaENhdGFseXN0QXR0YWNrIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/ccc363f502/BreachCatalystAttack.png",
+     "category": "Breach",
+     "detailsId": "reaver-catalyst"
+    },
+    {
+     "id": "refined-carapace-catalyst",
+     "name": "Refined Carapace Catalyst",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0pld2VsQ2F0YWx5c3REZWZlbmNlcyIsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/a4d02de8e3/JewelCatalystDefences.png",
+     "category": "Breach",
+     "detailsId": "refined-carapace-catalyst"
+    },
+    {
+     "id": "refined-tuls-catalyst",
+     "name": "Refined Tul's Catalyst",
+     "image": "/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQ3VycmVuY3kvQnJlYWNoL0pld2VsQ2F0YWx5c3RDb2xkIiwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/1b256097c6/JewelCatalystCold.png",
+     "category": "Breach",
+     "detailsId": "refined-tuls-catalyst"
+    }
+   ],
+   "lines": [
+    {
+     "id": "adaptive-catalyst",
+     "primaryValue": 0.09091,
+     "volumePrimaryValue": 2.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 11,
+     "sparkline": {
+      "totalChange": 18.18,
+      "data": [
+       98.21,
+       62.02,
+       3.36,
+       -35.0,
+       27.05,
+       13.77,
+       18.18
+      ]
+     }
+    },
+    {
+     "id": "breach-splinter",
+     "primaryValue": 0.001514,
+     "volumePrimaryValue": 0.3349,
+     "maxVolumeCurrency": "exalted",
+     "maxVolumeRate": 1.16,
+     "sparkline": {
+      "totalChange": 7083,
+      "data": [
+       5185,
+       2063,
+       7804,
+       6491,
+       8804,
+       5752,
+       7083
+      ]
+     }
+    },
+    {
+     "id": "breachstone",
+     "primaryValue": 1.74,
+     "volumePrimaryValue": 10.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.5738,
+     "sparkline": {
+      "totalChange": 100.5,
+      "data": [
+       29.61,
+       39.37,
+       20.63,
+       112.5,
+       32.95,
+       48.44,
+       100.5
+      ]
+     }
+    },
+    {
+     "id": "eshs-catalyst",
+     "primaryValue": 0.1458,
+     "volumePrimaryValue": 1.17,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 6.86,
+     "sparkline": {
+      "totalChange": 2.08,
+      "data": [
+       -9.29,
+       -21.52,
+       -42.19,
+       -29.53,
+       -34.37,
+       -33.24,
+       2.08
+      ]
+     }
+    },
+    {
+     "id": "necrotic-catalyst",
+     "primaryValue": 0.3333,
+     "volumePrimaryValue": 1.67,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 3,
+     "sparkline": {
+      "totalChange": 414.3,
+      "data": [
+       15.08,
+       326.1,
+       474.0,
+       671.4,
+       305.2,
+       402.9,
+       414.3
+      ]
+     }
+    },
+    {
+     "id": "reaver-catalyst",
+     "primaryValue": 0.4532,
+     "volumePrimaryValue": 21.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2.21,
+     "sparkline": {
+      "totalChange": -3.08,
+      "data": [
+       -45.77,
+       -26.76,
+       -27.05,
+       -46.07,
+       -28.43,
+       -7.38,
+       -3.08
+      ]
+     }
+    },
+    {
+     "id": "refined-carapace-catalyst",
+     "primaryValue": 2.93,
+     "volumePrimaryValue": 26.33,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 0.3418,
+     "sparkline": {
+      "totalChange": 343.7,
+      "data": [
+       0,
+       -18.99,
+       1.61,
+       -18.87,
+       -38.95,
+       61.61,
+       343.7
+      ]
+     }
+    },
+    {
+     "id": "refined-tuls-catalyst",
+     "primaryValue": 0.4615,
+     "volumePrimaryValue": 2.0,
+     "maxVolumeCurrency": "divine",
+     "maxVolumeRate": 2.17,
+     "sparkline": {
+      "totalChange": 176.9,
+      "data": [
+       85.35,
+       60.0,
+       0.37,
+       500.0,
+       580.6,
+       143.3,
+       176.9
+      ]
+     }
+    }
+   ]
+  }
+ },
+ "unique": {
+  "UniqueWeapons": {
+   "core": {
+    "rates": {
+     "exalted": 559.9,
+     "chaos": 7.85
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [],
+   "lines": [
+    {
+     "id": 727,
+     "itemId": "Redbeak Shortsword",
+     "detailsId": "redbeak-shortsword",
+     "name": "Redbeak",
+     "baseType": "Shortsword",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvV2VhcG9ucy9PbmVIYW5kV2VhcG9ucy9PbmVIYW5kU3dvcmRzL1VuaXF1ZXMvUmVkYmVhayIsInciOjIsImgiOjMsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/33c430b8b4/Redbeak.png",
+     "flavourText": "As battle calms, blood turns to rust.",
+     "levelRequired": 0,
+     "category": "[Sword|One Hand Sword]",
+     "primaryValue": 5477,
+     "listingCount": 12,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -10.8,
+      "data": [
+       0,
+       -2.52,
+       null,
+       -5.13,
+       -51.16,
+       null,
+       -10.8
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Adds (4-6) to (7-10) [Physical|Physical] Damage",
+       "optional": false,
+       "statIds": [
+        "local_minimum_added_physical_damage",
+        "local_maximum_added_physical_damage"
+       ]
+      },
+      {
+       "text": "10% increased [Attack] Speed",
+       "optional": false,
+       "statIds": [
+        "local_attack_speed_+%"
+       ]
+      },
+      {
+       "text": "Gain 3 Life per enemy killed",
+       "optional": false,
+       "statIds": [
+        "base_life_gained_on_enemy_death"
+       ]
+      },
+      {
+       "text": "100% increased [Attack|Attack] Damage while on [LowLife|Low Life]",
+       "optional": false,
+       "statIds": [
+        "attack_damage_+%_when_on_low_life"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Physical] Damage: (10-13)-(16-23)",
+       "optional": false
+      },
+      {
+       "text": "[Critical|Critical Hit] Chance: 5%",
+       "optional": false
+      },
+      {
+       "text": "[Lightning|Lightning] Damage: 1-30",
+       "optional": true
+      },
+      {
+       "text": "Attacks per Second: 1.71",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (30-50)",
+       "optional": true
+      }
+     ]
+    },
+    {
+     "id": 732,
+     "itemId": "Bluetongue Shortsword",
+     "detailsId": "bluetongue-shortsword",
+     "name": "Bluetongue",
+     "baseType": "Shortsword",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvV2VhcG9ucy9PbmVIYW5kV2VhcG9ucy9PbmVIYW5kU3dvcmRzL1VuaXF1ZXMvQmx1ZXRvbmd1ZSIsInciOjIsImgiOjMsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/3fdac0787b/Bluetongue.png",
+     "flavourText": "War inevitably takes an untold toll on the soul.",
+     "levelRequired": 0,
+     "category": "[Sword|One Hand Sword]",
+     "primaryValue": 5477,
+     "listingCount": 13,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -10.8,
+      "data": [
+       0,
+       -2.52,
+       null,
+       -5.13,
+       -59.28,
+       null,
+       -10.8
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Adds (4-6) to (7-10) [Physical|Physical] Damage",
+       "optional": false,
+       "statIds": [
+        "local_minimum_added_physical_damage",
+        "local_maximum_added_physical_damage"
+       ]
+      },
+      {
+       "text": "10% increased [Attack] Speed",
+       "optional": false,
+       "statIds": [
+        "local_attack_speed_+%"
+       ]
+      },
+      {
+       "text": "Lose 3 Mana per enemy killed",
+       "optional": false,
+       "statIds": [
+        "base_mana_gained_on_enemy_death"
+       ]
+      },
+      {
+       "text": "100% increased [Attack|Attack] Damage while not on [LowMana|Low Mana]",
+       "optional": false,
+       "statIds": [
+        "attack_damage_+%_while_not_on_low_mana"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Physical] Damage: (10-14)-(16-23)",
+       "optional": false
+      },
+      {
+       "text": "[Critical|Critical Hit] Chance: 5%",
+       "optional": false
+      },
+      {
+       "text": "Attacks per Second: 1.71",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (30-50)",
+       "optional": true
+      }
+     ]
+    },
+    {
+     "id": 754,
+     "itemId": "The Dancing Dervish Scimitar",
+     "detailsId": "the-dancing-dervish-scimitar",
+     "name": "The Dancing Dervish",
+     "baseType": "Scimitar",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvV2VhcG9ucy9PbmVIYW5kV2VhcG9ucy9PbmVIYW5kU3dvcmRzL0Jhc2V0eXBlcy8xSFN3b3JkMDQiLCJ3IjoyLCJoIjozLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/b15a3c6a0f/1HSword04.png",
+     "flavourText": "Take your partners by the hand,\r\nKeep your steps in time.\r\nSwing together, spin apart,\r\nAnd dance with death sublime.",
+     "levelRequired": 16,
+     "category": "[Sword|One Hand Sword]",
+     "primaryValue": 5477,
+     "listingCount": 7,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -10.8,
+      "data": [
+       0,
+       -2.52,
+       null,
+       -5.13,
+       null,
+       null,
+       -10.8
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Triggers Level 15 Manifest Dancing Dervishes on Rampage",
+       "optional": false,
+       "statIds": [
+        "local_display_cast_level_x_manifest_dancing_dervish"
+       ]
+      },
+      {
+       "text": "Cannot be used while Manifested",
+       "optional": false,
+       "statIds": [
+        "local_display_manifest_dancing_dervish_disables_weapons"
+       ]
+      },
+      {
+       "text": "Manifested Dancing Dervishes die when Rampage ends",
+       "optional": false,
+       "statIds": [
+        "local_display_manifest_dancing_dervish_destroy_on_end_rampage"
+       ]
+      },
+      {
+       "text": "[Melee] Hits count as Rampage Kills\nRampage",
+       "optional": false,
+       "statIds": [
+        "melee_hits_grant_rampage_stacks"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Physical] Damage: 14-23",
+       "optional": false
+      },
+      {
+       "text": "[Critical|Critical Hit] Chance: 5%",
+       "optional": false
+      },
+      {
+       "text": "Attacks per Second: 1.55",
+       "optional": false
+      },
+      {
+       "text": "[Lightning|Lightning] Damage: 1-(10-40)",
+       "optional": true
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (16-50)",
+       "optional": false
+      },
+      {
+       "text": "[Strength|Str]: 19",
+       "optional": false
+      },
+      {
+       "text": "[Dexterity|Dex]: 19",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 753,
+     "itemId": "Winter's Bite Glass Shank",
+     "detailsId": "winters-bite-glass-shank",
+     "name": "Winter's Bite",
+     "baseType": "Glass Shank",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvV2VhcG9ucy9PbmVIYW5kV2VhcG9ucy9EYWdnZXJzL1VuaXF1ZXMvTmV2ZXJtZWx0IiwidyI6MSwiaCI6Mywic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/a5a4d70a8e/Nevermelt.png",
+     "flavourText": "Nothing stabs colder than pure hatred.",
+     "levelRequired": 0,
+     "category": "[Dagger]",
+     "primaryValue": 3290,
+     "listingCount": 14,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 0,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       0,
+       null,
+       0
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "No [Physical] Damage",
+       "optional": false,
+       "statIds": [
+        "local_physical_damage_+%",
+        "local_weapon_no_physical_damage"
+       ]
+      },
+      {
+       "text": "Adds (8-10) to (15-18) [Cold|Cold] Damage",
+       "optional": false,
+       "statIds": [
+        "local_minimum_added_cold_damage",
+        "local_maximum_added_cold_damage"
+       ]
+      },
+      {
+       "text": "[Freeze|Freezes] Enemies that are on Full Life",
+       "optional": false,
+       "statIds": [
+        "local_always_freeze_on_full_life"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Cold|Cold] Damage: (8-19)-(15-33)",
+       "optional": false
+      },
+      {
+       "text": "[Critical|Critical Hit] Chance: 15%",
+       "optional": false
+      },
+      {
+       "text": "Attacks per Second: 1.55",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (30-50)",
+       "optional": true
+      }
+     ]
+    },
+    {
+     "id": 729,
+     "itemId": "Runeseeker's Call Runemastered Runic Fork",
+     "detailsId": "runeseekers-call-runemastered-runic-fork",
+     "name": "Runeseeker's Call",
+     "baseType": "Runemastered Runic Fork",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvV2VhcG9ucy9PbmVIYW5kV2VhcG9ucy9XYW5kcy9VbmlxdWVzL1J1bmljRGl2aW5lciIsInciOjIsImgiOjMsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/df89e6455f/RunicDiviner.png",
+     "flavourText": "Smithed from ancient metal \r\nwrought from the very stars.\r\nIt is a means to call upon them, \r\nfor one capable of wielding it.",
+     "levelRequired": 84,
+     "category": "[Wand]",
+     "primaryValue": 1199,
+     "listingCount": 34,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -3.28,
+      "data": [
+       0,
+       13.31,
+       null,
+       26.88,
+       4.03,
+       null,
+       -3.28
+      ]
+     },
+     "implicitModifiers": [
+      {
+       "text": "+300 to maximum [Ward|Runic Ward]",
+       "optional": true,
+       "statIds": [
+        "base_maximum_ward"
+       ]
+      },
+      {
+       "text": "(30-50)% chance for [Spell] Skills to fire 2 additional [Projectile|Projectiles]",
+       "optional": true,
+       "statIds": [
+        "spell_skills_fire_2_additional_projectiles_final_chance_%"
+       ]
+      },
+      {
+       "text": "(30-50)% increased Mana Regeneration Rate",
+       "optional": true,
+       "statIds": [
+        "mana_regeneration_rate_+%"
+       ]
+      }
+     ],
+     "explicitModifiers": [
+      {
+       "text": "Only [Rune|Runes] can be Socketed in this item",
+       "optional": false,
+       "statIds": [
+        "local_can_only_socket_runes"
+       ]
+      },
+      {
+       "text": "200% increased effect of Socketed [Rune|Runes]",
+       "optional": false,
+       "statIds": [
+        "local_rune_effect_+%"
+       ]
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (65-90)",
+       "optional": false
+      },
+      {
+       "text": "[Intelligence|Int]: 114",
+       "optional": false
+      }
+     ],
+     "grantedSkillModifiers": [
+      {
+       "text": "Level (16-20) The Stars Answer",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 730,
+     "itemId": "Runeseeker's Call Runic Fork",
+     "detailsId": "runeseekers-call-runic-fork",
+     "name": "Runeseeker's Call",
+     "baseType": "Runic Fork",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvV2VhcG9ucy9PbmVIYW5kV2VhcG9ucy9XYW5kcy9VbmlxdWVzL1J1bmljRGl2aW5lciIsInciOjIsImgiOjMsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/df89e6455f/RunicDiviner.png",
+     "flavourText": "Smithed from ancient metal \r\nwrought from the very stars.\r\nIt is a means to call upon them, \r\nfor one capable of wielding it.",
+     "levelRequired": 90,
+     "category": "[Wand]",
+     "primaryValue": 700.0,
+     "listingCount": 70,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -6.54,
+      "data": [
+       0,
+       -1.2,
+       null,
+       -1.42,
+       2.4,
+       null,
+       -6.54
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Only [Rune|Runes] can be Socketed in this item",
+       "optional": false,
+       "statIds": [
+        "local_can_only_socket_runes"
+       ]
+      },
+      {
+       "text": "200% increased effect of Socketed [Rune|Runes]",
+       "optional": false,
+       "statIds": [
+        "local_rune_effect_+%"
+       ]
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (65-90)",
+       "optional": false
+      },
+      {
+       "text": "[Intelligence|Int]: 114",
+       "optional": false
+      }
+     ],
+     "grantedSkillModifiers": [
+      {
+       "text": "Level (18-20) The Stars Answer",
+       "optional": false
+      }
+     ]
+    }
+   ]
+  },
+  "UniqueArmours": {
+   "core": {
+    "rates": {
+     "exalted": 541.6,
+     "chaos": 7.26
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [],
+   "lines": [
+    {
+     "id": 232,
+     "itemId": "Temporalis Silk Robe",
+     "detailsId": "temporalis-silk-robe",
+     "name": "Temporalis",
+     "baseType": "Silk Robe",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQXJtb3Vycy9Cb2R5QXJtb3Vycy9VbmlxdWVzL1BpbGdyaW1zSW1hZ2UiLCJ3IjoyLCJoIjozLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/69db95b9aa/PilgrimsImage.png",
+     "flavourText": "The final element the tale-women\r\nmastered was Time itself.",
+     "levelRequired": 64,
+     "category": "Body Armour",
+     "primaryValue": 3971,
+     "listingCount": 40,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 7.62,
+      "data": [
+       null,
+       0,
+       2.44,
+       null,
+       2.71,
+       0.54,
+       7.62
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "+(100-150) to maximum [EnergyShield|Energy Shield]",
+       "optional": false,
+       "statIds": [
+        "local_energy_shield"
+       ]
+      },
+      {
+       "text": "+(10-20)% to all [ElementalDamage|Elemental] [Resistances]",
+       "optional": false,
+       "statIds": [
+        "base_resist_all_elements_%"
+       ]
+      },
+      {
+       "text": "(5-30)% of Damage taken [Recoup|Recouped] as Life",
+       "optional": false,
+       "statIds": [
+        "damage_taken_goes_to_life_over_4_seconds_%"
+       ]
+      },
+      {
+       "text": "(5-30)% of Damage taken [Recoup|Recouped] as Mana",
+       "optional": false,
+       "statIds": [
+        "damage_taken_goes_to_mana_%"
+       ]
+      },
+      {
+       "text": "Skills have -(2-1) seconds to Cooldown",
+       "optional": false,
+       "statIds": [
+        "unique_cooldown_modifier_ms"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Armour]: 30",
+       "optional": true
+      },
+      {
+       "text": "[EnergyShield|Energy Shield]: (164-300)",
+       "optional": false
+      },
+      {
+       "text": "[Evasion|Evasion Rating]: 30",
+       "optional": true
+      },
+      {
+       "text": "[Ward|Runic Ward]: (15-60)",
+       "optional": true
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: (64-65)",
+       "optional": false
+      },
+      {
+       "text": "[Intelligence|Int]: 37",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 728,
+     "itemId": "Temporalis Runemastered Silk Robe",
+     "detailsId": "temporalis-runemastered-silk-robe",
+     "name": "Temporalis",
+     "baseType": "Runemastered Silk Robe",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQXJtb3Vycy9Cb2R5QXJtb3Vycy9VbmlxdWVzL1BpbGdyaW1zSW1hZ2UiLCJ3IjoyLCJoIjozLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/69db95b9aa/PilgrimsImage.png",
+     "flavourText": "The final element the tale-women\r\nmastered was Time itself.",
+     "levelRequired": 64,
+     "category": "Body Armour",
+     "primaryValue": 3600,
+     "listingCount": 14,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 1.41,
+      "data": [
+       null,
+       0,
+       0,
+       null,
+       1.41,
+       1.41,
+       1.41
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "+(100-150) to maximum [EnergyShield|Energy Shield]",
+       "optional": false,
+       "statIds": [
+        "local_energy_shield"
+       ]
+      },
+      {
+       "text": "+(10-20)% to all [ElementalDamage|Elemental] [Resistances]",
+       "optional": false,
+       "statIds": [
+        "base_resist_all_elements_%"
+       ]
+      },
+      {
+       "text": "(5-30)% of Damage taken [Recoup|Recouped] as Life",
+       "optional": false,
+       "statIds": [
+        "damage_taken_goes_to_life_over_4_seconds_%"
+       ]
+      },
+      {
+       "text": "(5-30)% of Damage taken [Recoup|Recouped] as Mana",
+       "optional": false,
+       "statIds": [
+        "damage_taken_goes_to_mana_%"
+       ]
+      },
+      {
+       "text": "Skills have -(2-1.09) seconds to Cooldown",
+       "optional": false,
+       "statIds": [
+        "unique_cooldown_modifier_ms"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[EnergyShield|Energy Shield]: (127-241)",
+       "optional": false
+      },
+      {
+       "text": "[Ward|Runic Ward]: (110-170)",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 64",
+       "optional": false
+      },
+      {
+       "text": "[Intelligence|Int]: 61",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 192,
+     "itemId": "Death Articulated Ornate Gauntlets",
+     "detailsId": "death-articulated-ornate-gauntlets",
+     "name": "Death Articulated",
+     "baseType": "Ornate Gauntlets",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQXJtb3Vycy9HbG92ZXMvVW5pcXVlcy9EZWF0aEFydGljdWxhdGVkIiwidyI6MiwiaCI6Miwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/98e9511278/DeathArticulated.png",
+     "flavourText": "\"The mind at the center of the swarm... K'Tash does\r\nthe thinking... but it has only one thought... hate.\"\r\n- Rantings of a Templar prisoner, page ninety-four",
+     "levelRequired": 65,
+     "category": "Gloves",
+     "primaryValue": 125.4,
+     "listingCount": 5,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 0,
+      "data": [
+       null,
+       0,
+       0,
+       null,
+       0,
+       0,
+       0
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "(100-150)% increased [Armour|Armour] and [Evasion|Evasion]",
+       "optional": false,
+       "statIds": [
+        "local_armour_and_evasion_+%"
+       ]
+      },
+      {
+       "text": "(5-10)% increased [Attack] Speed",
+       "optional": false,
+       "statIds": [
+        "attack_speed_+%"
+       ]
+      },
+      {
+       "text": "+(17-23)% to [Resistances|Chaos Resistance]",
+       "optional": false,
+       "statIds": [
+        "base_chaos_damage_resistance_%"
+       ]
+      },
+      {
+       "text": "[LifeLoss|Lose] 5% of maximum Life per second",
+       "optional": false,
+       "statIds": [
+        "life_degeneration_%_per_minute_not_in_grace"
+       ]
+      },
+      {
+       "text": "Regenerate 5 [Rage] per second",
+       "optional": false,
+       "statIds": [
+        "base_rage_regeneration_per_minute"
+       ]
+      },
+      {
+       "text": "No Inherent loss of [Rage]",
+       "optional": false,
+       "statIds": [
+        "no_inherent_rage_loss"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Armour]: (178-236)",
+       "optional": false
+      },
+      {
+       "text": "[Evasion|Evasion Rating]: (162-215)",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 65",
+       "optional": false
+      },
+      {
+       "text": "[Strength|Str]: 44",
+       "optional": false
+      },
+      {
+       "text": "[Dexterity|Dex]: 44",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 709,
+     "itemId": "Rathpith Globe Runemastered Plumed Focus",
+     "detailsId": "rathpith-globe-runemastered-plumed-focus",
+     "name": "Rathpith Globe",
+     "baseType": "Runemastered Plumed Focus",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvT2ZmaGFuZC9Gb2NpL1VuaXF1ZXMvUmF0aHBpdGhHbG9iZSIsInciOjIsImgiOjMsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/51e4da7cb9/RathpithGlobe.png",
+     "flavourText": "The Vaal emptied their slaves of beating hearts,\r\nand left a mountain of twitching dead.",
+     "levelRequired": 75,
+     "category": "[Focus]",
+     "primaryValue": 25.0,
+     "listingCount": 22,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 13.64,
+      "data": [
+       null,
+       0,
+       13.64,
+       null,
+       13.64,
+       13.64,
+       13.64
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "(60-100)% increased [EnergyShield|Energy Shield]",
+       "optional": false,
+       "statIds": [
+        "local_energy_shield_+%"
+       ]
+      },
+      {
+       "text": "+(60-100) to maximum Life",
+       "optional": false,
+       "statIds": [
+        "base_maximum_life"
+       ]
+      },
+      {
+       "text": "Non-[Channelling] [Spell|Spells] cost an additional 6% of your maximum Life",
+       "optional": false,
+       "statIds": [
+        "base_life_cost_+_with_non_channelling_spells_%_maximum_life"
+       ]
+      },
+      {
+       "text": "Non-[Channelling] [Spell|Spells] have 3% increased [Critical|Critical Hit Chance] per 100 maximum Life",
+       "optional": false,
+       "statIds": [
+        "spell_critical_strike_chance_+%_per_100_max_life_with_non_channelling_skills"
+       ]
+      },
+      {
+       "text": "Non-[Channelling] [Spell|Spells] deal 6% increased Damage per 100 maximum Life",
+       "optional": false,
+       "statIds": [
+        "spell_damage_+%_per_100_max_life_with_non_channelling_skills"
+       ]
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[EnergyShield|Energy Shield]: (37-50)",
+       "optional": false
+      },
+      {
+       "text": "[Ward|Runic Ward]: (106-131)",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 75",
+       "optional": false
+      },
+      {
+       "text": "[Intelligence|Int]: 91",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 572,
+     "itemId": "Tabula Rasa Runeforged Garment",
+     "detailsId": "tabula-rasa-runeforged-garment",
+     "name": "Tabula Rasa",
+     "baseType": "Runeforged Garment",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQXJtb3Vycy9Cb2R5QXJtb3Vycy9VbmlxdWVzL1RhYnVsYVJhc2EiLCJ3IjoyLCJoIjozLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/8b21a046ec/TabulaRasa.png",
+     "levelRequired": 0,
+     "category": "Body Armour",
+     "primaryValue": 24.0,
+     "listingCount": 27,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 4.35,
+      "data": [
+       null,
+       0,
+       0,
+       null,
+       -2.17,
+       4.35,
+       4.35
+      ]
+     },
+     "propertyModifiers": [
+      {
+       "text": "[Ward|Runic Ward]: 100",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 598,
+     "itemId": "Morior Invictus Runemastered Grand Regalia",
+     "detailsId": "morior-invictus-runemastered-grand-regalia",
+     "name": "Morior Invictus",
+     "baseType": "Runemastered Grand Regalia",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQXJtb3Vycy9Cb2R5QXJtb3Vycy9VbmlxdWVzL01vcmlvckludmljdHVzX00iLCJ3IjoyLCJoIjozLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/6674aa4ff6/MoriorInvictus_M.png",
+     "flavourText": "The Unblinking Eye did not cower and wail.\r\nThey stood against the end.",
+     "levelRequired": 65,
+     "category": "Body Armour",
+     "primaryValue": 15.0,
+     "listingCount": 35,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 0,
+      "data": [
+       null,
+       0,
+       0,
+       null,
+       0,
+       0,
+       0
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "(300-400)% increased [Armour|Armour], [Evasion|Evasion] and [EnergyShield|Energy Shield]",
+       "optional": false
+      },
+      {
+       "text": "(8-12) Life Regeneration per second per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(50-60) to maximum Mana per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(5-7) to all [Attributes] per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(10-13)% to [Resistances|Chaos Resistance] per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(10-14) to [Spirit|Spirit] per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "Hits against you have (15-20)% reduced [CriticalDamageBonus|Critical Damage Bonus] per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(45-60) to maximum Life per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "(9-12)% increased Global [Armour], [Evasion] and [EnergyShield|Energy Shield] per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(70-90) to [StunThreshold|Stun Threshold] per Socket filled",
+       "optional": true
+      },
+      {
+       "text": "+(8-10)% to all [Resistances|Elemental Resistances] per Socket filled",
+       "optional": true
+      }
+     ],
+     "propertyModifiers": [
+      {
+       "text": "[Armour]: (580-980)",
+       "optional": false
+      },
+      {
+       "text": "[Evasion|Evasion Rating]: (528-908)",
+       "optional": false
+      },
+      {
+       "text": "[EnergyShield|Energy Shield]: (160-280)",
+       "optional": false
+      },
+      {
+       "text": "[Ward|Runic Ward]: (86-186)",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 65",
+       "optional": false
+      },
+      {
+       "text": "[Strength|Str]: 41",
+       "optional": false
+      },
+      {
+       "text": "[Dexterity|Dex]: 41",
+       "optional": false
+      },
+      {
+       "text": "[Intelligence|Int]: 41",
+       "optional": false
+      }
+     ]
+    }
+   ]
+  },
+  "UniqueAccessories": {
+   "core": {
+    "rates": {
+     "exalted": 549.4,
+     "chaos": 7.61
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [],
+   "lines": [
+    {
+     "id": 360,
+     "itemId": "The Gnashing Sash Wide Belt",
+     "detailsId": "the-gnashing-sash-wide-belt",
+     "name": "The Gnashing Sash",
+     "baseType": "Wide Belt",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQmVsdHMvVW5pcXVlcy9HbmFzaGluZ1Nhc2giLCJ3IjoyLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/c996ea805c/GnashingSash.png",
+     "flavourText": "\"Ghorr knows only hunger, only ravenous feasting.\r\nIt will consume all that lives, and more!\"\r\n- Rantings of a Templar prisoner, page fourteen",
+     "levelRequired": 60,
+     "category": "Belt",
+     "primaryValue": 5138,
+     "listingCount": 7,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -8.66,
+      "data": [
+       0,
+       -4.16,
+       null,
+       -5.87,
+       -20,
+       null,
+       -8.66
+      ]
+     },
+     "implicitModifiers": [
+      {
+       "text": "Has 1 [Charm] Slot",
+       "optional": true,
+       "statIds": [
+        "local_charm_slots"
+       ]
+      },
+      {
+       "text": "Has (2-3) [Charm] Slots",
+       "optional": true,
+       "statIds": [
+        "local_charm_slots"
+       ]
+      },
+      {
+       "text": "(20-30)% increased [Flask|Flask] Charges gained",
+       "optional": false,
+       "statIds": [
+        "flask_charges_gained_+%"
+       ]
+      }
+     ],
+     "explicitModifiers": [
+      {
+       "text": "(15-35)% increased [Flask] Life Recovery rate",
+       "optional": false,
+       "statIds": [
+        "flask_life_recovery_rate_+%"
+       ]
+      },
+      {
+       "text": "+(17-23)% to [Resistances|Chaos Resistance]",
+       "optional": false,
+       "statIds": [
+        "base_chaos_damage_resistance_%"
+       ]
+      },
+      {
+       "text": "[LifeLoss|Lose] 5% of maximum Life per second",
+       "optional": false,
+       "statIds": [
+        "life_degeneration_%_per_minute_not_in_grace"
+       ]
+      },
+      {
+       "text": "Life Recovery from [Flask|Flasks] can [Overflow|Overflow] Maximum Life",
+       "optional": false,
+       "statIds": [
+        "life_flask_recovery_can_overcap_life"
+       ]
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 60",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 527,
+     "itemId": "Mageblood Utility Belt",
+     "detailsId": "mageblood-utility-belt",
+     "name": "Mageblood",
+     "baseType": "Utility Belt",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQmVsdHMvVW5pcXVlcy9NYWdlYmxvb2QiLCJ3IjoyLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/79ac3ce7d3/Mageblood.png",
+     "flavourText": "Rivers of power coursed through their veins.\r\nNow, that power is yours, for good or ill.",
+     "levelRequired": 55,
+     "category": "Belt",
+     "primaryValue": 229.5,
+     "listingCount": 3896,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 3.42,
+      "data": [
+       0,
+       1.4,
+       null,
+       -0.5,
+       3.42,
+       null,
+       3.42
+      ]
+     },
+     "implicitModifiers": [
+      {
+       "text": "Has 1 [Charm] Slot",
+       "optional": true,
+       "statIds": [
+        "local_charm_slots"
+       ]
+      },
+      {
+       "text": "Has (2-3) [Charm] Slots",
+       "optional": true,
+       "statIds": [
+        "local_charm_slots"
+       ]
+      },
+      {
+       "text": "20% of [Flask|Flask] Recovery applied Instantly",
+       "optional": false,
+       "statIds": [
+        "flask_recovery_amount_%_to_recover_instantly"
+       ]
+      }
+     ],
+     "explicitModifiers": [
+      {
+       "text": "Legacy of [LegacyOfDiamond|Diamond]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfSapphire|Sapphire]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfStibnite|Stibnite]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfTopaz|Topaz]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfBismuth|Bismuth]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfGranite|Granite]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfSulphur|Sulphur]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfAmethyst|Amethyst]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfBasalt|Basalt]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfGold|Gold]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfJade|Jade]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfQuicksilver|Quicksilver]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfRuby|Ruby]",
+       "optional": true
+      },
+      {
+       "text": "Legacy of [LegacyOfSilver|Silver]",
+       "optional": true
+      },
+      {
+       "text": "All [MagesLegacy|Mage's Legacies] have (25-50)% increased effect per duplicate [MagesLegacy|Mage's Legacy] you have",
+       "optional": false
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 55",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 356,
+     "itemId": "Bursting Decay Unset Ring",
+     "detailsId": "bursting-decay-unset-ring",
+     "name": "Bursting Decay",
+     "baseType": "Unset Ring",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvUmluZ3MvVW5pcXVlcy9CdXJzdGluZ0RlY2F5IiwidyI6MSwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/2781601a75/BurstingDecay.png",
+     "flavourText": "\"All Beidat desires is a foothold, a grip on your flesh,\r\non the world... he will offer you anything to get it...\"\r\n- Rantings of a Templar prisoner, page thirty",
+     "levelRequired": 60,
+     "category": "Ring",
+     "primaryValue": 77.8,
+     "listingCount": 8,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 14.24,
+      "data": [
+       0,
+       1.32,
+       null,
+       1.32,
+       1.32,
+       null,
+       14.24
+      ]
+     },
+     "implicitModifiers": [
+      {
+       "text": "Grants 1 additional Skill Slot",
+       "optional": false,
+       "statIds": [
+        "local_item_additional_skill_slots"
+       ]
+      }
+     ],
+     "explicitModifiers": [
+      {
+       "text": "(15-25)% increased [ItemRarity|Rarity of Items] found",
+       "optional": false,
+       "statIds": [
+        "base_item_found_rarity_+%"
+       ]
+      },
+      {
+       "text": "+(17-27)% to [Resistances|Chaos Resistance]",
+       "optional": false,
+       "statIds": [
+        "base_chaos_damage_resistance_%"
+       ]
+      },
+      {
+       "text": "[LifeLoss|Lose] 5% of maximum Life per second",
+       "optional": false,
+       "statIds": [
+        "life_degeneration_%_per_minute_not_in_grace"
+       ]
+      },
+      {
+       "text": "[Attack|Attacks] have added [Physical] damage equal to 3% of maximum Life",
+       "optional": false,
+       "statIds": [
+        "attack_added_physical_damage_%_of_maximum_life"
+       ]
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 60",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 311,
+     "itemId": "Headhunter Heavy Belt",
+     "detailsId": "headhunter-heavy-belt",
+     "name": "Headhunter",
+     "baseType": "Heavy Belt",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvQmVsdHMvVW5pcXVlcy9IZWFkaHVudGVyIiwidyI6MiwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/24accb4eec/Headhunter.png",
+     "flavourText": "\"A man's soul rules from a cavern of bone, learns and\r\njudges through flesh-born windows. The heart is meat.\r\nThe head is where the Man is.\"\r\n- Lavianga, Advisor to Kaom",
+     "levelRequired": 50,
+     "category": "Belt",
+     "primaryValue": 67.7,
+     "listingCount": 943,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 27.74,
+      "data": [
+       0,
+       13.21,
+       null,
+       13.21,
+       13.21,
+       null,
+       27.74
+      ]
+     },
+     "implicitModifiers": [
+      {
+       "text": "(20-30)% increased [StunThreshold|Stun Threshold]",
+       "optional": false,
+       "statIds": [
+        "stun_threshold_+%"
+       ]
+      },
+      {
+       "text": "Has 1 [Charm] Slot",
+       "optional": true,
+       "statIds": [
+        "local_charm_slots"
+       ]
+      },
+      {
+       "text": "Has (2-3) [Charm] Slots",
+       "optional": true,
+       "statIds": [
+        "local_charm_slots"
+       ]
+      }
+     ],
+     "explicitModifiers": [
+      {
+       "text": "+(40-60) to maximum Life",
+       "optional": false,
+       "statIds": [
+        "base_maximum_life"
+       ]
+      },
+      {
+       "text": "+(20-40) to [Strength|Strength]",
+       "optional": false,
+       "statIds": [
+        "additional_strength"
+       ]
+      },
+      {
+       "text": "+(20-40) to [Dexterity|Dexterity]",
+       "optional": false,
+       "statIds": [
+        "additional_dexterity"
+       ]
+      },
+      {
+       "text": "When you kill a [Rarity|Rare] monster, you gain its [MonsterModifiers|Modifiers] for 60 seconds",
+       "optional": false,
+       "statIds": [
+        "gain_rare_monster_mods_on_kill_ms"
+       ]
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 50",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 549,
+     "itemId": "Eshtera's Path Ring",
+     "detailsId": "eshteras-path-ring",
+     "name": "Eshtera's Path",
+     "baseType": "Ring",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvUmluZ3MvVW5pcXVlcy9SaW1ldmVpbFNlYWwiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/d80ec95524/RimeveilSeal.png",
+     "flavourText": "During the Winter of the World, her akhara began\r\nshepherding jingakh across the harsh Vastiri. Sekhema\r\nEshtera planted the seeds of Maraketh diplomacy.",
+     "levelRequired": 40,
+     "category": "Ring",
+     "primaryValue": 40.0,
+     "listingCount": 81,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 0,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       0,
+       null,
+       0
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "You can only Socket Sapphire Jewels in this item",
+       "optional": false,
+       "statIds": [
+        "local_can_only_socket_sapphire_gems"
+       ]
+      },
+      {
+       "text": "(10-20)% increased [ItemRarity|Rarity of Items] found",
+       "optional": false,
+       "statIds": [
+        "base_item_found_rarity_+%"
+       ]
+      },
+      {
+       "text": "+(10-24) to all [Attributes|Attributes]",
+       "optional": false,
+       "statIds": [
+        "additional_all_attributes"
+       ]
+      },
+      {
+       "text": "+(5-10)% to [Fire] and [Cold] [Resistances] per [Equipped|Equipped Item] with a [Lightning] [Resistances|Resistance] Modifier",
+       "optional": false,
+       "statIds": [
+        "fire_and_cold_resist_+_per_equipped_item_with_a_lightning_resistance_mod"
+       ]
+      }
+     ],
+     "requirementModifiers": [
+      {
+       "text": "Level: 40",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 340,
+     "itemId": "Kalandra's Touch Ring",
+     "detailsId": "kalandras-touch-ring",
+     "name": "Kalandra's Touch",
+     "baseType": "Ring",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvUmluZ3MvTWlycm9yUmluZyIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIiLCJkdXBsaWNhdGVkIjp0cnVlfV0/ec1c789fca/MirrorRing.png",
+     "flavourText": "Power is a matter of perspective.",
+     "levelRequired": 0,
+     "category": "Ring",
+     "primaryValue": 10.0,
+     "listingCount": 1180,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 0,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       -1,
+       null,
+       0
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Reflects opposite Ring",
+       "optional": false,
+       "statIds": [
+        "local_ring_duplicate_other_ring"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "UniqueJewels": {
+   "core": {
+    "rates": {
+     "exalted": 559.9,
+     "chaos": 7.85
+    },
+    "primary": "divine",
+    "secondary": "chaos"
+   },
+   "items": [],
+   "lines": [
+    {
+     "id": 699,
+     "itemId": "Voices Sapphire",
+     "detailsId": "voices-sapphire",
+     "name": "Voices",
+     "baseType": "Sapphire",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvSmV3ZWxzL1VuaXF1ZXMvVm9pY2VzIiwidyI6MSwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/f989334af4/Voices.png",
+     "flavourText": "Only a madman would ignore a god's instructions.",
+     "levelRequired": 0,
+     "category": "[Jewel]",
+     "limitedTo": 1,
+     "primaryValue": 648.1,
+     "listingCount": 105,
+     "corrupted": true,
+     "sparkLine": {
+      "totalChange": 8.02,
+      "data": [
+       0,
+       11,
+       null,
+       10.9,
+       18.17,
+       null,
+       8.02
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Allocates (2-4) [SinisterJewelSockets|Sinister] [Jewel] sockets",
+       "optional": false,
+       "statIds": [
+        "unique_jewel_grants_x_voices_jewel_sockets"
+       ]
+      }
+     ]
+    },
+    {
+     "id": 404,
+     "itemId": "The Adorned Diamond",
+     "detailsId": "the-adorned-diamond",
+     "name": "The Adorned",
+     "baseType": "Diamond",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvSmV3ZWxzL1RyaWFsbWFzdGVySmV3ZWwiLCJ3IjoxLCJoIjoxLCJzY2FsZSI6MSwicmVhbG0iOiJwb2UyIn1d/fa6b8d5683/TrialmasterJewel.png",
+     "flavourText": "At their height, the Vaal glittered under the sun.\r\nA decade, a century, an aeon of prosperity...\r\nnow nothing more than a passing wonder.",
+     "levelRequired": 0,
+     "category": "[Jewel]",
+     "limitedTo": 1,
+     "primaryValue": 44.9,
+     "listingCount": 1409,
+     "corrupted": true,
+     "sparkLine": {
+      "totalChange": 12.25,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       0,
+       null,
+       12.25
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "+(-26-26) to maximum [EnergyShield|Energy Shield]",
+       "optional": true
+      },
+      {
+       "text": "",
+       "optional": true
+      },
+      {
+       "text": "(1-27)% increased [Lightning] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-27)% reduced [Cold] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-29)% increased [Fire] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-148)% increased Effect of [Jewel] Socket Passive Skills\ncontaining [Corrupted] [ItemRarity|Magic] [Jewel|Jewels]",
+       "optional": true
+      },
+      {
+       "text": "(1-30)% reduced [Evasion|Evasion Rating]",
+       "optional": true
+      },
+      {
+       "text": "(2-14)% increased Effect of [Jewel] Socket Passive Skills\ncontaining [Corrupted] [ItemRarity|Rare] [Jewel|Jewels]",
+       "optional": true
+      },
+      {
+       "text": "(4-30)% reduced [Armour]",
+       "optional": true
+      },
+      {
+       "text": "(3-25)% reduced [Lightning] Damage",
+       "optional": true
+      },
+      {
+       "text": "[Minion|Minions] deal (3-30)% reduced Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-24)% increased [Armour]",
+       "optional": true
+      },
+      {
+       "text": "(2-18)% increased Global [Physical] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-30)% reduced [Chaos] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-30)% increased [Cold] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-29)% increased [Evasion|Evasion Rating]",
+       "optional": true
+      },
+      {
+       "text": "(2-30)% reduced [Fire] Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-28)% reduced Global [Physical] Damage",
+       "optional": true
+      },
+      {
+       "text": "[Minion|Minions] deal (1-27)% increased Damage",
+       "optional": true
+      },
+      {
+       "text": "(1-30)% increased [Chaos] Damage",
+       "optional": true
+      }
+     ]
+    },
+    {
+     "id": 379,
+     "itemId": "Grand Spectrum Emerald",
+     "detailsId": "grand-spectrum-emerald",
+     "name": "Grand Spectrum",
+     "baseType": "Emerald",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvSmV3ZWxzL1VuaXF1ZXMvR3JhbmRTcGVjdHJ1bV9FbWVyYWxkIiwidyI6MSwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/687a109210/GrandSpectrum_Emerald.png",
+     "flavourText": "An indomitable force of control.",
+     "levelRequired": 0,
+     "category": "[Jewel]",
+     "limitedTo": 3,
+     "primaryValue": 39.0,
+     "listingCount": 36,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 0,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       0,
+       null,
+       0
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "2% increased [Spirit|Spirit] per socketed Grand Spectrum",
+       "optional": false,
+       "statIds": [
+        "spirit_+%_per_stackable_unique_jewel"
+       ]
+      }
+     ]
+    },
+    {
+     "id": 380,
+     "itemId": "Grand Spectrum Ruby",
+     "detailsId": "grand-spectrum-ruby",
+     "name": "Grand Spectrum",
+     "baseType": "Ruby",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvSmV3ZWxzL1VuaXF1ZXMvR3JhbmRTcGVjdHJ1bV9SdWJ5IiwidyI6MSwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/8d964b3e88/GrandSpectrum_Ruby.png",
+     "flavourText": "A wellspring of vitality bubbling from within.",
+     "levelRequired": 0,
+     "category": "[Jewel]",
+     "limitedTo": 3,
+     "primaryValue": 20.0,
+     "listingCount": 52,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -10.71,
+      "data": [
+       0,
+       0,
+       null,
+       0,
+       -10.71,
+       null,
+       -10.71
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "2% increased Maximum Life per socketed Grand Spectrum",
+       "optional": false,
+       "statIds": [
+        "maximum_life_+%_per_stackable_unique_jewel"
+       ]
+      }
+     ]
+    },
+    {
+     "id": 377,
+     "itemId": "Controlled Metamorphosis Diamond",
+     "detailsId": "controlled-metamorphosis-diamond",
+     "name": "Controlled Metamorphosis",
+     "baseType": "Diamond",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvSmV3ZWxzL0JyZWFjaEpld2VsIiwidyI6MSwiaCI6MSwic2NhbGUiOjEsInJlYWxtIjoicG9lMiJ9XQ/9c17747ff2/BreachJewel.png",
+     "flavourText": "Our world was dying, but we chose to survive.\r\nWe broke free from the chains within.",
+     "levelRequired": 0,
+     "category": "[Jewel]",
+     "limitedTo": 1,
+     "radius": "Variable",
+     "primaryValue": 7.0,
+     "listingCount": 1005,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": -12.5,
+      "data": [
+       0,
+       -1.25,
+       null,
+       -12.5,
+       -1.25,
+       null,
+       -12.5
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "Only affects Passives in Small Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Medium Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Large Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Massive Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Medium-Small Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Medium-Large Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Very Large Ring",
+       "optional": true
+      },
+      {
+       "text": "Only affects Passives in Very Small Ring",
+       "optional": true
+      },
+      {
+       "text": "Passives in Radius can be Allocated without being connected to your tree",
+       "optional": false
+      },
+      {
+       "text": "-(20-5)% to all [ElementalDamage|Elemental] [Resistances]",
+       "optional": false
+      }
+     ]
+    },
+    {
+     "id": 381,
+     "itemId": "Grand Spectrum Sapphire",
+     "detailsId": "grand-spectrum-sapphire",
+     "name": "Grand Spectrum",
+     "baseType": "Sapphire",
+     "icon": "https://web.poecdn.com/gen/image/WzI1LDE0LHsiZiI6IjJESXRlbXMvSmV3ZWxzL1VuaXF1ZXMvR3JhbmRTcGVjdHJ1bV9TYXBwaGlyZSIsInciOjEsImgiOjEsInNjYWxlIjoxLCJyZWFsbSI6InBvZTIifV0/514d06d40e/GrandSpectrum_Sapphire.png",
+     "flavourText": "Skin like steel tempered by bright flames.",
+     "levelRequired": 0,
+     "category": "[Jewel]",
+     "limitedTo": 3,
+     "primaryValue": 6.0,
+     "listingCount": 153,
+     "corrupted": false,
+     "sparkLine": {
+      "totalChange": 3.94,
+      "data": [
+       0,
+       0.0,
+       null,
+       0.44,
+       3.94,
+       null,
+       3.94
+      ]
+     },
+     "explicitModifiers": [
+      {
+       "text": "+(6-7)% to all [Resistances|Elemental Resistances] per socketed Grand Spectrum",
+       "optional": false,
+       "statIds": [
+        "elemental_resistance_%_per_stackable_unique_jewel"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

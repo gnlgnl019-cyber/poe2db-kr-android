@@ -49,7 +49,8 @@ class BossPatternTest {
             "olroth" to listOf("룬 검기", "빙결 파편"),
         )
         BossPresets.ALL.forEach { boss ->
-            val world = worldFor(boss)
+            // 보스가 패턴을 여러 번 쓸 만큼 오래 살도록 낮은 DPS로 때린다.
+            val world = worldFor(boss, dps = 600_000.0)
             tick(world, 25.0)
             println("[TEST] ${boss.id} patterns=${world.patternHistory.distinct()} phase=${world.bossPhase} telegraphs=${world.telegraphsSpawned}")
             assertTrue("${boss.name} 패턴이 없다", world.patternHistory.isNotEmpty())

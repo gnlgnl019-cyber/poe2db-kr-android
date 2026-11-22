@@ -84,6 +84,8 @@ data class BattlePlayerStats(
     val skillName: String,
     val fx: SkillEffectType,
     val weapon: WeaponVisualType,
+    /** 착용 무기로 정해진 공격 형태 (근접·활·쇠뇌·주문) */
+    val form: AttackForm = WeaponTypes.attackForm(weapon, fx),
     val dps: Double,
     val aps: Double,
     val critChance: Double,
@@ -267,7 +269,8 @@ class Enemy(
 }
 
 enum class FxKind {
-    SLASH, ICE_CONE, RING, BOLT, PILLAR, ORB, AURA, SPEAR, SHOCKWAVE, CYCLONE, MINION_HIT, CLOUD, GROUND_CRACK, METEOR,
+    SLASH, ICE_CONE, RING, BOLT, PILLAR, ORB, AURA, SPEAR, SHOCKWAVE, CYCLONE, MINION_HIT, CLOUD,
+    GROUND_CRACK, METEOR, THRUST, IMPACT,
 }
 
 class Fx(
@@ -310,7 +313,7 @@ class Popup(
     var size: Float = 1f,
 )
 
-enum class ProjKind { ICE_ARROW, LIGHT_ARROW, FIRE_ORB, CHAOS_ORB, MINION_ORB, BOLT, ENEMY_BOLT }
+enum class ProjKind { ICE_ARROW, LIGHT_ARROW, FIRE_ORB, FROST_ORB, CHAOS_ORB, MINION_ORB, BOLT, ARROW, SPARK, ENEMY_BOLT }
 
 class Projectile(
     var x: Float,
@@ -347,6 +350,10 @@ data class BattleResult(
     val triggerDamage: Double = 0.0,
     val triggerText: String = "",
     val triggers: List<TriggerReport> = emptyList(),
+    /** 한 번 트리거에 터진 최대 연발 수 (예: 혜성 18발) */
+    val maxBurst: Int = 0,
+    /** 연발로 나간 총 발 수 */
+    val burstCasts: Int = 0,
 )
 
 /** 메타젬 하나의 전투 결과 */
@@ -434,6 +441,16 @@ class Telegraph(
 private class BossPattern(val name: String, val cooldown: Float, val action: () -> Unit)
 
 class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
+
+    companion object {
+        /** 발동 1회에 드는 에너지. 화면 표시는 이 값을 100%로 본다. */
+        const val CAST_COST = 100.0
+        /** 실제 PoE2처럼 100%를 훨씬 넘게 쌓일 수 있다 (4,000% = 40회분) */
+        const val MAX_ENERGY = 4_000.0
+        /** 한 번에 터지는 최대 연발 수 (화면·성능 보호) */
+        const val MAX_BURST = 25
+    }
+
     var energy = 0.0
         private set
     var cooldown = 0f
@@ -445,14 +462,25 @@ class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
     private var nextSkill = 0
     private var auraClock = 0f
 
-    /** 조건을 몇 번 채워야 한 번 터지는지 */
-    val threshold: Double = spec.kind.energyNeeded.coerceAtLeast(1.0)
+    /** 방금 터진 연발 수, 이번 전투 최대 연발 */
+    var lastBurst = 0
+        private set
+    var bestBurst = 0
+        private set
+    /** 아직 화면에 내리지 못한 발 수 */
+    var queued = 0
+        private set
+
+    /** 조건을 몇 번 채워야 한 번 터지는지 (한 번의 발동 비용은 항상 100) */
+    val threshold: Double = CAST_COST
 
     val cooldownMax: Float = spec.kind.cooldown
 
     /** 트리거가 자연히 터지는 간격(초) — 한 번 발동의 피해를 정할 때 쓴다. */
-    val interval: Double = maxOf(cooldownMax.toDouble(), threshold / critRate.coerceAtLeast(0.08))
-        .coerceAtMost(6.0)
+    val interval: Double = maxOf(cooldownMax.toDouble(), 0.45).coerceAtMost(6.0)
+
+    /** 현재 메타 에너지 % (100% = 1회분) */
+    val energyPercent: Double get() = energy / CAST_COST * 100.0
 
     fun tick(dt: Float) {
         if (cooldown > 0f) cooldown = maxOf(0f, cooldown - dt)
@@ -466,26 +494,55 @@ class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
         var gained = false
         while (auraClock >= pulse) {
             auraClock -= pulse
-            addEnergy(1.0)
+            addEnergy(CAST_COST / spec.kind.energyNeeded.coerceAtLeast(1.0))
             gained = true
         }
         return gained
     }
 
-    fun addEnergy(amount: Double = 1.0) {
-        energy += amount
+    /** 에너지는 100%를 넘어 최대 4,000%까지 쌓인다. */
+    fun addEnergy(amount: Double) {
+        if (amount <= 0.0 || !amount.isFinite()) return
+        energy = min(MAX_ENERGY, energy + amount)
     }
 
-    fun ready(): Boolean = energy >= threshold && cooldown <= 0f
+    fun ready(): Boolean = energy >= CAST_COST && cooldown <= 0f
 
-    fun consume(): TriggeredSkill? {
+    /**
+     * 쌓인 에너지를 100씩 깎아 연발 횟수를 만든다.
+     * 1,200%가 쌓여 있으면 12발이 한꺼번에 예약된다.
+     */
+    fun drainBurst(): Int {
+        val count = (energy / CAST_COST).toInt().coerceIn(0, MAX_BURST)
+        if (count <= 0) return 0
+        energy = max(0.0, energy - count * CAST_COST)
+        cooldown = cooldownMax
+        queued += count
+        lastBurst = count
+        bestBurst = max(bestBurst, count)
+        return count
+    }
+
+    /** 다음 발동 스킬 (여러 개면 번갈아) */
+    fun nextTriggered(): TriggeredSkill? {
         if (spec.skills.isEmpty()) return null
         val skill = spec.skills[nextSkill % spec.skills.size]
         nextSkill++
-        energy = 0.0
-        cooldown = cooldownMax
         casts++
+        queued = maxOf(0, queued - 1)
         return skill
+    }
+
+    /** 연발 i번째에 나갈 스킬 (스킬이 여럿이면 번갈아) */
+    fun skillFor(index: Int): TriggeredSkill? {
+        if (spec.skills.isEmpty()) return null
+        return spec.skills[index % spec.skills.size]
+    }
+
+    /** 실제로 한 발 나갔을 때 호출 */
+    fun noteCast() {
+        casts++
+        queued = maxOf(0, queued - 1)
     }
 
     fun addDamage(value: Double) {
@@ -494,6 +551,9 @@ class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
 
     /** 한 번 발동할 때의 피해: 그 스킬의 지속 DPS × 발동 간격 */
     fun castDamage(skill: TriggeredSkill): Double = (skill.dps * interval).coerceAtLeast(1.0)
+
+    /** 이 트리거 한 발이 기준으로 삼는 피해량 (에너지 환산용) */
+    fun referenceDamage(): Double = spec.skills.firstOrNull()?.let { castDamage(it) } ?: 1.0
 
     fun report(): TriggerReport = TriggerReport(
         label = spec.kind.label,
@@ -519,6 +579,8 @@ class BattleWorld(
         private const val MAX_FX = 220
         private const val MAX_PARTICLES = 420
         private const val MAX_POPUPS = 46
+        /** 메타 에너지 100%(발동 1회)에 해당하는 피해량 */
+        const val REFERENCE_HIT = 60_000.0
 
         fun formatShort(value: Double): String = when {
             value >= 1_000_000 -> String.format(java.util.Locale.KOREA, "%.2fM", value / 1_000_000)
@@ -609,6 +671,26 @@ class BattleWorld(
     )
 
     private val pendingStrikes = ArrayList<PendingStrike>()
+
+    /** 연발로 예약된 발동 (0.04~0.07초 간격으로 하나씩 떨어진다) */
+    private class PendingCast(
+        var delay: Float,
+        val rt: TriggerRuntime,
+        val skill: TriggeredSkill,
+        val target: Enemy,
+        val index: Int,
+        val burst: Int,
+    )
+
+    private val castQueue = ArrayList<PendingCast>()
+
+    /** 이번 전투에서 가장 많이 터진 연발 수와 연발로 나간 총 발 수 */
+    var maxBurst = 0
+        private set
+    var burstCasts = 0
+        private set
+    var lastBurstLabel = ""
+        private set
 
     val totalEnemies: Int get() = enemies.size
     val aliveCount: Int get() = enemies.count { it.alive }
@@ -725,6 +807,7 @@ class BattleWorld(
         updateProjectiles(dt)
         updateDots(dt)
         updateTriggers(dt)
+        updateCastQueue(dt)
         updateStrikes(dt)
         if (player.life <= 0.0) {
             player.life = 0.0
@@ -817,10 +900,12 @@ class BattleWorld(
             val dy = nearest.y - player.y
             val dist = hypot(dx, dy).coerceAtLeast(0.001f)
             player.facing = atan2(dy, dx)
-            val desired = when {
-                stats.fx == SkillEffectType.MELEE -> 58f
-                stats.fx == SkillEffectType.MINION -> 175f
-                else -> 163f
+            val desired = when (stats.form) {
+                AttackForm.MELEE -> 56f
+                AttackForm.BOW -> 152f
+                AttackForm.CROSSBOW -> 168f
+                AttackForm.CAST -> 148f
+                AttackForm.UNARMED -> 52f
             }
             var vx = 0f
             var vy = 0f
@@ -910,50 +995,128 @@ class BattleWorld(
     private fun fireAttack(target: Enemy) {
         val (damage, crit) = rollDamage()
         val angle = atan2(target.y - player.y, target.x - player.x)
+        when (stats.form) {
+            AttackForm.MELEE, AttackForm.UNARMED -> meleeStrike(target, damage, crit, angle)
+            AttackForm.BOW -> bowShot(target, damage, crit, angle)
+            AttackForm.CROSSBOW -> crossbowShot(target, damage, crit, angle)
+            AttackForm.CAST -> castSpell(target, damage, crit, angle)
+        }
+    }
 
+    /**
+     * 근접: 적에게 붙어 크게 휘두른다.
+     * 무기마다 궤적이 다르다 — 검·도끼는 베기, 철퇴·도리깨는 내려찍기,
+     * 창은 찌르기, 육척봉은 넓게 휩쓸기, 단검·손톱은 빠른 연격.
+     */
+    private fun meleeStrike(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val style = when (stats.weapon) {
+            WeaponVisualType.MACE, WeaponVisualType.FLAIL -> "slam"
+            WeaponVisualType.SPEAR -> "thrust"
+            WeaponVisualType.QUARTERSTAFF -> "sweep"
+            WeaponVisualType.DAGGER, WeaponVisualType.CLAW -> "stab"
+            WeaponVisualType.AXE -> "cleave"
+            else -> "slash"
+        }
+        val reach: Float = when (style) {
+            "thrust" -> 118f
+            "sweep" -> 108f
+            "slam" -> 92f
+            else -> 96f
+        }
+        when (style) {
+            "slam" -> {
+                addFx(FxKind.IMPACT, target.x, target.y, radius = 74f, life = 0.42f, color = DamageElement.PHYSICAL.color, width = 1.5f)
+                addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 60f, life = 0.5f, color = 0xFFD8C3A0.toInt(), width = 1.6f)
+                addBurst(target.x, target.y, 12, 0xFFC9B38A.toInt(), 240f, 0.6f, gravity = 120f)
+                shake = max(shake, 4.6f)
+            }
+            "thrust" -> {
+                addFx(
+                    FxKind.THRUST, player.x, player.y - 22f,
+                    x2 = player.x + cos(angle) * reach, y2 = player.y + sin(angle) * reach - 22f,
+                    angle = angle, radius = reach, life = 0.22f, color = 0xFFE6F0FF.toInt(), width = 1.3f,
+                )
+            }
+            "sweep" -> {
+                addFx(FxKind.SLASH, player.x, player.y - 18f, angle = angle, radius = reach, life = 0.32f, color = DamageElement.PHYSICAL.color, width = 1.7f)
+                addFx(FxKind.SLASH, player.x, player.y - 18f, angle = angle + 3.14f * 0.35f, radius = reach * 0.8f, life = 0.3f, color = 0xFFCFD8E6.toInt(), width = 1.2f)
+            }
+            "stab" -> {
+                addFx(FxKind.THRUST, player.x, player.y - 24f, x2 = target.x, y2 = target.y - 20f, angle = angle, radius = 60f, life = 0.16f, color = 0xFFEAF2FF.toInt(), width = 0.9f)
+                addFx(FxKind.THRUST, player.x, player.y - 20f, x2 = target.x, y2 = target.y - 16f, angle = angle + 0.18f, radius = 56f, life = 0.2f, color = 0xFFCFE2FF.toInt(), width = 0.7f)
+            }
+            "cleave" -> {
+                addFx(FxKind.SLASH, player.x, player.y - 20f, angle = angle, radius = reach, life = 0.3f, color = DamageElement.PHYSICAL.color, width = 1.8f)
+                addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 52f, life = 0.38f, color = 0xFFBFC7D5.toInt())
+            }
+            else -> {
+                addFx(FxKind.SLASH, player.x, player.y - 20f, angle = angle, radius = reach, life = 0.26f, color = DamageElement.PHYSICAL.color, width = 1.5f)
+                addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 46f, life = 0.4f, color = 0xFFBFC7D5.toInt())
+            }
+        }
+        val arcHalf = if (style == "sweep") 1.5f else 1.15f
+        val inArc = enemies.filter { e ->
+            e.alive && hypot(e.x - player.x, e.y - player.y) < reach + 6f &&
+                abs(normalize(atan2(e.y - player.y, e.x - player.x) - angle)) < arcHalf
+        }.sortedBy { hypot(it.x - player.x, it.y - player.y) }.take(5)
+        if (inArc.isEmpty()) {
+            hitEnemy(target, damage, crit, angle, 1f)
+        } else {
+            inArc.forEachIndexed { i, e ->
+                hitEnemy(e, if (i == 0) damage else damage * 0.55, crit && i == 0, angle, if (i == 0) 1f else 0.7f)
+            }
+        }
+        if (crit) shake = max(shake, 5.2f)
+    }
+
+    /** 활: 시위를 당겼다 놓으며 깃털 달린 화살을 날린다. */
+    private fun bowShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        spawnProjectile(
+            ProjKind.ARROW, target, damage, crit, stats.fx.element,
+            speed = 980f, angle = angle,
+        )
+        addFx(
+            FxKind.SLASH, player.x + cos(angle) * 16f, player.y + sin(angle) * 16f - 22f,
+            angle = angle, radius = 26f, life = 0.14f, color = 0xFFF2E6C8.toInt(), width = 0.6f,
+        )
+    }
+
+    /** 쇠뇌: 앞세워 조준하고 반동과 함께 볼트를 연사한다. */
+    private fun crossbowShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        spawnProjectile(
+            ProjKind.BOLT, target, damage, crit, stats.fx.element,
+            speed = 1_520f, angle = angle,
+        )
+        addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 22f, 4, 0xFFFFE8A8.toInt(), 160f, 0.22f)
+        addFx(FxKind.RING, player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, radius = 16f, life = 0.16f, color = 0xFFFFD98A.toInt())
+    }
+
+    /** 지팡이·완드·홀: 무기를 치켜들고 주문을 쏜다. 번개는 전기불꽃이 갈라진다. */
+    private fun castSpell(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val tipX = player.x + cos(angle) * 12f
+        val tipY = player.y - 40f + sin(angle) * 8f
+        addFx(FxKind.PILLAR, tipX, tipY + 34f, radius = 14f, life = 0.18f, color = alphaColor(stats.fx.element.color, 170))
         when (stats.fx) {
-            SkillEffectType.MELEE -> {
-                addFx(FxKind.SLASH, player.x, player.y, angle = angle, radius = 74f, life = 0.26f, color = DamageElement.PHYSICAL.color, width = 1.4f)
-                addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 46f, life = 0.42f, color = 0xFFBFC7D5.toInt())
-                val inArc = enemies.filter { e ->
-                    e.alive && hypot(e.x - player.x, e.y - player.y) < 96f &&
-                        abs(normalize(atan2(e.y - player.y, e.x - player.x) - angle)) < 1.15f
-                }.sortedBy { hypot(it.x - player.x, it.y - player.y) }.take(5)
-                if (inArc.isEmpty()) {
-                    hitEnemy(target, damage, crit, angle, 1f)
-                } else {
-                    inArc.forEachIndexed { i, e ->
-                        hitEnemy(e, if (i == 0) damage else damage * 0.55, crit && i == 0, angle, if (i == 0) 1f else 0.7f)
-                    }
-                }
-                shake = max(shake, 2.4f)
-                if (crit) shake = max(shake, 5.2f)
-            }
-            SkillEffectType.ICE -> {
-                spawnProjectile(
-                    projectileKind(DamageElement.COLD), target, damage, crit, DamageElement.COLD,
-                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 1240f else 880f, angle = angle,
-                )
-            }
             SkillEffectType.LIGHTNING -> {
-                spawnProjectile(
-                    projectileKind(DamageElement.LIGHTNING), target, damage, crit, DamageElement.LIGHTNING,
-                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 1380f else 1080f, angle = angle,
-                )
-                addFx(FxKind.BOLT, player.x + cos(angle) * 26f, player.y + sin(angle) * 26f,
-                    x2 = target.x, y2 = target.y, life = 0.14f, color = DamageElement.LIGHTNING.color, seed = rand.nextInt())
-            }
-            SkillEffectType.FIRE -> {
-                spawnProjectile(
-                    projectileKind(DamageElement.FIRE), target, damage, crit, DamageElement.FIRE,
-                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 980f else 560f, angle = angle,
-                )
-            }
-            SkillEffectType.CHAOS -> {
-                spawnProjectile(
-                    projectileKind(DamageElement.CHAOS), target, damage, crit, DamageElement.CHAOS,
-                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 1040f else 470f, angle = angle,
-                )
+                // 전기불꽃: 갈라지는 주문 줄기가 여러 갈래로 뻗는다
+                val victims = (listOf(target) + nearbyEnemies(target, 150f, 2)).distinct().take(3)
+                var prevX = tipX
+                var prevY = tipY
+                victims.forEach { victim ->
+                    addFx(
+                        FxKind.BOLT, prevX, prevY, x2 = victim.x, y2 = victim.y - 18f,
+                        life = 0.2f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1.1f,
+                    )
+                    prevX = victim.x
+                    prevY = victim.y - 18f
+                }
+                victims.forEachIndexed { i, victim ->
+                    val spread = (i - (victims.size - 1) / 2f) * 0.16f
+                    spawnProjectile(
+                        ProjKind.SPARK, victim, if (i == 0) damage else damage * 0.55, crit && i == 0,
+                        DamageElement.LIGHTNING, speed = 1_180f, angle = angle + spread,
+                    )
+                }
             }
             SkillEffectType.MINION -> {
                 val fan = listOf(target) + nearbyEnemies(target, 240f, 2)
@@ -961,34 +1124,34 @@ class BattleWorld(
                     val spread = (i - (fan.size - 1) / 2f) * 0.20f
                     spawnProjectile(
                         ProjKind.MINION_ORB, e, if (i == 0) damage else damage * 0.42,
-                        crit && i == 0, DamageElement.PHYSICAL,
-                        speed = 600f, angle = angle + spread, from = player,
+                        crit && i == 0, DamageElement.PHYSICAL, speed = 620f, angle = angle + spread,
                     )
                 }
             }
+            SkillEffectType.FIRE -> {
+                spawnProjectile(ProjKind.FIRE_ORB, target, damage, crit, DamageElement.FIRE, speed = 620f, angle = angle)
+                addFx(FxKind.AURA, tipX, tipY, radius = 26f, life = 0.3f, color = 0xFFFF8A3D.toInt())
+            }
+            SkillEffectType.ICE -> {
+                spawnProjectile(ProjKind.FROST_ORB, target, damage, crit, DamageElement.COLD, speed = 700f, angle = angle)
+                addFx(FxKind.AURA, tipX, tipY, radius = 24f, life = 0.3f, color = 0xFF8FE6FF.toInt())
+            }
+            SkillEffectType.CHAOS -> {
+                spawnProjectile(ProjKind.CHAOS_ORB, target, damage, crit, DamageElement.CHAOS, speed = 560f, angle = angle)
+                addFx(FxKind.AURA, tipX, tipY, radius = 26f, life = 0.34f, color = DamageElement.CHAOS.color)
+            }
+            SkillEffectType.MELEE -> meleeStrike(target, damage, crit, angle)
         }
     }
+
+    private fun alphaColor(color: Int, a: Int): Int =
+        (color and 0x00FFFFFF) or ((a.coerceIn(0, 255)) shl 24)
 
     private fun normalize(a: Float): Float {
         var v = a
         while (v > PI_F) v -= 2f * PI_F
         while (v < -PI_F) v += 2f * PI_F
         return v
-    }
-
-    private fun projectileKind(element: DamageElement): ProjKind = when (stats.weapon) {
-        WeaponVisualType.CROSSBOW -> ProjKind.BOLT
-        WeaponVisualType.BOW -> when (element) {
-            DamageElement.COLD -> ProjKind.ICE_ARROW
-            DamageElement.FIRE -> ProjKind.FIRE_ORB
-            else -> ProjKind.LIGHT_ARROW
-        }
-        else -> when (element) {
-            DamageElement.COLD -> ProjKind.ICE_ARROW
-            DamageElement.FIRE -> ProjKind.FIRE_ORB
-            DamageElement.CHAOS -> ProjKind.CHAOS_ORB
-            else -> ProjKind.LIGHT_ARROW
-        }
     }
 
     private fun nearbyEnemies(from: Enemy, range: Float, limit: Int): List<Enemy> =
@@ -1243,7 +1406,10 @@ class BattleWorld(
         leechPool += dealt * 0.006
         onSkillHit(e, crit, angle)
         applyAilments(e, crit)
-        if (crit) fireEvent(TriggerCondition.CRIT, e)
+        if (crit) {
+            // 한 방의 피해가 클수록 메타 에너지가 많이 찬다 (절대 피해 기준).
+            fireEvent(TriggerCondition.CRIT, e, dealt / REFERENCE_HIT)
+        }
         if (e.hp <= 0) killEnemy(e)
     }
 
@@ -1257,12 +1423,12 @@ class BattleWorld(
         }
         if (roll(DamageElement.LIGHTNING, 0.30, 0.10)) {
             e.shockT = max(e.shockT, 4.0f)
-            fireEvent(TriggerCondition.SHOCK, e)
+            fireEvent(TriggerCondition.SHOCK, e, 0.9)
             addPopup(e.x, e.y - 74f * e.scale, "감전", false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
         }
         if (roll(DamageElement.COLD, 0.22, 0.07)) {
             e.freezeT = max(e.freezeT, 2.4f)
-            fireEvent(TriggerCondition.FREEZE, e)
+            fireEvent(TriggerCondition.FREEZE, e, 0.8)
             addPopup(e.x + 16f, e.y - 74f * e.scale, "빙결", false, 0.5f, 0xFF9BE8FF.toInt(), 0.72f)
             addFx(FxKind.ICE_CONE, e.x, e.y, radius = 26f, life = 0.3f, color = 0xFFBFF4FF.toInt())
         }
@@ -1270,7 +1436,7 @@ class BattleWorld(
             val ignite = baseHitDamage() * 0.22
             e.igniteT = max(e.igniteT, 3.2f)
             e.igniteDps = max(e.igniteDps, ignite)
-            fireEvent(TriggerCondition.IGNITE, e)
+            fireEvent(TriggerCondition.IGNITE, e, 0.9)
             addPopup(e.x - 14f, e.y - 74f * e.scale, "점화", false, 0.5f, 0xFFFF8A3D.toInt(), 0.72f)
         }
     }
@@ -1279,42 +1445,103 @@ class BattleWorld(
 
     /**
      * 조건 사건 하나를 모든 메타젬에 전달한다.
-     * 각 메타젬은 자기 조건(accepts)에 맞는 사건만 받아 독립적으로 에너지를 채우고 발동한다.
+     * 각 메타젬은 자기 조건(accepts)에 맞는 사건만 받아 독립적으로 에너지를 채운다.
+     * energy는 사건의 피해 규모(weight)에 따라 100을 훨씬 넘겨 쌓이고,
+     * 100을 넘길 때마다 연발 1발씩 예약된다.
      */
-    private fun fireEvent(condition: TriggerCondition, target: Enemy? = null) {
+    private fun fireEvent(condition: TriggerCondition, target: Enemy? = null, weight: Double = 1.0) {
         if (triggers.isEmpty()) return
         for (rt in triggers) {
             if (!rt.spec.kind.accepts.contains(condition)) continue
-            if (rt.cooldown > 0f || rt.energy >= rt.threshold) continue
-            rt.addEnergy(1.0)
-            if (rt.ready()) {
-                val victim = target?.takeIf { it.alive } ?: nearestEnemy()
-                if (victim != null) castTrigger(rt, victim)
-            }
+            rt.addEnergy(energyGain(rt, weight))
+            if (rt.ready()) releaseBurst(rt, target)
         }
+    }
+
+    /**
+     * 한 사건이 주는 메타 에너지.
+     * 피해량을 기준값(REFERENCE_HIT)으로 나눈 만큼 그대로 %가 된다 —
+     * 60,000 피해면 100%(1발), 600,000 피해면 1,000%(10발)이 한 번에 쌓인다.
+     */
+    private fun energyGain(rt: TriggerRuntime, weight: Double): Double {
+        val scaled = weight * TriggerRuntime.CAST_COST
+        return scaled.coerceIn(TriggerRuntime.CAST_COST * 0.1, TriggerRuntime.CAST_COST * 12.0)
+    }
+
+    /**
+     * 쌓인 에너지만큼 연발을 예약한다. 발동 간격은 0.04~0.07초.
+     * 예: 1,800%가 쌓여 있으면 혜성 18발이 우수수 떨어진다.
+     */
+    private fun releaseBurst(rt: TriggerRuntime, preferred: Enemy?) {
+        val count = rt.drainBurst()
+        if (count <= 0) return
+        val anchor = preferred?.takeIf { it.alive } ?: nearestEnemy() ?: return
+        val label = rt.spec.skills.firstOrNull()?.name ?: rt.spec.kind.short
+        lastBurstLabel = "$label x$count"
+        maxBurst = max(maxBurst, count)
+        burstCasts += count
+        if (count > 1) {
+            addPopup(player.x, player.y - 98f, "$label x$count!", true, 1.0f, 0xFFFFE6A8.toInt(), 1.0f)
+            shake = max(shake, min(6.5f, 1.4f + count * 0.22f))
+        }
+        var delay = 0f
+        for (i in 0 until count) {
+            val skill = rt.skillFor(i) ?: break
+            val victim = if (i == 0) anchor else pickBurstTarget(anchor)
+            castQueue.add(PendingCast(delay, rt, skill, victim, i, count))
+            delay += 0.04f + rand.nextFloat() * 0.03f
+        }
+    }
+
+    /** 연발 사이에 떨어질 자리를 고른다 (같은 무리 안에서 조금씩 흩어진다) */
+    private fun pickBurstTarget(anchor: Enemy): Enemy {
+        val alive = enemies.filter { it.alive }
+        if (alive.isEmpty()) return anchor
+        val near = alive.filter { hypot(it.x - anchor.x, it.y - anchor.y) < 280f }
+        val pool = if (near.isNotEmpty()) near else alive
+        return pool[rand.nextInt(pool.size)]
     }
 
     private fun updateTriggers(dt: Float) {
         for (rt in triggers) {
             rt.tick(dt)
             // 신성모독 같은 지속 오라는 스스로 에너지를 채운다.
-            val grew = rt.tickAura(dt)
-            if (grew && rt.ready()) {
-                val target = nearestEnemy()
-                if (target != null) castTrigger(rt, target)
-            }
+            if (rt.tickAura(dt) && rt.ready()) releaseBurst(rt, nearestEnemy())
             // 소환수 빌드는 소환수가 쓰러지는 사건이 계속 생긴다.
             if (rt.spec.kind.accepts.contains(TriggerCondition.MINION_DEATH) &&
                 stats.fx == SkillEffectType.MINION && rt.ready()
             ) {
-                val target = nearestEnemy()
-                if (target != null) castTrigger(rt, target)
+                releaseBurst(rt, nearestEnemy())
             }
         }
     }
 
-    private fun castTrigger(rt: TriggerRuntime, target: Enemy) {
-        val skill = rt.consume() ?: return
+    /** 예약된 연발을 하나씩 떨어뜨린다. */
+    private fun updateCastQueue(dt: Float) {
+        var i = 0
+        while (i < castQueue.size) {
+            val cast = castQueue[i]
+            cast.delay -= dt
+            if (cast.delay > 0f) {
+                i++
+                continue
+            }
+            val victim = cast.target.takeIf { it.alive } ?: nearestEnemy()
+            if (victim != null) {
+                cast.rt.noteCast()
+                castNow(cast.rt, cast.skill, victim, cast.index, cast.burst)
+            }
+            castQueue.removeAt(i)
+        }
+    }
+
+    private fun castNow(
+        rt: TriggerRuntime,
+        skill: TriggeredSkill,
+        target: Enemy,
+        index: Int = 0,
+        burst: Int = 1,
+    ) {
         val damage = rt.castDamage(skill)
         triggerCasts++
         val color = skill.fx.element.color
@@ -1325,7 +1552,7 @@ class BattleWorld(
             false, 0.7f, 0xFFCFF3FF.toInt(), 0.86f,
         )
         when (skill.fx) {
-            SkillEffectType.ICE -> spawnMeteor(target, damage, skill.name, rt)
+            SkillEffectType.ICE -> spawnMeteor(target, damage, skill.name, rt, index, Math.max(1, burst))
             SkillEffectType.LIGHTNING -> triggerLightning(target, damage, skill.name, rt)
             SkillEffectType.FIRE -> triggerFire(target, damage, skill.name, rt)
             SkillEffectType.CHAOS -> triggerChaos(target, damage, skill.name, rt)
@@ -1336,15 +1563,24 @@ class BattleWorld(
     }
 
     /** 혜성: 하늘에서 얼음 덩어리가 떨어져 착탄 지점에 광역 피해 */
-    private fun spawnMeteor(target: Enemy, damage: Double, label: String, rt: TriggerRuntime? = null) {
-        val fall = 0.55f
-        val radius = 96f
-        val x = target.x + (rand.nextFloat() - 0.5f) * 18f
-        val y = target.y + (rand.nextFloat() - 0.5f) * 10f
+    private fun spawnMeteor(
+        target: Enemy,
+        damage: Double,
+        label: String,
+        rt: TriggerRuntime? = null,
+        index: Int = 0,
+        burst: Int = 1,
+    ) {
+        // 연발이면 한 자리에 몰리지 않도록 좌표를 넓게 흩고, 떨어지는 시차도 둔다.
+        val spread = if (burst > 1) 150f + burst * 6f else 18f
+        val x = (target.x + (rand.nextFloat() - 0.5f) * spread).coerceIn(30f, BattleWorld.W - 30f)
+        val y = (target.y + (rand.nextFloat() - 0.5f) * spread * 0.9f).coerceIn(60f, BattleWorld.H - 30f)
+        val fall = if (burst > 1) 0.32f + rand.nextFloat() * 0.2f else 0.55f
+        val radius = if (burst > 1) 78f else 96f
         addFx(
             FxKind.METEOR, x, y,
             radius = radius, life = fall, color = DamageElement.COLD.color,
-            seed = rand.nextInt(), width = 1.2f,
+            seed = rand.nextInt() + index, width = 1.1f + (index % 3) * 0.15f,
         )
         addFx(FxKind.GROUND_CRACK, x, y, radius = radius, life = fall, color = 0xFF7FD8FF.toInt())
         pendingStrikes.add(
@@ -1545,9 +1781,9 @@ class BattleWorld(
         addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
         if (e.kind == EnemyKind.BOSS) shake = 10f
         // 전령류·근접 처치 시 시전은 처치 사건으로 돈다
-        fireEvent(TriggerCondition.KILL, null)
+        fireEvent(TriggerCondition.KILL, null, 0.6)
         // 소환수 빌드에서 적을 잡으면 소환수가 쓰러진 것으로 쳐 준다
-        if (stats.fx == SkillEffectType.MINION) fireEvent(TriggerCondition.MINION_DEATH, null)
+        if (stats.fx == SkillEffectType.MINION) fireEvent(TriggerCondition.MINION_DEATH, null, 0.6)
     }
 
     private fun hitPlayer(raw: Double, element: DamageElement, canEvade: Boolean, fromX: Float, fromY: Float, heavy: Boolean = false) {
@@ -1555,7 +1791,7 @@ class BattleWorld(
         if (canEvade && rand.nextDouble() * 100.0 < stats.evade) {
             evades++
             addPopup(player.x + (rand.nextFloat() - 0.5f) * 16f, player.y - 62f, "회피", false, 0.7f, 0xFF8CE8C0.toInt(), 0.86f)
-            fireEvent(TriggerCondition.DODGE, null)
+            fireEvent(TriggerCondition.DODGE, null, 1.0)
             return
         }
         val mit = when (element) {
@@ -1578,7 +1814,7 @@ class BattleWorld(
         player.hurtFlash = 1f
         hitsTaken++
         damageTaken += dmg
-        fireEvent(TriggerCondition.HIT_TAKEN, null)
+        fireEvent(TriggerCondition.HIT_TAKEN, null, (dmg / maxPool * 8.0).coerceIn(0.3, 3.0))
         addPopup(
             player.x + (rand.nextFloat() - 0.5f) * 18f,
             player.y - 64f,
@@ -1703,7 +1939,20 @@ class BattleWorld(
 
     /** HUD에 보여줄 메타젬별 발동 현황 — 활성화된 메타젬을 전부 나열한다. */
     fun triggerHud(): String =
-        triggers.joinToString("  ") { rt -> "${rt.spec.kind.short} ${rt.casts}" }
+        triggers.joinToString("  ") { rt ->
+            val queued = if (rt.queued > 0) " x${rt.queued}" else ""
+            "${rt.spec.kind.short} ${rt.casts}$queued"
+        }
+
+    /** 현재 메타 에너지 %와 남은 연발 — 전투 화면 위쪽에 크게 띄운다. */
+    fun metaHud(): String {
+        if (triggers.isEmpty()) return ""
+        val main = triggers.maxByOrNull { it.energyPercent } ?: return ""
+        val label = main.spec.skills.firstOrNull()?.name ?: main.spec.kind.short
+        val pct = main.energyPercent.toInt()
+        val queued = if (main.queued > 0) " · 연발 x${main.queued}" else ""
+        return "$label ${pct}%$queued"
+    }
 
     // ------------------------------------------------------------ 보스 패턴·페이즈
 
@@ -2080,6 +2329,8 @@ class BattleWorld(
             triggerDamage = triggerDamage,
             triggerText = stats.triggerText,
             triggers = triggers.map { it.report() },
+            maxBurst = maxBurst,
+            burstCasts = burstCasts,
         )
     }
 

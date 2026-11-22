@@ -92,6 +92,8 @@ class MainActivity : AppCompatActivity() {
     private var marketRates: List<MarketRate> = emptyList()
     private var marketSort = MarketSort.VALUE_DESC
     private var catalogByEn: Map<String, CatalogItem> = emptyMap()
+    /** 시세·장비 화면의 한글 사전 (assets/poe2_kr_i18n.json) */
+    private var krDict: KrDict = KrDict.EMPTY
 
     private var pobBuild: PobBuild? = null
     private val pobOverrides = HashMap<String, PobItem>()
@@ -142,6 +144,16 @@ class MainActivity : AppCompatActivity() {
         setupTabs()
         setupBack()
         restoreState(savedInstanceState)
+
+        I18n.preload(this) { dict ->
+            krDict = dict
+            if (this::slotAdapter.isInitialized) slotAdapter.setDict(dict)
+            if (marketRates.isNotEmpty()) {
+                marketRates = marketRates.map { localize(it, dict) }
+                applyMarketFilter()
+            }
+            if (battleReady) runCatching { refreshBattleHeader() }
+        }
 
         Catalog.load(this) { loadedItems ->
             catalog = loadedItems
@@ -643,7 +655,7 @@ class MainActivity : AppCompatActivity() {
         marketPane.marketProgress.isVisible = marketRates.isEmpty()
         network.execute {
             val rates = runCatching {
-                Market.overview(league, type, koMapping()).map { rate -> enrich(rate) }
+                Market.overview(league, type, krDict).map { rate -> enrich(rate) }
             }.getOrElse { emptyList() }
             handler.post {
                 marketPane.marketProgress.isVisible = false
@@ -676,11 +688,12 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private fun koMapping(): Map<String, String> {
-        return catalog
-            .filter { it.nameEn.isNotBlank() && it.name != it.nameEn }
-            .associateBy({ it.nameEn.lowercase().trim() }, { it.name })
-    }
+    /** 사전이 늦게 도착했을 때 이미 받아 둔 시세 줄을 다시 한글로 맞춘다. */
+    private fun localize(rate: MarketRate, dict: KrDict): MarketRate = rate.copy(
+        koName = rate.koName.ifBlank { dict.name(rate.name) },
+        koBase = rate.koBase.ifBlank { dict.base(rate.baseType) },
+        koCategory = rate.koCategory.ifBlank { dict.category(rate.category) },
+    )
 
     private fun applyMarketFilter() {
         if (marketRates.isEmpty()) return
@@ -708,7 +721,7 @@ class MainActivity : AppCompatActivity() {
         dialog.setContentView(binding.root)
 
         val db = catalogByEn[rate.name.lowercase().trim()]
-        binding.ivIcon.load(rate.iconUrl.ifBlank { db?.icon }) {
+        binding.ivIcon.load(rate.iconUrl.ifBlank { db?.icon.orEmpty() }.ifBlank { krDict.icon(rate.name) }) {
             placeholder(R.drawable.bg_icon)
             error(R.drawable.bg_icon)
         }
@@ -719,7 +732,7 @@ class MainActivity : AppCompatActivity() {
         binding.tvDetailNameEn.isVisible = binding.tvDetailNameEn.text.isNotBlank()
         binding.tvDetailBase.text = listOfNotNull(
             rate.koBase.takeIf { it.isNotBlank() },
-            rate.category.takeIf { it.isNotBlank() },
+            rate.koCategory.ifBlank { rate.category }.takeIf { it.isNotBlank() },
             rate.levelRequired.takeIf { it > 0 }?.let { "레벨 $it" },
             if (rate.corrupted) "타락" else null,
         ).joinToString(" · ")
@@ -892,6 +905,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupPob() {
         slotAdapter = PobSlotAdapter(onClick = { slot -> showSlotDialog(slot) })
+        slotAdapter.setDict(krDict)
         pobPane.rvPobSlots.layoutManager = LinearLayoutManager(this)
         pobPane.rvPobSlots.adapter = slotAdapter
 
@@ -1327,6 +1341,7 @@ class MainActivity : AppCompatActivity() {
         mainGroupPreference = pobMainGroup,
         fxOverride = battleFxOverride,
         triggerMode = battleTriggerMode,
+        dict = krDict,
     )
 
     private fun refreshBattleHeader() {
@@ -1895,6 +1910,23 @@ class MainActivity : AppCompatActivity() {
         val original = Pob.itemForSlot(build, slot)
         val current = pobOverrides[slot] ?: original
         binding.etModLines.setText(current?.lines?.joinToString("\n") ?: "")
+        if (current == null) {
+            binding.slotHeader.isVisible = false
+            binding.tvKoLines.isVisible = false
+        } else {
+            binding.slotHeader.isVisible = true
+            binding.tvKoLines.isVisible = true
+            binding.tvSlotItemTitle.text = PobLocale.title(krDict, current)
+            binding.tvSlotItemTitle.setTextColor(PobSlotAdapter.rarityColor(binding.root, current.rarity))
+            binding.tvSlotItemSub.text = PobLocale.subtitle(krDict, current)
+            binding.ivSlotIcon.load(PobLocale.icon(krDict, current).ifBlank { null }) {
+                placeholder(R.drawable.bg_icon)
+                error(R.drawable.bg_icon)
+            }
+            val koLines = PobLocale.lines(krDict, current)
+            binding.tvKoLines.text = if (koLines.isEmpty()) "" else koLines.joinToString("\n") { "· $it" }
+            binding.tvKoLines.isVisible = koLines.isNotEmpty()
+        }
 
         val uniqueAdapter = PobUniqueAdapter(onClick = { item -> equipUnique(item) })
         binding.rvUniqueList.layoutManager = LinearLayoutManager(this)

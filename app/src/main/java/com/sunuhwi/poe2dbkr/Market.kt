@@ -25,6 +25,7 @@ data class MarketRate(
     val koBase: String,
     val iconUrl: String,
     val category: String,
+    val koCategory: String = "",
     val divine: Double,
     val exalted: Double,
     val chaos: Double,
@@ -136,7 +137,7 @@ object Market {
         return list
     }
 
-    fun overview(league: String, typeId: String, koMap: Map<String, String>): List<MarketRate> {
+    fun overview(league: String, typeId: String, dict: KrDict): List<MarketRate> {
         val type = TYPES.firstOrNull { it.id == typeId } ?: TYPES.first()
         val key = "$league/${type.apiType}"
         val hit = cache[key]
@@ -144,8 +145,8 @@ object Market {
             hit.second
         } else {
             val fetched = when (type.kind) {
-                MarketKind.EXCHANGE -> fetchExchange(league, type.apiType, koMap)
-                MarketKind.ITEM -> fetchItems(league, type.apiType, koMap)
+                MarketKind.EXCHANGE -> fetchExchange(league, type.apiType, dict)
+                MarketKind.ITEM -> fetchItems(league, type.apiType, dict)
             }
             cache[key] = System.currentTimeMillis() to fetched
             fetched
@@ -162,18 +163,18 @@ object Market {
     private fun fetchExchange(
         league: String,
         type: String,
-        koMap: Map<String, String>,
+        dict: KrDict,
     ): List<MarketRate> {
         val url = "$BASE/exchange/current/overview?league=${URLEncoder.encode(league, "UTF-8")}&type=$type"
         val root = JSONObject(get(url))
         val (_, exRate, chaosRate) = rates(root)
-        return parseExchange(root, koMap, exRate, chaosRate)
+        return parseExchange(root, dict, exRate, chaosRate)
     }
 
     /** 교환(화폐·룬·에센스) 응답 해석. 테스트에서도 그대로 돌린다. */
     internal fun parseExchange(
         root: JSONObject,
-        koMap: Map<String, String>,
+        dict: KrDict,
         exRate: Double,
         chaosRate: Double,
     ): List<MarketRate> {
@@ -196,11 +197,12 @@ object Market {
                 MarketRate(
                     id = id,
                     name = name,
-                    koName = koMap[name.lowercase().trim()] ?: "",
+                    koName = dict.name(name),
                     baseType = "",
                     koBase = "",
-                    iconUrl = resolveIcon(image),
+                    iconUrl = resolveIcon(image).ifBlank { dict.icon(name) },
                     category = info?.optString("category", "").orEmpty(),
+                    koCategory = dict.category(info?.optString("category", "").orEmpty()),
                     divine = divine,
                     exalted = divine * exRate,
                     chaos = divine * chaosRate,
@@ -219,18 +221,18 @@ object Market {
     private fun fetchItems(
         league: String,
         type: String,
-        koMap: Map<String, String>,
+        dict: KrDict,
     ): List<MarketRate> {
         val url = "$BASE/stash/current/item/overview?league=${URLEncoder.encode(league, "UTF-8")}&type=$type"
         val root = JSONObject(get(url))
         val (_, exRate, chaosRate) = rates(root)
-        return parseItems(root, koMap, exRate, chaosRate)
+        return parseItems(root, dict, exRate, chaosRate)
     }
 
     /** 고유 아이템 시세 응답 해석. 테스트에서도 그대로 돌린다. */
     internal fun parseItems(
         root: JSONObject,
-        koMap: Map<String, String>,
+        dict: KrDict,
         exRate: Double,
         chaosRate: Double,
     ): List<MarketRate> {
@@ -245,15 +247,24 @@ object Market {
             val category = line.optString("category")
             val pageUrl = poe2dbUrl(name)
             val divine = line.optDouble("primaryValue", 0.0)
+            val rawImplicit = modifiers(line, "implicitModifiers")
+            val rawExplicit = modifiers(line, "explicitModifiers")
+            // 사전에 아이템 단위 한글 옵션이 있으면 그대로 쓰고, 없으면 문장 틀을 적용한다.
+            val exact = dict.itemModsFor(name)
+            val implicits = exact?.implicits?.takeIf { it.isNotEmpty() } ?: dict.modLines(rawImplicit)
+            val explicits = exact?.explicits?.takeIf { it.isNotEmpty() } ?: dict.modLines(rawExplicit)
             result.add(
                 MarketRate(
                     id = line.optString("detailsId", name).ifBlank { name },
                     name = name,
-                    koName = koMap[name.lowercase().trim()] ?: "",
+                    koName = dict.name(name),
                     baseType = baseType,
-                    koBase = "",
-                    iconUrl = resolveIcon(line.optString("icon")),
+                    koBase = dict.base(baseType),
+                    iconUrl = resolveIcon(line.optString("icon")).ifBlank {
+                        dict.icon(name).ifBlank { dict.icon(baseType) }
+                    },
                     category = category,
+                    koCategory = dict.category(category),
                     divine = divine,
                     exalted = divine * exRate,
                     chaos = divine * chaosRate,
@@ -265,11 +276,11 @@ object Market {
                     levelRequired = line.optInt("levelRequired", 0),
                     corrupted = line.optBoolean("corrupted", false),
                     flavour = cleanTags(line.optString("flavourText")),
-                    properties = modifiers(line, "propertyModifiers"),
-                    implicits = modifiers(line, "implicitModifiers"),
-                    explicits = modifiers(line, "explicitModifiers"),
-                    granted = modifiers(line, "grantedSkillModifiers"),
-                    requirements = modifiers(line, "requirementModifiers"),
+                    properties = dict.modLines(modifiers(line, "propertyModifiers")),
+                    implicits = implicits,
+                    explicits = explicits,
+                    granted = dict.modLines(modifiers(line, "grantedSkillModifiers")),
+                    requirements = dict.modLines(modifiers(line, "requirementModifiers")),
                     spark = sparkline(line),
                     pageUrl = pageUrl,
                     isUnique = true,

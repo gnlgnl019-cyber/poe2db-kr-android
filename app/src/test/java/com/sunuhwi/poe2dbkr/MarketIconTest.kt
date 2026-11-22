@@ -66,7 +66,7 @@ class MarketIconTest {
 
     @Test
     fun exchangeLinesTakeNameAndIconFromTopLevelItems() {
-        val rates = Market.parseExchange(JSONObject(fixture), emptyMap(), 566.2, 7.59)
+        val rates = Market.parseExchange(JSONObject(fixture), KrDict.EMPTY, 566.2, 7.59)
         val byId = rates.associateBy { it.id }
 
         val alch = byId.getValue("alch")
@@ -111,7 +111,7 @@ class MarketIconTest {
               ]
             }
         """.trimIndent()
-        val rates = Market.parseItems(JSONObject(json), emptyMap(), 400.0, 8.0)
+        val rates = Market.parseItems(JSONObject(json), KrDict.EMPTY, 400.0, 8.0)
         assertEquals("https://web.poecdn.com/gen/image/WzI1LDE0XS/33c430b8b4/Redbeak.png", rates.first { it.name == "Redbeak" }.iconUrl)
         assertEquals("https://web.poecdn.com/gen/image/WzI1XS/aa/Widowhail.png", rates.first { it.name == "Widowhail" }.iconUrl)
     }
@@ -125,7 +125,7 @@ class MarketIconTest {
                 ""
             }
         assumeTrue("네트워크 없음", body.isNotBlank())
-        val rates = Market.parseExchange(JSONObject(body), emptyMap(), 1.0, 1.0)
+        val rates = Market.parseExchange(JSONObject(body), KrDict.EMPTY, 1.0, 1.0)
         println("[TEST] live currency lines=${rates.size}")
         val withIcon = rates.filter { it.iconUrl.isNotBlank() }
         println("[TEST] live icons=${withIcon.size}/${rates.size}")

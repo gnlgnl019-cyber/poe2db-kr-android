@@ -437,6 +437,24 @@ object Pob {
     fun itemForSlot(build: PobBuild, slot: String): PobItem? =
         build.slots[slot]?.let { build.items[it] }
 
+    /**
+     * 빌드가 실제로 들고 있는 무기. 무기 슬롯(1·2·교체)을 먼저 보고,
+     * 슬롯 정보가 빠진 빌드면 아이템 목록에서 무기 클래스 아이템을 직접 찾는다.
+     * (예전에는 "Weapon 1" 하나만 봐서, 무기를 쇠뇌로 바꿔도 활 모션으로 나오는 일이 있었다.)
+     */
+    fun weaponItem(build: PobBuild, overrides: Map<String, PobItem> = emptyMap()): PobItem? {
+        val order = listOf("Weapon 1", "Weapon 2", "Weapon 1 Swap", "Weapon 2 Swap")
+        for (slot in order) {
+            val item = overrides[slot] ?: itemForSlot(build, slot)
+            if (item != null && item.weapon != WeaponVisualType.NONE) return item
+        }
+        val candidates = (build.items.values.asSequence() + overrides.values.asSequence())
+            .filter { it.weapon != WeaponVisualType.NONE }
+            .distinctBy { it.id }
+            .toList()
+        return candidates.firstOrNull { it.rarity.equals("Unique", true) } ?: candidates.firstOrNull()
+    }
+
     /** 유니크 아이템을 슬롯에 새로 장착한다 */
     fun equipItem(build: PobBuild, slot: String, item: PobItem) {
         val newId = (build.items.keys.maxOrNull() ?: 0) + 1

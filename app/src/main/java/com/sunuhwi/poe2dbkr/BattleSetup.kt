@@ -18,6 +18,7 @@ object BattleSetup {
         mainGroupPreference: Int = 0,
         fxOverride: SkillEffectType? = null,
         triggerMode: TriggerMode = TriggerMode.AUTO,
+        dict: KrDict = KrDict.EMPTY,
     ): BattlePlayerStats? {
         if (build == null) return null
         val calc = PobCalculator.compute(build, overrides, flasks, config)
@@ -28,14 +29,18 @@ object BattleSetup {
             ?: gems.firstOrNull()
         val skillName = mainGem?.name ?: group?.label?.ifBlank { null } ?: build.className.ifBlank { "기본 공격" }
         val fx = fxOverride ?: SkillEffects.detect(skillName, group?.label.orEmpty())
-        val weaponItem = overrides["Weapon 1"] ?: Pob.itemForSlot(build, "Weapon 1")
+        val weaponItem = Pob.weaponItem(build, overrides)
         val weapon = weaponItem?.weapon?.takeIf { it != WeaponVisualType.NONE }
             ?: WeaponTypes.detect(weaponItem?.itemClass, weaponItem?.baseType, weaponItem?.name)
                 .takeIf { it != WeaponVisualType.NONE }
             ?: WeaponTypes.fallbackFor(fx)
-        val weaponLabel = listOf(weapon.label, weaponItem?.displayName.orEmpty())
-            .filter { it.isNotBlank() }
-            .joinToString(" · ")
+        val form = WeaponTypes.attackForm(weapon, fx)
+        val skillKo = dict.name(skillName).ifBlank { skillName }
+        val weaponLabel = listOf(
+            weapon.label,
+            dict.name(weaponItem?.name.orEmpty()).ifBlank { weaponItem?.name.orEmpty() },
+            dict.base(weaponItem?.baseType.orEmpty()).ifBlank { weaponItem?.baseType.orEmpty() },
+        ).filter { it.isNotBlank() }.distinct().joinToString(" · ")
         val scale = if (calc.dpsBase > 0) calc.dpsNow / calc.dpsBase else 1.0
         val triggers = when (triggerMode) {
             TriggerMode.OFF -> emptyList()
@@ -52,9 +57,10 @@ object BattleSetup {
         return BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
                 .filter { it.isNotBlank() }.joinToString(" · "),
-            skillName = skillName,
+            skillName = skillKo,
             fx = fx,
             weapon = weapon,
+            form = form,
             dps = calc.dpsNow,
             aps = calc.apsNow,
             critChance = calc.critNow,

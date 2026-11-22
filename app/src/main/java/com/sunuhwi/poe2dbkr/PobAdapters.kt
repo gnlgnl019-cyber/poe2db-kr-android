@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -16,6 +17,11 @@ class PobSlotAdapter(
 ) : ListAdapter<Pair<String, PobItem?>, PobSlotAdapter.SlotHolder>(Diff) {
 
     private var displayNames: Map<String, String> = Pob.SLOTS
+    private var dict: KrDict = KrDict.EMPTY
+
+    fun setDict(value: KrDict) {
+        dict = value
+    }
 
     fun submit(slots: List<Pair<String, PobItem?>>, overrides: Set<String>) {
         overridden.clear()
@@ -45,16 +51,24 @@ class PobSlotAdapter(
                 tvItemName.setTextColor(ContextCompat.getColor(root.context, R.color.text_muted))
                 tvItemLines.text = ""
                 tvSlotBadge.visibility = android.view.View.GONE
+                ivItemIcon.setImageDrawable(null)
+                ivItemIcon.setBackgroundResource(R.drawable.bg_icon)
             } else {
-                tvItemName.text = item.displayName.ifBlank { item.name }
+                tvItemName.text = PobLocale.title(dict, item)
                 tvItemName.setTextColor(rarityColor(root, item.rarity))
-                val kind = item.itemClass.ifBlank {
-                    if (item.weapon != WeaponVisualType.NONE) item.weapon.label else ""
-                }
-                val preview = item.lines.filter { line -> line != kind }.take(2).joinToString(" · ")
-                tvItemLines.text = listOf(kind, preview).filter { it.isNotBlank() }.joinToString(" · ")
+                tvItemLines.text = listOf(PobLocale.subtitle(dict, item), PobLocale.lines(dict, item).take(2).joinToString(" · "))
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
                 tvSlotBadge.visibility =
                     if (slot in overridden) android.view.View.VISIBLE else android.view.View.GONE
+                val icon = PobLocale.icon(dict, item)
+                ivItemIcon.setBackgroundResource(R.drawable.bg_icon)
+                ivItemIcon.load(icon.ifBlank { null }) {
+                    placeholder(R.drawable.bg_icon)
+                    error(R.drawable.bg_icon)
+                    crossfade(80)
+                }
+                ivItemIcon.isVisible = true
             }
             root.setOnClickListener { onClick(slot) }
         }

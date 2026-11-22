@@ -101,6 +101,7 @@
     <string name="pob_equip_save">저장</string>
     <string name="pob_modified">변경</string>
     <string name="pob_empty_slot">장착 아이템 없음</string>
+    <string name="pob_item_icon">장비 아이콘</string>
     <string name="pob_restore_original">원본 복구</string>
     <string name="pob_search_unique">유니크 아이템 검색해서 장착</string>
     <string name="pob_mod_lines">옵션 텍스트 (한 줄에 하나씩)</string>
