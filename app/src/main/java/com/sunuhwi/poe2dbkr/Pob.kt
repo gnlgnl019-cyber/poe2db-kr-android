@@ -26,13 +26,42 @@ data class PobSkillGroup(
     var label: String,
     var enabled: Boolean = true,
     val gems: MutableList<PobGem> = mutableListOf(),
-)
+    /** PoB가 계산에 쓰는 활성 스킬 그룹인지 */
+    var isMain: Boolean = false,
+) {
+    /** 그룹 이름이 비어 있으면 첫 스킬 이름으로 대신한다 */
+    val title: String
+        get() = label.ifBlank { gems.firstOrNull()?.name ?: "스킬" }
+}
 
 data class PobItem(
     var id: Int = 0,
     var name: String = "",
     var rarity: String = "Rare",
     val lines: MutableList<String> = mutableListOf(),
+    /** 베이스 타입 (예: Rune Crossbow, Gelid Staff) */
+    var baseType: String = "",
+    /** 아이템 클래스 (예: Crossbow, Staff, Body Armour) */
+    var itemClass: String = "",
+    /** 스틱맨이 드는 무기 모양 */
+    var weapon: WeaponVisualType = WeaponVisualType.NONE,
+) {
+    /** 화면에 보여줄 이름: 고유/희귀 이름 + 베이스 타입 */
+    val displayName: String
+        get() = when {
+            name.isNotBlank() && baseType.isNotBlank() && !name.equals(baseType, true) -> "$name · $baseType"
+            name.isNotBlank() -> name
+            baseType.isNotBlank() -> baseType
+            rarity.isNotBlank() -> rarity
+            else -> ""
+        }
+}
+
+/** PoB가 계산해 둔 스킬별 DPS (Full DPS 목록) */
+data class PobFullDpsSkill(
+    val name: String,
+    val dps: Double,
+    val source: String = "",
 )
 
 data class PobBuild(
@@ -47,6 +76,10 @@ data class PobBuild(
     var treeTitle: String = "",
     var treeNodes: Int = 0,
     var rawXml: String = "",
+    var fullDps: Double = 0.0,
+    var activeItemSet: Int = 0,
+    val fullDpsSkills: MutableList<PobFullDpsSkill> = mutableListOf(),
+    val itemSets: MutableMap<Int, MutableMap<String, Int>> = linkedMapOf(),
 ) {
     val title: String
         get() = listOf(
@@ -61,6 +94,8 @@ object Pob {
     val SLOTS = linkedMapOf(
         "Weapon 1" to "무기 1",
         "Weapon 2" to "무기 2",
+        "Weapon 1 Swap" to "무기 1 교체",
+        "Weapon 2 Swap" to "무기 2 교체",
         "Helmet" to "투구",
         "Body Armour" to "갑옷",
         "Gloves" to "장갑",
@@ -68,7 +103,11 @@ object Pob {
         "Amulet" to "목걸이",
         "Ring 1" to "반지 1",
         "Ring 2" to "반지 2",
+        "Ring 3" to "반지 3",
         "Belt" to "허리띠",
+        "Charm 1" to "부적 1",
+        "Charm 2" to "부적 2",
+        "Charm 3" to "부적 3",
     )
 
     val FLASK_PREFIX = "Flask"
@@ -173,7 +212,9 @@ object Pob {
 
         var inItem = false
         var currentItem: PobItem? = null
-        var rawName: String = ""
+        val itemText = StringBuilder()
+        var currentSetId = 0
+        var currentSet: MutableMap<String, Int>? = null
 
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
@@ -191,24 +232,50 @@ object Pob {
                         val stat = parser.getAttributeValue(null, "stat").orEmpty()
                         val value = parser.getAttributeValue(null, "value")?.toDoubleOrNull()
                         if (stat.isNotEmpty() && value != null) build.stats[stat] = value
+                        if (stat == "FullDPS" && value != null) build.fullDps = value
                     }
-                    "SkillGroup" -> {
+                    "FullDPSSkill" -> {
+                        val name = parser.getAttributeValue(null, "stat").orEmpty()
+                        val dps = parser.getAttributeValue(null, "value")?.toDoubleOrNull() ?: 0.0
+                        val source = parser.getAttributeValue(null, "source").orEmpty()
+                        if (name.isNotBlank()) build.fullDpsSkills.add(PobFullDpsSkill(name, dps, source))
+                    }
+                    "SkillGroup", "Skill" -> {
                         val label = parser.getAttributeValue(null, "label").orEmpty()
                         val enabled = parser.getAttributeValue(null, "enabled") != "false"
-                        build.skills.add(PobSkillGroup(label.ifBlank { "스킬 ${build.skills.size + 1}" }, enabled))
+                        val main = parser.getAttributeValue(null, "mainActiveSkill")
+                        val isMain = main != null && main != "nil" && main != "0" && main.isNotBlank()
+                        build.skills.add(
+                            PobSkillGroup(
+                                label = label,
+                                enabled = enabled,
+                                isMain = isMain,
+                            )
+                        )
                     }
                     "Gem" -> {
-                        val name = parser.getAttributeValue(null, "name").orEmpty()
+                        val name = parser.getAttributeValue(null, "name")
+                            ?: parser.getAttributeValue(null, "nameSpec").orEmpty()
                         val level = parser.getAttributeValue(null, "level")?.toIntOrNull() ?: 20
                         val enabled = parser.getAttributeValue(null, "enabled") != "false"
                         val skillId = parser.getAttributeValue(null, "skillId").orEmpty()
-                        if (name.isNotEmpty()) {
+                        if (name.isNotBlank()) {
                             build.skills.lastOrNull()?.gems?.add(PobGem(name, level, enabled, skillId))
                         }
                     }
+                    "Items" -> {
+                        build.activeItemSet =
+                            parser.getAttributeValue(null, "activeItemSet")?.toIntOrNull() ?: 0
+                    }
+                    "ItemSet" -> {
+                        val setId = parser.getAttributeValue(null, "id")?.toIntOrNull()
+                            ?: (build.itemSets.keys.maxOrNull() ?: 0) + 1
+                        currentSetId = setId
+                        currentSet = build.itemSets.getOrPut(setId) { linkedMapOf() }
+                    }
                     "Item" -> {
                         inItem = true
-                        rawName = ""
+                        itemText.setLength(0)
                         val id = parser.getAttributeValue(null, "id")?.toIntOrNull() ?: 0
                         val rarity = parser.getAttributeValue(null, "rarity").orEmpty().ifBlank { "Rare" }
                         val name = parser.getAttributeValue(null, "name").orEmpty()
@@ -217,53 +284,68 @@ object Pob {
                     "Slot" -> {
                         val slotName = parser.getAttributeValue(null, "name").orEmpty()
                         val itemId = parser.getAttributeValue(null, "itemId")?.toIntOrNull() ?: 0
-                        if (slotName.isNotEmpty() && itemId > 0) build.slots[slotName] = itemId
+                        if (slotName.isNotEmpty() && itemId > 0) {
+                            val set = currentSet
+                            if (set != null) set[slotName] = itemId else build.slots[slotName] = itemId
+                        }
                     }
                     "Spec" -> {
                         build.treeTitle = parser.getAttributeValue(null, "title").orEmpty()
                         build.treeNodes = parser.getAttributeValue(null, "nodesCount")?.toIntOrNull() ?: 0
                     }
                 }
-            } else if (event == XmlPullParser.TEXT) {
-                if (inItem) {
-                    val text = parser.text ?: ""
-                    if (text.isNotBlank()) {
-                        text.split("\n").forEach { rawName += it + "\n" }
-                    }
-                }
+            } else if (event == XmlPullParser.TEXT || event == XmlPullParser.CDSECT) {
+                if (inItem) itemText.append(parser.text ?: "")
             } else if (event == XmlPullParser.END_TAG) {
                 when (parser.name) {
                     "Item" -> {
                         val item = currentItem
                         if (item != null) {
-                            finalizeItem(item, rawName)
+                            PobItemParser.apply(item, itemText.toString())
                             build.items[item.id] = item
                         }
                         inItem = false
                         currentItem = null
-                        rawName = ""
+                        itemText.setLength(0)
                     }
+                    "ItemSet" -> currentSet = null
                 }
             }
             event = parser.next()
         }
+
+        // 활성 아이템 세트의 슬롯을 쓴다. 세트 정보가 없으면 그동안 모은 슬롯을 그대로 쓴다.
+        val active = build.itemSets[build.activeItemSet]
+            ?: build.itemSets.values.firstOrNull { it.isNotEmpty() }
+        if (active != null) {
+            build.slots.clear()
+            build.slots.putAll(active)
+        }
+        // 이름이 비어 있던 스킬 그룹은 첫 젬 이름으로 채운다 (PoB 2 형식은 label이 비어 있다)
+        build.skills.forEach { group ->
+            if (group.label.isBlank()) {
+                group.label = group.gems.firstOrNull()?.name ?: "스킬"
+            }
+        }
         return build
     }
 
-    private fun finalizeItem(item: PobItem, rawText: String) {
-        val lines = rawText.split("\n")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && !it.startsWith("---") && !it.startsWith("- - -") }
-        val fixed = lines.filterNot {
-            it.startsWith("Rare:") || it.startsWith("Magic:") || it.startsWith("Normal:") ||
-                it.startsWith("Unidentified:")
+    /** 계산·전투에 쓰는 메인 스킬 그룹을 고른다. preferred는 1부터 시작하는 그룹 번호(0이면 자동). */
+    fun mainGroup(build: PobBuild, preferred: Int = 0): PobSkillGroup? {
+        val usable = build.skills.filter { it.gems.any { gem -> gem.enabled } }
+        if (usable.isEmpty()) return null
+        if (preferred in 1..build.skills.size) {
+            val picked = build.skills[preferred - 1]
+            if (picked.enabled && picked.gems.any { it.enabled }) return picked
         }
-        if (item.name.isBlank()) {
-            item.name = fixed.firstOrNull { l ->
-                !l.endsWith(":") && !l.contains(Regex("^Quality:|^Level:|^Item Level:|^Requirements:"))
-            } ?: item.rarity
-        }
-        item.lines.addAll(fixed)
+        usable.firstOrNull { it.isMain }?.let { return it }
+        build.skills.firstOrNull { it.isMain && it.enabled }?.let { return it }
+        usable.firstOrNull { group ->
+            group.gems.any { gem ->
+                gem.enabled && !PobCalculator.isSupport(gem) && PobTriggers.kindOf(gem) == null
+            }
+        }?.let { return it }
+        return usable.firstOrNull { it.enabled } ?: usable.first()
     }
 
     fun toXml(build: PobBuild): String {
@@ -314,6 +396,7 @@ object Pob {
         serializer.endTag(null, "Skills")
 
         serializer.startTag(null, "Items")
+        serializer.attribute(null, "activeItemSet", "1")
         build.items.values.forEach { item ->
             serializer.startTag(null, "Item")
             serializer.attribute(null, "id", item.id.toString())
@@ -321,10 +404,19 @@ object Pob {
             if (item.name.isNotBlank() && item.rarity == "Unique") {
                 serializer.attribute(null, "name", item.name)
             }
-            serializer.text("\n" + item.lines.joinToString("\n") + "\n")
+            val text = buildString {
+                append("\nRarity: ").append(item.rarity.uppercase()).append('\n')
+                if (item.name.isNotBlank() && item.rarity != "Normal") append(item.name).append('\n')
+                if (item.baseType.isNotBlank() && !item.baseType.equals(item.name, true)) {
+                    append(item.baseType).append('\n')
+                }
+                item.lines.forEach { append(it).append('\n') }
+            }
+            serializer.text(text)
             serializer.endTag(null, "Item")
         }
         serializer.startTag(null, "ItemSet")
+        serializer.attribute(null, "id", "1")
         build.slots.forEach { (slot, itemId) ->
             serializer.startTag(null, "Slot")
             serializer.attribute(null, "name", slot)
@@ -348,7 +440,15 @@ object Pob {
     /** 유니크 아이템을 슬롯에 새로 장착한다 */
     fun equipItem(build: PobBuild, slot: String, item: PobItem) {
         val newId = (build.items.keys.maxOrNull() ?: 0) + 1
-        val copy = PobItem(id = newId, name = item.name, rarity = item.rarity, lines = item.lines)
+        val copy = PobItem(
+            id = newId,
+            name = item.name,
+            rarity = item.rarity,
+            lines = item.lines,
+            baseType = item.baseType,
+            itemClass = item.itemClass,
+            weapon = item.weapon,
+        )
         build.items[newId] = copy
         build.slots[slot] = newId
     }

@@ -575,13 +575,96 @@
                 </LinearLayout>
             </ScrollView>
 
+            <!-- 메타 랭킹 -->
+            <ScrollView
+                android:id="@+id/pobPageMeta"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOpenNinjaBuilds"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minHeight="52dp"
+                        android:text="@string/meta_open_live"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/tvMetaNote"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_search"
+                        android:lineSpacingExtra="2dp"
+                        android:padding="10dp"
+                        android:text="@string/meta_note"
+                        android:textColor="@color/text_muted"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:text="@string/meta_asc_title"
+                        android:textColor="@color/gold"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/metaAscRows"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="vertical" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/meta_build_title"
+                        android:textColor="@color/gold"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/metaBuildCards"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="vertical" />
+
+                    <TextView
+                        android:id="@+id/tvMetaSource"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:lineSpacingExtra="2dp"
+                        android:textColor="@color/text_muted"
+                        android:textSize="10.5sp" />
+                </LinearLayout>
+            </ScrollView>
+
             <!-- 전투 시뮬레이터 -->
-            <LinearLayout
+            <ScrollView
                 android:id="@+id/pobPageBattle"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:orientation="vertical"
+                android:fillViewport="true"
                 android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
                 <TextView
                     android:id="@+id/tvBattleSkill"
@@ -595,6 +678,16 @@
                     android:textColor="@color/gold"
                     android:textSize="12sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvBattleTrigger"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
 
                 <HorizontalScrollView
                     android:layout_width="match_parent"
@@ -646,12 +739,28 @@
                         app:singleSelection="true" />
                 </HorizontalScrollView>
 
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:clipToPadding="false"
+                    android:scrollbars="none">
+
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/battleTriggerChips"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:chipSpacingHorizontal="5dp"
+                        app:singleLine="true"
+                        app:singleSelection="true" />
+                </HorizontalScrollView>
+
                 <com.sunuhwi.poe2dbkr.BattleCanvasView
                     android:id="@+id/battleCanvas"
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_marginTop="6dp"
-                    android:layout_weight="1.6" />
+                    android:layout_height="420dp"
+                    android:layout_marginTop="6dp" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -747,6 +856,7 @@
                     android:textColor="@color/text_muted"
                     android:textSize="10sp" />
             </LinearLayout>
+            </ScrollView>
         </FrameLayout>
     </LinearLayout>
 </FrameLayout>

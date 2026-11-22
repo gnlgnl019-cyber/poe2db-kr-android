@@ -46,9 +46,13 @@ class PobSlotAdapter(
                 tvItemLines.text = ""
                 tvSlotBadge.visibility = android.view.View.GONE
             } else {
-                tvItemName.text = item.name
+                tvItemName.text = item.displayName.ifBlank { item.name }
                 tvItemName.setTextColor(rarityColor(root, item.rarity))
-                tvItemLines.text = item.lines.take(3).joinToString(" · ")
+                val kind = item.itemClass.ifBlank {
+                    if (item.weapon != WeaponVisualType.NONE) item.weapon.label else ""
+                }
+                val preview = item.lines.filter { line -> line != kind }.take(2).joinToString(" · ")
+                tvItemLines.text = listOf(kind, preview).filter { it.isNotBlank() }.joinToString(" · ")
                 tvSlotBadge.visibility =
                     if (slot in overridden) android.view.View.VISIBLE else android.view.View.GONE
             }

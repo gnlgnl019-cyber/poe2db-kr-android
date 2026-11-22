@@ -361,7 +361,7 @@ class BattleCanvasView @JvmOverloads constructor(
             accent = if (e.boss != null) e.boss!!.element.color else e.element.color,
             facing = if (e.x > w.player.x) 3.1415927f else 0f,
             walk = e.walkPhase, moving = true,
-            attack = e.attackAnim, weapon = if (e.ranged) WeaponType.STAFF else WeaponType.MELEE,
+            attack = e.attackAnim, weapon = if (e.ranged) WeaponVisualType.STAFF else WeaponVisualType.SWORD,
             glow = 0f,
             boss = e.boss != null,
             bossColor = e.boss?.element?.color ?: baseColor,
@@ -411,7 +411,7 @@ class BattleCanvasView @JvmOverloads constructor(
         walk: Float,
         moving: Boolean,
         attack: Float,
-        weapon: WeaponType,
+        weapon: WeaponVisualType,
         glow: Float = 0f,
         boss: Boolean = false,
         bossColor: Int = accent,
@@ -453,7 +453,7 @@ class BattleCanvasView @JvmOverloads constructor(
         val fwd = if (abs(dir) < 0.01f) 1f else if (dir >= 0f) 1f else -1f
 
         when (weapon) {
-            WeaponType.BOW -> {
+            WeaponVisualType.BOW -> {
                 val handX = x + fwd * 11f * s
                 val handY = shY + 3f * s + up
                 stroke.strokeWidth = 2.6f * s
@@ -461,7 +461,15 @@ class BattleCanvasView @JvmOverloads constructor(
                 c.drawLine(x, shY + 1f * s + up, x + fwd * 5f * s, handY + 6f * s, stroke)
                 drawBow(c, handX, handY, s, facing, attack, body)
             }
-            WeaponType.STAFF -> {
+            WeaponVisualType.CROSSBOW -> {
+                val handX = x + fwd * 10f * s
+                val handY = shY + 4f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - fwd * 3f * s, handY + 5f * s, stroke)
+                drawCrossbow(c, handX, handY, s, facing, attack, accent)
+            }
+            WeaponVisualType.STAFF -> {
                 val handX = x + fwd * 9f * s
                 val handY = shY + 5f * s + up
                 stroke.strokeWidth = 2.6f * s
@@ -469,14 +477,109 @@ class BattleCanvasView @JvmOverloads constructor(
                 c.drawLine(x, shY + 1f * s + up, x - fwd * 3f * s, handY + 4f * s, stroke)
                 drawStaff(c, handX, handY, s, facing, attack, accent, body)
             }
-            WeaponType.MELEE -> {
+            WeaponVisualType.WAND -> {
+                val handX = x + fwd * 10f * s
+                val handY = shY + 6f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - fwd * 2f * s, handY + 3f * s, stroke)
+                drawShortRod(c, handX, handY, s, facing, attack, accent, 17f)
+            }
+            WeaponVisualType.SCEPTRE -> {
+                val handX = x + fwd * 9f * s
+                val handY = shY + 6f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - fwd * 3f * s, handY + 3f * s, stroke)
+                drawShortRod(c, handX, handY, s, facing, attack, accent, 22f)
+            }
+            WeaponVisualType.QUARTERSTAFF -> {
+                val handX = x + fwd * 8f * s
+                val handY = shY + 6f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - fwd * 4f * s, handY - 3f * s, stroke)
+                drawPolearm(c, handX, handY, s, facing, attack, accent, 46f, false)
+            }
+            WeaponVisualType.SPEAR -> {
+                val swing = facing - 0.35f + (1f - attack) * 0.9f
+                val handX = x + cos(swing) * 9f * s
+                val handY = shY + 5f * s + sin(swing) * 7f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 3f * s, shY + 8f * s + up, stroke)
+                drawPolearm(c, handX, handY, s, swing, attack, accent, 40f, true)
+            }
+            WeaponVisualType.SWORD -> {
                 val swing = facing - 1.15f + (1f - attack) * 2.15f
                 val handX = x + cos(swing) * 10f * s
                 val handY = shY + 5f * s + sin(swing) * 9f * s + up
                 stroke.strokeWidth = 2.6f * s
                 c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
                 c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 4f * s, shY + 8f * s + up, stroke)
-                drawBlade(c, handX, handY, s, swing, attack, accent, body)
+                drawBlade(c, handX, handY, s, swing, attack, accent, body, 32f, false)
+            }
+            WeaponVisualType.DAGGER -> {
+                val swing = facing - 0.9f + (1f - attack) * 1.8f
+                val handX = x + cos(swing) * 9f * s
+                val handY = shY + 5f * s + sin(swing) * 8f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 3f * s, shY + 8f * s + up, stroke)
+                drawBlade(c, handX, handY, s, swing, attack, accent, body, 17f, false)
+            }
+            WeaponVisualType.AXE -> {
+                val swing = facing - 1.2f + (1f - attack) * 2.3f
+                val handX = x + cos(swing) * 10f * s
+                val handY = shY + 5f * s + sin(swing) * 9f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 4f * s, shY + 8f * s + up, stroke)
+                drawAxe(c, handX, handY, s, swing, attack, accent)
+            }
+            WeaponVisualType.MACE -> {
+                val swing = facing - 1.25f + (1f - attack) * 2.4f
+                val handX = x + cos(swing) * 10f * s
+                val handY = shY + 5f * s + sin(swing) * 9f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 4f * s, shY + 8f * s + up, stroke)
+                drawMace(c, handX, handY, s, swing, attack, accent)
+            }
+            WeaponVisualType.CLAW -> {
+                val swing = facing - 1.0f + (1f - attack) * 1.9f
+                val handX = x + cos(swing) * 9f * s
+                val handY = shY + 5f * s + sin(swing) * 8f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 3f * s, shY + 8f * s + up, stroke)
+                drawClaw(c, handX, handY, s, swing, attack, accent)
+            }
+            WeaponVisualType.FLAIL -> {
+                val swing = facing - 1.3f + (1f - attack) * 2.5f
+                val handX = x + cos(swing) * 10f * s
+                val handY = shY + 5f * s + sin(swing) * 9f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - cos(swing) * 4f * s, shY + 8f * s + up, stroke)
+                drawFlail(c, handX, handY, s, swing, attack, accent)
+            }
+            WeaponVisualType.SHIELD -> {
+                val handX = x - fwd * 9f * s
+                val handY = shY + 6f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x + fwd * 6f * s, handY + 2f * s, stroke)
+                drawShield(c, handX, handY, s, facing, accent)
+            }
+            WeaponVisualType.NONE -> {
+                val handX = x + fwd * 8f * s
+                val handY = shY + 5f * s + up
+                stroke.strokeWidth = 2.6f * s
+                c.drawLine(x, shY + 1f * s + up, handX, handY, stroke)
+                c.drawLine(x, shY + 1f * s + up, x - fwd * 3f * s, handY + 4f * s, stroke)
+                fill.color = body
+                c.drawCircle(handX, handY, 2.6f * s, fill)
             }
         }
 
@@ -528,6 +631,48 @@ class BattleCanvasView @JvmOverloads constructor(
         c.restore()
     }
 
+    /** 쇠뇌: 가로로 긴 몸체 + 앞쪽 T자 활대 + 볼트 */
+    private fun drawCrossbow(c: Canvas, x: Float, y: Float, s: Float, facing: Float, attack: Float, accent: Int) {
+        c.save()
+        c.translate(x, y)
+        c.rotate(Math.toDegrees(facing.toDouble()).toFloat())
+        val recoil = -attack * 3f * s
+
+        // 개머리판 + 몸체
+        stroke.color = 0xFF6B5236.toInt()
+        stroke.strokeWidth = 3.4f * s
+        c.drawLine(-13f * s + recoil, 1.2f * s, 12f * s + recoil, 0f, stroke)
+        stroke.color = 0xFF8A6A46.toInt()
+        stroke.strokeWidth = 2f * s
+        c.drawLine(-9f * s + recoil, -2.4f * s, 7f * s + recoil, -2.6f * s, stroke)
+
+        // T자 활대 (앞쪽에서 위아래로 뻗은 두 팔)
+        stroke.color = 0xFFB79A6C.toInt()
+        stroke.strokeWidth = 2.6f * s
+        path.reset()
+        path.moveTo(10f * s + recoil, -12f * s)
+        path.quadTo(17f * s + recoil, -6f * s, 14f * s + recoil, 0f)
+        path.quadTo(17f * s + recoil, 6f * s, 10f * s + recoil, 12f * s)
+        c.drawPath(path, stroke)
+
+        // 시위
+        stroke.color = 0xDDE8E1D2.toInt()
+        stroke.strokeWidth = 0.9f * s
+        val draw = 1.5f * s + attack * 3f * s
+        c.drawLine(10f * s + recoil, -12f * s, 12f * s + recoil - draw, 0f, stroke)
+        c.drawLine(12f * s + recoil - draw, 0f, 10f * s + recoil, 12f * s, stroke)
+
+        // 볼트
+        if (attack > 0.25f) {
+            stroke.color = alpha(0xFFDFF6FF.toInt(), 235)
+            stroke.strokeWidth = 1.7f * s
+            c.drawLine(6f * s + recoil, 0f, 26f * s + recoil, 0f, stroke)
+            fill.color = alpha(accent, 230)
+            c.drawCircle(26f * s + recoil, 0f, 2.4f * s, fill)
+        }
+        c.restore()
+    }
+
     private fun drawStaff(c: Canvas, x: Float, y: Float, s: Float, facing: Float, attack: Float, accent: Int, body: Int) {
         val tipX = x + cos(facing) * 9f * s
         val tipY = y - 27f * s
@@ -545,14 +690,68 @@ class BattleCanvasView @JvmOverloads constructor(
         fill.shader = null
         fill.color = alpha(0xFFFFFFFF.toInt(), 210)
         c.drawCircle(tipX, tipY, pulse * 0.42f, fill)
+        // 지팡이 끝 장식
+        stroke.color = 0xFFC9A76A.toInt()
+        stroke.strokeWidth = 1.6f * s
+        c.drawCircle(tipX, tipY, 4.6f * s, stroke)
     }
 
-    private fun drawBlade(c: Canvas, x: Float, y: Float, s: Float, swing: Float, attack: Float, accent: Int, body: Int) {
-        val len = 30f * s
+    /** 완드·홀처럼 짧은 막대 + 끝 보석 */
+    private fun drawShortRod(
+        c: Canvas, x: Float, y: Float, s: Float, facing: Float, attack: Float,
+        accent: Int, length: Float,
+    ) {
+        val tipX = x + cos(facing) * length * s * 0.5f
+        val tipY = y - length * s + attack * 2f * s
+        stroke.color = 0xFF8A6A46.toInt()
+        stroke.strokeWidth = 2.3f * s
+        c.drawLine(x - cos(facing) * 4f * s, y + 7f * s, tipX, tipY, stroke)
+        fill.shader = RadialGradient(
+            tipX, tipY, 11f * s,
+            intArrayOf(alpha(accent, 240), alpha(accent, 70), 0x00000000), null, Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(tipX, tipY, 11f * s, fill)
+        fill.shader = null
+        fill.color = alpha(0xFFFFFFFF.toInt(), 200)
+        c.drawCircle(tipX, tipY, 2.4f * s, fill)
+    }
+
+    /** 육척봉·창: 긴 자루 (+ 창끝) */
+    private fun drawPolearm(
+        c: Canvas, x: Float, y: Float, s: Float, angle: Float, attack: Float,
+        accent: Int, length: Float, spear: Boolean,
+    ) {
+        val tipX = x + cos(angle) * length * s
+        val tipY = y + sin(angle) * length * s
+        stroke.color = 0xFF8A6A46.toInt()
+        stroke.strokeWidth = 2.4f * s
+        c.drawLine(x - cos(angle) * 10f * s, y - sin(angle) * 10f * s, tipX, tipY, stroke)
+        stroke.color = 0xFFC9A76A.toInt()
+        stroke.strokeWidth = 1.4f * s
+        c.drawLine(x + cos(angle) * length * 0.55f * s, y + sin(angle) * length * 0.55f * s, tipX, tipY, stroke)
+        if (spear) {
+            path.reset()
+            path.moveTo(tipX + cos(angle) * 9f * s, tipY + sin(angle) * 9f * s)
+            path.lineTo(tipX + cos(angle + 1.7f) * 3.4f * s, tipY + sin(angle + 1.7f) * 3.4f * s)
+            path.lineTo(tipX + cos(angle - 1.7f) * 3.4f * s, tipY + sin(angle - 1.7f) * 3.4f * s)
+            path.close()
+            fill.color = 0xFFC9D2DE.toInt()
+            c.drawPath(path, fill)
+        } else {
+            fill.color = alpha(accent, 200)
+            c.drawCircle(tipX, tipY, 2.6f * s, fill)
+        }
+    }
+
+    private fun drawBlade(
+        c: Canvas, x: Float, y: Float, s: Float, swing: Float, attack: Float,
+        accent: Int, body: Int, length: Float, wide: Boolean,
+    ) {
+        val len = length * s
         val tipX = x + cos(swing) * len
         val tipY = y + sin(swing) * len
         stroke.color = 0xFFC9D2DE.toInt()
-        stroke.strokeWidth = 2.6f * s
+        stroke.strokeWidth = if (wide) 4.2f * s else 2.6f * s
         c.drawLine(x, y, tipX, tipY, stroke)
         stroke.color = alpha(accent, 180)
         stroke.strokeWidth = 1.2f * s
@@ -561,14 +760,120 @@ class BattleCanvasView @JvmOverloads constructor(
             x + cos(swing) * len * 0.62f, y + sin(swing) * len * 0.62f,
             stroke,
         )
+        // 손잡이
+        stroke.color = 0xFF6B5236.toInt()
+        stroke.strokeWidth = 2.4f * s
+        c.drawLine(x - cos(swing) * 4f * s, y - sin(swing) * 4f * s, x + cos(swing) * 4f * s, y + sin(swing) * 4f * s, stroke)
         if (attack > 0.4f) {
             stroke.color = alpha(0xFFFFFFFF.toInt(), 150)
             stroke.strokeWidth = 1.4f * s
-            c.drawLine(
-                x + cos(swing) * len * 0.8f, y + sin(swing) * len * 0.8f,
-                tipX, tipY, stroke,
-            )
+            c.drawLine(x + cos(swing) * len * 0.8f, y + sin(swing) * len * 0.8f, tipX, tipY, stroke)
         }
+    }
+
+    private fun drawAxe(c: Canvas, x: Float, y: Float, s: Float, swing: Float, attack: Float, accent: Int) {
+        val len = 27f * s
+        val tipX = x + cos(swing) * len
+        val tipY = y + sin(swing) * len
+        stroke.color = 0xFF6B5236.toInt()
+        stroke.strokeWidth = 2.4f * s
+        c.drawLine(x - cos(swing) * 5f * s, y - sin(swing) * 5f * s, tipX, tipY, stroke)
+
+        path.reset()
+        val ax = tipX + cos(swing + 1.57f) * 2f * s
+        val ay = tipY + sin(swing + 1.57f) * 2f * s
+        path.moveTo(ax, ay)
+        path.lineTo(ax + cos(swing) * 8f * s + cos(swing + 1.57f) * 7f * s,
+            ay + sin(swing) * 8f * s + sin(swing + 1.57f) * 7f * s)
+        path.lineTo(ax + cos(swing) * 3f * s + cos(swing + 1.57f) * 11f * s,
+            ay + sin(swing) * 3f * s + sin(swing + 1.57f) * 11f * s)
+        path.lineTo(ax, ay)
+        path.close()
+        fill.color = 0xFFC9D2DE.toInt()
+        c.drawPath(path, fill)
+        stroke.color = alpha(accent, 160)
+        stroke.strokeWidth = 1f * s
+        c.drawPath(path, stroke)
+        if (attack > 0.4f) {
+            stroke.color = alpha(0xFFFFFFFF.toInt(), 130)
+            stroke.strokeWidth = 1.2f * s
+            c.drawLine(tipX, tipY, tipX + cos(swing + 1.57f) * 9f * s, tipY + sin(swing + 1.57f) * 9f * s, stroke)
+        }
+    }
+
+    private fun drawMace(c: Canvas, x: Float, y: Float, s: Float, swing: Float, attack: Float, accent: Int) {
+        val len = 26f * s
+        val tipX = x + cos(swing) * len
+        val tipY = y + sin(swing) * len
+        stroke.color = 0xFF6B5236.toInt()
+        stroke.strokeWidth = 2.6f * s
+        c.drawLine(x - cos(swing) * 5f * s, y - sin(swing) * 5f * s, tipX, tipY, stroke)
+        fill.color = 0xFFB8C0CC.toInt()
+        c.drawCircle(tipX, tipY, 6.4f * s, fill)
+        stroke.color = alpha(accent, 190)
+        stroke.strokeWidth = 1.2f * s
+        c.drawCircle(tipX, tipY, 7.4f * s + attack * 2f * s, stroke)
+        for (i in 0 until 4) {
+            val ang = swing + i * 1.57f
+            stroke.color = 0xFFC9D2DE.toInt()
+            stroke.strokeWidth = 1.6f * s
+            c.drawLine(tipX, tipY, tipX + cos(ang) * 8.4f * s, tipY + sin(ang) * 8.4f * s, stroke)
+        }
+    }
+
+    private fun drawClaw(c: Canvas, x: Float, y: Float, s: Float, swing: Float, attack: Float, accent: Int) {
+        stroke.color = 0xFFC9D2DE.toInt()
+        stroke.strokeWidth = 1.8f * s
+        for (i in -1..1) {
+            val a = swing + i * 0.34f
+            val len = (15f + attack * 4f) * s
+            path.reset()
+            path.moveTo(x, y)
+            path.quadTo(
+                x + cos(a) * len * 0.6f + cos(a + 1.57f) * 2f * s,
+                y + sin(a) * len * 0.6f + sin(a + 1.57f) * 2f * s,
+                x + cos(a) * len, y + sin(a) * len,
+            )
+            c.drawPath(path, stroke)
+        }
+        fill.color = alpha(accent, 120)
+        c.drawCircle(x, y, 3.4f * s, fill)
+    }
+
+    private fun drawFlail(c: Canvas, x: Float, y: Float, s: Float, swing: Float, attack: Float, accent: Int) {
+        val len = 18f * s
+        val headX = x + cos(swing) * len
+        val headY = y + sin(swing) * len
+        stroke.color = 0xFF6B5236.toInt()
+        stroke.strokeWidth = 2.4f * s
+        c.drawLine(x - cos(swing) * 4f * s, y - sin(swing) * 4f * s, x + cos(swing) * 9f * s, y + sin(swing) * 9f * s, stroke)
+        stroke.color = 0xFF9AA3B0.toInt()
+        stroke.strokeWidth = 1f * s
+        c.drawLine(x + cos(swing) * 9f * s, y + sin(swing) * 9f * s, headX, headY, stroke)
+        fill.color = 0xFFB8C0CC.toInt()
+        c.drawCircle(headX, headY, 4.6f * s, fill)
+        stroke.color = alpha(accent, 200)
+        stroke.strokeWidth = 1f * s
+        c.drawCircle(headX, headY, 6f * s + attack * 2f * s, stroke)
+    }
+
+    private fun drawShield(c: Canvas, x: Float, y: Float, s: Float, facing: Float, accent: Int) {
+        c.save()
+        c.translate(x, y)
+        c.rotate(Math.toDegrees(facing.toDouble()).toFloat())
+        path.reset()
+        path.moveTo(0f, -12f * s)
+        path.lineTo(7f * s, -8f * s)
+        path.lineTo(7f * s, 4f * s)
+        path.quadTo(0f, 13f * s, -7f * s, 4f * s)
+        path.lineTo(-7f * s, -8f * s)
+        path.close()
+        fill.color = 0xFF3C4552.toInt()
+        c.drawPath(path, fill)
+        stroke.color = alpha(accent, 210)
+        stroke.strokeWidth = 1.6f * s
+        c.drawPath(path, stroke)
+        c.restore()
     }
 
     // -------------------------------------------------------------- 효과
@@ -640,6 +945,7 @@ class BattleCanvasView @JvmOverloads constructor(
                 FxKind.BOLT -> drawBolt(c, fx, t)
                 FxKind.PILLAR -> drawPillar(c, fx, t)
                 FxKind.MINION_HIT -> drawStarBurst(c, fx, t)
+                FxKind.METEOR -> drawMeteor(c, fx, t)
                 FxKind.CYCLONE -> Unit
                 else -> Unit
             }
@@ -728,6 +1034,36 @@ class BattleCanvasView @JvmOverloads constructor(
         c.drawCircle(fx.x, fx.y, w * 0.35f, fill)
     }
 
+    /** 혜성: 하늘에서 떨어지는 얼음 덩어리 */
+    private fun drawMeteor(c: Canvas, fx: Fx, t: Float) {
+        val h = (1f - t).coerceIn(0f, 1f)
+        val drift = ((fx.seed % 40) - 20) / 20f * 16f
+        val px = fx.x + drift * h
+        val py = fx.y - h * 470f
+        val tail = 120f * (0.35f + h * 0.9f)
+
+        stroke.color = alpha(fx.color, (150 * h + 40).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 7f * h + 1.5f
+        c.drawLine(px + drift * 0.18f, py - tail, px, py, stroke)
+
+        fill.shader = RadialGradient(
+            px, py, 34f,
+            intArrayOf(0xFFFFFFFF.toInt(), alpha(fx.color, 240), alpha(fx.color, 90), 0x00000000),
+            floatArrayOf(0f, 0.3f, 0.65f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(px, py, 34f, fill)
+        fill.shader = null
+        fill.color = alpha(0xFFE8FCFF.toInt(), 240)
+        c.drawCircle(px, py, 11f, fill)
+
+        stroke.color = alpha(0xFFFFFFFF.toInt(), 200)
+        stroke.strokeWidth = 1.4f
+        for (i in 0 until 5) {
+            val a = i * 1.256f + (fx.seed % 17) * 0.1f
+            c.drawLine(px, py, px + cos(a) * 26f, py + sin(a) * 26f, stroke)
+        }
+    }
+
     private fun drawStarBurst(c: Canvas, fx: Fx, t: Float) {
         val a = (1f - t).coerceIn(0f, 1f)
         stroke.color = alpha(fx.color, (200 * a).toInt().coerceIn(0, 255))
@@ -802,6 +1138,23 @@ class BattleCanvasView @JvmOverloads constructor(
                     fill.shader = null
                     fill.color = 0xCCFFFFFF.toInt()
                     c.drawCircle(p.x, p.y, 3.6f, fill)
+                }
+                ProjKind.BOLT -> {
+                    drawTrail(c, p, 0xFFCFE8FF.toInt(), 9f)
+                    val len = 26f
+                    stroke.color = 0xFF5C4A33.toInt()
+                    stroke.strokeWidth = 2.6f
+                    c.drawLine(p.x - p.dirX * len, p.y - p.dirY * len, p.x - p.dirX * 8f, p.y - p.dirY * 8f, stroke)
+                    stroke.color = 0xFFE2EAF2.toInt()
+                    stroke.strokeWidth = 1.8f
+                    c.drawLine(p.x - p.dirX * 8f, p.y - p.dirY * 8f, p.x + p.dirX * 4f, p.y + p.dirY * 4f, stroke)
+                    fill.shader = RadialGradient(
+                        p.x + p.dirX * 4f, p.y + p.dirY * 4f, 16f,
+                        intArrayOf(alpha(p.element.color, 245), alpha(p.element.color, 80), 0x00000000),
+                        null, Shader.TileMode.CLAMP,
+                    )
+                    c.drawCircle(p.x + p.dirX * 4f, p.y + p.dirY * 4f, 16f, fill)
+                    fill.shader = null
                 }
                 ProjKind.ENEMY_BOLT -> {
                     fill.shader = RadialGradient(
@@ -898,9 +1251,12 @@ class BattleCanvasView @JvmOverloads constructor(
         textLight.textAlign = Paint.Align.LEFT
         textLight.textSize = 10f * dp
         val chipW = textLight.measureText(chipText) + 12f * dp
+        val triggerText = st.triggerText
+        val hasTrigger = triggerText.isNotBlank()
+        val badgeH = (if (hasTrigger) 41f else 27f) * dp
         val badgeW = min(width - pad * 2f, nameW + chipW + 30f * dp)
 
-        rect.set(pad, pad, pad + badgeW, pad + 27f * dp)
+        rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
         c.drawRoundRect(rect, 8f * dp, 8f * dp, fill)
         stroke.color = alpha(element.color, 110)
@@ -920,6 +1276,18 @@ class BattleCanvasView @JvmOverloads constructor(
         textLight.color = alpha(element.color, 255)
         c.drawText(chipText, chipX + 6f * dp, pad + 16.6f * dp, textLight)
 
+        if (hasTrigger) {
+            textLight.color = 0xFFCFF3FF.toInt()
+            textLight.textSize = 9.5f * dp
+            var label = "⟳ $triggerText"
+            val limit = badgeW - 22f * dp
+            while (label.isNotEmpty() && textLight.measureText(label) > limit) {
+                label = label.dropLast(2) + "…"
+            }
+            c.drawText(label, pad + 10f * dp, pad + 33f * dp, textLight)
+            textLight.textSize = 10f * dp
+        }
+
         // 남은 적 · 시간
         text.textAlign = Paint.Align.RIGHT
         text.textSize = 11f * dp
@@ -933,14 +1301,14 @@ class BattleCanvasView @JvmOverloads constructor(
         // 체력 / 보호막
         val barW = min(width * 0.46f, 220f * dp)
         val barX = pad
-        val barY = pad + 33f * dp
+        val barY = pad + badgeH + 6f * dp
         drawPoolBar(c, barX, barY, barW, st.life, w.player.life, 0xFFD9534F.toInt())
         drawPoolBar(c, barX, barY + 8f * dp, barW, st.es, w.player.es, 0xFF4FA8D9.toInt())
 
         // 보스 체력
         val boss = w.bossEnemy
         if (boss != null) {
-            val barY2 = pad + 54f * dp
+            val barY2 = pad + badgeH + 28f * dp
             val w2 = width - pad * 2f
             text.textAlign = Paint.Align.LEFT
             text.textSize = 10.5f * dp

@@ -36,11 +36,13 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
+import coil.load
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
 import com.sunuhwi.poe2dbkr.databinding.ActivityMainBinding
+import com.sunuhwi.poe2dbkr.databinding.DialogMarketItemBinding
 import com.sunuhwi.poe2dbkr.databinding.DialogPobSlotBinding
 import com.sunuhwi.poe2dbkr.databinding.ItemPobGemBinding
 import com.sunuhwi.poe2dbkr.databinding.ItemPobSlotBinding
@@ -85,16 +87,19 @@ class MainActivity : AppCompatActivity() {
     private var activeLeague: String? = null
     private var activeType = "Currency"
     private var marketRates: List<MarketRate> = emptyList()
+    private var marketSort = MarketSort.VALUE_DESC
+    private var catalogByEn: Map<String, CatalogItem> = emptyMap()
 
     private var pobBuild: PobBuild? = null
     private val pobOverrides = HashMap<String, PobItem>()
     private val pobFlasks = mutableSetOf<String>()
     private val pobConfig = PobCalculator.Config()
-    private var pobMainGroup = 1
+    private var pobMainGroup = 0
 
     private lateinit var battleView: BattleCanvasView
     private val battleReady: Boolean get() = this::battleView.isInitialized
     private var battleFxOverride: SkillEffectType? = null
+    private var battleTriggerMode = TriggerMode.AUTO
     private var battleMode = BattleMode.MAP
     private var battleMobCount = 25
     private var battleAmp = false
@@ -138,6 +143,9 @@ class MainActivity : AppCompatActivity() {
         Catalog.load(this) { loadedItems ->
             catalog = loadedItems
             uniques = loadedItems.filter { it.cat == "unique" }
+            catalogByEn = loadedItems
+                .filter { it.nameEn.isNotBlank() }
+                .associateBy { it.nameEn.lowercase().trim() }
             loaded = true
             applyFilter()
             refreshPobCalc()
@@ -515,21 +523,21 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------- 실시간 시세
     private fun setupMarket() {
-        marketAdapter = MarketAdapter()
+        marketAdapter = MarketAdapter(onClick = { rate -> showMarketDetail(rate) })
         marketPane.rvMarket.layoutManager = LinearLayoutManager(this)
         marketPane.rvMarket.adapter = marketAdapter
 
         val types = marketPane.typeChipGroup
         var firstId = View.NO_ID
-        Market.TYPES.forEach { (type, label) ->
+        Market.TYPES.forEach { type ->
             val chip = Chip(this)
             chip.id = View.generateViewId()
-            chip.text = label
+            chip.text = type.label
             chip.isCheckable = true
-            chip.tag = type
+            chip.tag = type.id
             chip.setOnClickListener { view ->
                 if ((view as Chip).isChecked) {
-                    activeType = type
+                    activeType = type.id
                     types.check(view.id)
                     loadMarketRates()
                 }
@@ -538,6 +546,24 @@ class MainActivity : AppCompatActivity() {
             if (firstId == View.NO_ID) firstId = chip.id
         }
         types.check(firstId)
+
+        val sortGroup = marketPane.sortChipGroup
+        MarketSort.values().forEach { sort ->
+            val chip = Chip(this)
+            chip.id = View.generateViewId()
+            chip.text = sort.label
+            chip.isCheckable = true
+            chip.tag = sort
+            chip.isChecked = sort == marketSort
+            chip.setOnClickListener { view ->
+                if ((view as Chip).isChecked) {
+                    marketSort = sort
+                    sortGroup.check(view.id)
+                    applyMarketFilter()
+                }
+            }
+            sortGroup.addView(chip)
+        }
 
         marketPane.etMarketSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -614,7 +640,7 @@ class MainActivity : AppCompatActivity() {
         marketPane.marketProgress.isVisible = marketRates.isEmpty()
         network.execute {
             val rates = runCatching {
-                Market.overview(league, type, koMapping())
+                Market.overview(league, type, koMapping()).map { rate -> enrich(rate) }
             }.getOrElse { emptyList() }
             handler.post {
                 marketPane.marketProgress.isVisible = false
@@ -629,12 +655,22 @@ class MainActivity : AppCompatActivity() {
                     marketPane.tvMarketStatus.text = getString(
                         R.string.market_status,
                         league,
-                        Market.TYPES[type] ?: type,
+                        Market.TYPES.firstOrNull { it.id == type }?.label ?: type,
                         rates.size.toString(),
                     )
                 }
             }
         }
+    }
+
+    /** 내장 DB에서 한글 이름·베이스 타입·옵션·페이지 주소를 채운다. */
+    private fun enrich(rate: MarketRate): MarketRate {
+        val db = catalogByEn[rate.name.lowercase().trim()] ?: return rate
+        return rate.copy(
+            koName = rate.koName.ifBlank { db.name },
+            koBase = rate.koBase.ifBlank { db.meta },
+            pageUrl = rate.pageUrl.ifBlank { db.url },
+        )
     }
 
     private fun koMapping(): Map<String, String> {
@@ -646,16 +682,141 @@ class MainActivity : AppCompatActivity() {
     private fun applyMarketFilter() {
         if (marketRates.isEmpty()) return
         val query = marketPane.etMarketSearch.text?.toString()?.trim()?.lowercase().orEmpty()
-        val results = if (query.isEmpty()) marketRates else marketRates.filter {
-            it.name.lowercase().contains(query) || it.koName.contains(query) || it.id.contains(query)
+        val filtered = if (query.isEmpty()) marketRates else marketRates.filter {
+            it.name.lowercase().contains(query) || it.koName.contains(query) ||
+                it.baseType.lowercase().contains(query) || it.koBase.contains(query) ||
+                it.id.contains(query)
         }
+        val results = Market.sort(filtered, marketSort)
         marketAdapter.submitList(results)
         marketPane.tvMarketStatus.text = getString(
             R.string.market_status,
             activeLeague ?: "-",
-            Market.TYPES[activeType] ?: activeType,
+            Market.TYPES.firstOrNull { it.id == activeType }?.label ?: activeType,
             results.size.toString(),
         )
+    }
+
+    private fun mutedColor(): Int = ContextCompat.getColor(this, R.color.text_muted)
+
+    private fun showMarketDetail(rate: MarketRate) {
+        val binding = DialogMarketItemBinding.inflate(layoutInflater)
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        dialog.setContentView(binding.root)
+
+        val db = catalogByEn[rate.name.lowercase().trim()]
+        binding.ivIcon.load(rate.iconUrl.ifBlank { db?.icon }) {
+            placeholder(R.drawable.bg_icon)
+            error(R.drawable.bg_icon)
+        }
+        binding.tvDetailName.text = rate.koName.ifBlank { rate.name }
+        binding.tvDetailNameEn.text = listOf(rate.name, rate.baseType)
+            .filter { it.isNotBlank() && it != rate.koName }
+            .joinToString(" · ")
+        binding.tvDetailNameEn.isVisible = binding.tvDetailNameEn.text.isNotBlank()
+        binding.tvDetailBase.text = listOfNotNull(
+            rate.koBase.takeIf { it.isNotBlank() },
+            rate.category.takeIf { it.isNotBlank() },
+            rate.levelRequired.takeIf { it > 0 }?.let { "레벨 $it" },
+            if (rate.corrupted) "타락" else null,
+        ).joinToString(" · ")
+        binding.tvDetailBase.isVisible = binding.tvDetailBase.text.isNotBlank()
+
+        when {
+            rate.change > 0.05 -> {
+                binding.tvDetailChange.text = "7일 +%.1f%%".format(rate.change)
+                binding.tvDetailChange.setTextColor(ContextCompat.getColor(this, R.color.resist_high))
+            }
+            rate.change < -0.05 -> {
+                binding.tvDetailChange.text = "7일 %.1f%%".format(rate.change)
+                binding.tvDetailChange.setTextColor(ContextCompat.getColor(this, R.color.resist_low))
+            }
+            else -> {
+                binding.tvDetailChange.text = "7일 0%"
+                binding.tvDetailChange.setTextColor(mutedColor())
+            }
+        }
+
+        binding.tvDetailPrice.text = "${Market.formatValue(rate.divine)} 디바인"
+        binding.tvDetailPriceSub.text =
+            "≈ ${Market.formatValue(rate.exalted)} 엑잘 · ${Market.formatValue(rate.chaos)} 카오스"
+        binding.tvDetailListings.text = when {
+            rate.listingCount > 0 -> "매물 ${rate.listingCount}건"
+            rate.volume > 0 -> "거래량 ${Market.formatValue(rate.volume)} ${Market.currencyLabel(rate.volumeCurrency)}"
+            else -> "매물 집계 없음"
+        }
+
+        val spark = rate.spark
+        if (spark.size >= 2) {
+            binding.sparkView.isVisible = true
+            binding.tvSparkTitle.isVisible = true
+            binding.sparkView.setData(spark, rate.change >= 0)
+        } else {
+            binding.sparkView.isVisible = false
+            binding.tvSparkTitle.text = getString(R.string.market_no_spark)
+            binding.tvSparkTitle.isVisible = true
+        }
+
+        fun section(view: android.widget.TextView, title: String, lines: List<String>) {
+            if (lines.isEmpty()) {
+                view.isVisible = false
+                return
+            }
+            view.isVisible = true
+            view.text = title + "\n" + lines.joinToString("\n") { "· $it" }
+        }
+        val dbStats = db?.stats.orEmpty()
+        section(
+            binding.tvSecProperties,
+            getString(R.string.market_detail_properties),
+            rate.properties + listOfNotNull(db?.summary?.takeIf { it.isNotBlank() }),
+        )
+        section(binding.tvSecImplicit, getString(R.string.market_detail_implicit), rate.implicits)
+        section(
+            binding.tvSecExplicit,
+            getString(R.string.market_detail_explicit),
+            rate.explicits + dbStats,
+        )
+        section(binding.tvSecGranted, getString(R.string.market_detail_granted), rate.granted)
+        section(binding.tvSecRequirements, getString(R.string.market_detail_requirements), rate.requirements)
+
+        binding.tvSecFlavour.isVisible = rate.flavour.isNotBlank()
+        binding.tvSecFlavour.text = "\u201C" + rate.flavour + "\u201D"
+
+        val sourceUrl = rate.pageUrl.ifBlank {
+            db?.url ?: Market.poe2dbUrl(rate.name)
+        }
+        val hasSource = rate.isUnique && sourceUrl.isNotBlank()
+        binding.tvSecSource.isVisible = hasSource
+        binding.tvSourceValue.isVisible = hasSource
+        if (hasSource) {
+            binding.tvSourceValue.text = getString(R.string.market_source_loading)
+            network.execute {
+                val source = Poe2dbSource.lookup(sourceUrl)
+                handler.post {
+                    if (!dialog.isShowing) return@post
+                    val parts = ArrayList<String>()
+                    if (source.droppedBy.isNotEmpty()) {
+                        parts.add(getString(R.string.market_source_drop) + ": " + source.droppedBy.joinToString(", "))
+                    }
+                    if (source.forged.isNotBlank()) {
+                        parts.add(getString(R.string.market_source_forge) + ": " + source.forged.take(220))
+                    }
+                    binding.tvSourceValue.text = if (parts.isEmpty()) {
+                        getString(R.string.market_source_none)
+                    } else {
+                        parts.joinToString("\n")
+                    }
+                }
+            }
+        }
+
+        binding.btnOpenPage.setOnClickListener {
+            dialog.dismiss()
+            if (sourceUrl.isNotBlank()) openExternal(Uri.parse(sourceUrl))
+        }
+        binding.btnCloseDetail.setOnClickListener { dialog.dismiss() }
+        dialog.show()
     }
 
     // ------------------------------------------------------------- 패시브 트리
@@ -673,7 +834,23 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             allowFileAccess = false
             allowContentAccess = false
+            textZoom = 100
             userAgentString = "$userAgentString PoE2DBKR/1.0"
+        }
+        treePane.treeWebView.isClickable = true
+        treePane.treeWebView.isFocusable = true
+        treePane.treeWebView.isFocusableInTouchMode = true
+        // 트리 캔버스가 부모 레이아웃에 터치를 빼앗기지 않게 한다 (핀치·탭이 노드까지 도달).
+        treePane.treeWebView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_POINTER_DOWN,
+                -> view.parent?.requestDisallowInterceptTouchEvent(true)
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL,
+                -> view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false
         }
         treePane.treeWebView.webViewClient = TreeClient()
         treePane.treeWebView.webChromeClient = object : WebChromeClient() {
@@ -689,6 +866,13 @@ class MainActivity : AppCompatActivity() {
             val url = treePane.treeWebView.url
             if (!url.isNullOrBlank()) openExternal(Uri.parse(url))
         }
+        treePane.btnTreeZoomIn.setOnClickListener { treeZoom("window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(1)") }
+        treePane.btnTreeZoomOut.setOnClickListener { treeZoom("window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(-1)") }
+        treePane.btnTreeZoomReset.setOnClickListener { treeZoom("window.__poe2dbkrTree && window.__poe2dbkrTree.reset()") }
+    }
+
+    private fun treeZoom(script: String) {
+        runCatching { treePane.treeWebView.evaluateJavascript(script, null) }
     }
 
     private fun openTree(url: String) {
@@ -708,12 +892,14 @@ class MainActivity : AppCompatActivity() {
         pobPane.rvPobSlots.layoutManager = LinearLayoutManager(this)
         pobPane.rvPobSlots.adapter = slotAdapter
 
+        pobPane.pobTabs.tabMode = TabLayout.MODE_SCROLLABLE
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_overview))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_skills))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_items))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_config))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_tree))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_battle))
+        pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_meta))
         pobPane.pobTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 val page = when (tab.position) {
@@ -722,14 +908,17 @@ class MainActivity : AppCompatActivity() {
                     3 -> pobPane.pobPageConfig
                     4 -> pobPane.pobPageTree
                     5 -> pobPane.pobPageBattle
+                    6 -> pobPane.pobPageMeta
                     else -> pobPane.pobPageOverview
                 }
                 listOf(
                     pobPane.pobPageOverview, pobPane.pobPageSkills, pobPane.rvPobSlots,
                     pobPane.pobPageConfig, pobPane.pobPageTree, pobPane.pobPageBattle,
+                    pobPane.pobPageMeta,
                 ).forEach { it.isVisible = it === page }
                 if (tab.position == 2) refreshSlots()
                 if (tab.position == 1) renderSkills()
+                if (tab.position == 6) renderMeta()
                 if (tab.position == 5) {
                     refreshBattleHeader()
                     if (battleWantsPlay && battleReady) battleView.resume()
@@ -779,10 +968,206 @@ class MainActivity : AppCompatActivity() {
             pobPane.ailmentChips.addView(chip)
         }
 
+        pobPane.btnOpenNinjaBuilds.setOnClickListener { showNinjaBuilds() }
         pobPane.btnOpenTree.setOnClickListener { openTree(PASSIVE_TREE_URL) }
         pobPane.btnOpenAtlas.setOnClickListener { openTree(ATLAS_TREE_URL) }
 
         setupBattle()
+    }
+
+    // ------------------------------------------------------------- 메타 랭킹
+    private fun renderMeta() {
+        val density = resources.displayMetrics.density
+        val rows = pobPane.metaAscRows
+        rows.removeAllViews()
+        val maxShare = MetaSnapshot.ASCENDANCIES.maxOfOrNull { it.second } ?: 1.0
+        MetaSnapshot.ASCENDANCIES.forEachIndexed { index, (name, share) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, (3 * density).toInt(), 0, (7 * density).toInt())
+            }
+            val head = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val label = TextView(this).apply {
+                text = "%d. %s".format(index + 1, name)
+                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                textSize = 12f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val pct = TextView(this).apply {
+                text = "%.0f%%".format(share)
+                setTextColor(
+                    if (index == 0) ContextCompat.getColor(context, R.color.gold)
+                    else ContextCompat.getColor(context, R.color.text_primary)
+                )
+                textSize = 12f
+                gravity = Gravity.END
+                setPadding((10 * density).toInt(), 0, 0, 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+            }
+            head.addView(label)
+            head.addView(pct)
+
+            val track = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, (9 * density).toInt()
+                ).apply { topMargin = (4 * density).toInt() }
+                setBackgroundColor(ContextCompat.getColor(context, R.color.divider))
+            }
+            val filled = android.view.View(this).apply {
+                setBackgroundColor(
+                    if (index == 0) ContextCompat.getColor(context, R.color.gold)
+                    else ContextCompat.getColor(context, R.color.gold_40)
+                )
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, share.toFloat())
+            }
+            val empty = android.view.View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT,
+                    (maxShare - share).toFloat().coerceAtLeast(0.001f),
+                )
+            }
+            track.addView(filled)
+            track.addView(empty)
+
+            row.addView(head)
+            row.addView(track)
+            rows.addView(row)
+        }
+
+        val cards = pobPane.metaBuildCards
+        cards.removeAllViews()
+        MetaSnapshot.BUILDS.forEach { build ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(ContextCompat.getColor(context, R.color.surface))
+                setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (6 * density).toInt() }
+            }
+            card.addView(TextView(this).apply {
+                text = "${build.skill}  ·  ${build.dps} DPS"
+                setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                textSize = 13f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            card.addView(TextView(this).apply {
+                text = build.ascendancy
+                setTextColor(ContextCompat.getColor(context, R.color.gold_soft))
+                textSize = 11f
+            })
+            card.addView(TextView(this).apply {
+                text = build.note
+                setTextColor(ContextCompat.getColor(context, R.color.text_muted))
+                textSize = 11f
+                setPadding(0, (3 * density).toInt(), 0, 0)
+            })
+            cards.addView(card)
+        }
+
+        pobPane.tvMetaSource.text = getString(
+            R.string.meta_source_label,
+            MetaSnapshot.SOURCE,
+            MetaSnapshot.UPDATED,
+        ) + " · " + MetaSnapshot.LEAGUE
+    }
+
+    private fun showNinjaBuilds() {
+        val density = resources.displayMetrics.density
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(ContextCompat.getColor(context, R.color.bg))
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding((14 * density).toInt(), (10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt())
+            setBackgroundColor(ContextCompat.getColor(context, R.color.surface))
+        }
+        bar.addView(TextView(this).apply {
+            text = getString(R.string.meta_web_title)
+            setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+            textSize = 14f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        val open = com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.detail_open_browser)
+            textSize = 11f
+            minHeight = (34 * density).toInt()
+            insetTop = 0
+            insetBottom = 0
+            setOnClickListener { openExternal(Uri.parse(NINJA_BUILDS_URL)) }
+        }
+        bar.addView(open)
+        val close = com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.info_close)
+            textSize = 11f
+            minHeight = (34 * density).toInt()
+            insetTop = 0
+            insetBottom = 0
+        }
+        bar.addView(close)
+
+        val web = WebView(this)
+        with(web.settings) {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            textZoom = 100
+            userAgentString = "$userAgentString PoE2DBKR/1.0"
+        }
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) = Unit
+        }
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val host = request.url.host.orEmpty()
+                if (host.endsWith("poe.ninja") || host.endsWith("pathofexile.com")) return false
+                openExternal(request.url)
+                return true
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                if (!url.startsWith("http")) return
+                view.evaluateJavascript(MobileCss.NINJA_SCRIPT, null)
+            }
+        }
+        web.loadUrl(NINJA_BUILDS_URL)
+        root.addView(bar)
+        root.addView(
+            web,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        )
+
+        val dialog = android.app.Dialog(this)
+        dialog.setContentView(root)
+        dialog.setCanceledOnTouchOutside(false)
+        close.setOnClickListener {
+            web.stopLoading()
+            web.destroy()
+            dialog.dismiss()
+        }
+        dialog.show()
+        dialog.window?.setLayout(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        )
     }
 
     // ------------------------------------------------------------- 전투 시뮬레이터
@@ -793,6 +1178,7 @@ class MainActivity : AppCompatActivity() {
         buildBattleModeChips()
         buildBattleOptChips()
         buildBattleFxChips()
+        buildBattleTriggerChips()
 
         pobPane.btnBattleStart.setOnClickListener { startBattle() }
         pobPane.btnBattlePause.setOnClickListener { toggleBattlePause() }
@@ -907,19 +1293,59 @@ class MainActivity : AppCompatActivity() {
         if (battleStarted) startBattle()
     }
 
+    enum class TriggerMode { AUTO, TEST, OFF }
+
+    private fun buildBattleTriggerChips() {
+        val group = pobPane.battleTriggerChips
+        group.removeAllViews()
+        listOf(
+            TriggerMode.AUTO to getString(R.string.battle_trigger_auto),
+            TriggerMode.TEST to getString(R.string.battle_trigger_test),
+            TriggerMode.OFF to getString(R.string.battle_trigger_off),
+        ).forEach { (mode, label) ->
+            group.addView(
+                battleChip(label, battleTriggerMode == mode) {
+                    battleTriggerMode = mode
+                    for (i in 0 until group.childCount) {
+                        val c = group.getChildAt(i) as Chip
+                        c.isChecked = c.text.toString() == label
+                    }
+                    refreshBattleHeader()
+                    restartBattleIfRunning()
+                }
+            )
+        }
+    }
+
     private fun battleStats(): BattlePlayerStats? {
         val build = pobBuild ?: return null
         val calc = PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig)
-        val group = build.skills.firstOrNull { it.label.toIntOrNull() == pobMainGroup }
-            ?: build.skills.firstOrNull { it.enabled && it.gems.isNotEmpty() }
+        val group = Pob.mainGroup(build, pobMainGroup)
         val gems = group?.gems?.filter { it.enabled }.orEmpty()
-        val mainGem = gems.firstOrNull {
-            !PobCalculator.SUPPORT_GEMS.containsKey(it.name.lowercase().trim())
-        } ?: gems.firstOrNull()
-        val skillName = mainGem?.name ?: group?.label ?: build.className.ifBlank { "기본 공격" }
+        val mainGem = gems.firstOrNull { !PobCalculator.isSupport(it) && PobTriggers.kindOf(it) == null }
+            ?: gems.firstOrNull { !PobCalculator.isSupport(it) }
+            ?: gems.firstOrNull()
+        val skillName = mainGem?.name ?: group?.label?.ifBlank { null } ?: build.className.ifBlank { "기본 공격" }
         val fx = battleFxOverride ?: SkillEffects.detect(skillName, group?.label.orEmpty())
         val weaponItem = pobOverrides["Weapon 1"] ?: Pob.itemForSlot(build, "Weapon 1")
-        val weapon = SkillEffects.weaponFor(fx, weaponItem?.lines.orEmpty())
+        val weapon = weaponItem?.weapon?.takeIf { it != WeaponVisualType.NONE }
+            ?: WeaponTypes.detect(weaponItem?.itemClass, weaponItem?.baseType, weaponItem?.name)
+                .takeIf { it != WeaponVisualType.NONE }
+            ?: WeaponTypes.fallbackFor(fx)
+        val weaponLabel = listOf(weapon.label, weaponItem?.displayName.orEmpty())
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+        val scale = if (calc.dpsBase > 0) calc.dpsNow / calc.dpsBase else 1.0
+        val triggers = when (battleTriggerMode) {
+            TriggerMode.OFF -> emptyList()
+            TriggerMode.TEST -> PobTriggers.synthetic(calc.dpsNow)
+            TriggerMode.AUTO -> PobTriggers.extract(build, calc.dpsNow).map { spec ->
+                spec.copy(
+                    dps = spec.dps * scale,
+                    skills = spec.skills.map { skill -> skill.copy(dps = skill.dps * scale) },
+                )
+            }
+        }
         val evade = (calc.evasionNow / (calc.evasionNow + 7500.0) * 92.0).coerceAtMost(80.0)
         val res = calc.resists
         return BattlePlayerStats(
@@ -942,6 +1368,8 @@ class MainActivity : AppCompatActivity() {
             chaosRes = res.getOrNull(3)?.third ?: 0.0,
             ehp = calc.ehpNow,
             dpsBase = calc.dpsBase,
+            weaponLabel = weaponLabel,
+            triggers = triggers,
         )
     }
 
@@ -953,6 +1381,7 @@ class MainActivity : AppCompatActivity() {
         val stats = battleStats()
         if (stats == null) {
             pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
+            pobPane.tvBattleTrigger.isVisible = false
             return
         }
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
@@ -964,7 +1393,23 @@ class MainActivity : AppCompatActivity() {
             stats.aps,
             fmt.format(stats.dps.toLong()),
             fmt.format(stats.ehp.toLong()),
-        )
+        ) + if (stats.weaponLabel.isNotBlank()) "\n무기: ${stats.weaponLabel}" else ""
+        val triggerText = stats.triggerText
+        when {
+            triggerText.isNotBlank() -> {
+                pobPane.tvBattleTrigger.isVisible = true
+                pobPane.tvBattleTrigger.text = getString(R.string.battle_trigger_line, triggerText)
+                pobPane.tvBattleTrigger.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            }
+            battleTriggerMode == TriggerMode.OFF -> {
+                pobPane.tvBattleTrigger.isVisible = false
+            }
+            else -> {
+                pobPane.tvBattleTrigger.isVisible = true
+                pobPane.tvBattleTrigger.text = getString(R.string.battle_trigger_none)
+                pobPane.tvBattleTrigger.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
+            }
+        }
     }
 
     private fun startBattle() {
@@ -1037,7 +1482,14 @@ class MainActivity : AppCompatActivity() {
             fmt.format(result.lifeLeft.toLong()),
             fmt.format(result.esLeft.toLong()),
         )
-        pobPane.tvBattleResult.text = head + "\n" + body
+        val triggerLine = if (result.triggerCasts > 0) {
+            "\n" + getString(
+                R.string.battle_result_trigger,
+                result.triggerCasts,
+                BattleWorld.formatShort(result.triggerDamage),
+            ) + if (result.triggerText.isNotBlank()) " (${result.triggerText})" else ""
+        } else ""
+        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false
@@ -1084,7 +1536,7 @@ class MainActivity : AppCompatActivity() {
                 pobBuild = build
                 pobOverrides.clear()
                 pobFlasks.clear()
-                pobMainGroup = build.mainSocketGroup
+                pobMainGroup = 0
                 try {
                     pobPane.tvBuildTitle.text = build.title
                     pobPane.tvBuildHint.text = getString(
@@ -1204,14 +1656,14 @@ class MainActivity : AppCompatActivity() {
 
             val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val title = TextView(this).apply {
-                text = "${groupIndex + 1}. ${group.label}"
+                text = "${groupIndex + 1}. ${group.title}"
                 setTextColor(ContextCompat.getColor(context, R.color.text_primary))
                 textSize = 14f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             header.addView(title)
-            if (groupIndex + 1 == build.mainSocketGroup) {
+            if (group === Pob.mainGroup(build, pobMainGroup)) {
                 val main = TextView(this).apply {
                     text = getString(R.string.pob_main_skill)
                     setTextColor(ContextCompat.getColor(context, R.color.gold))
@@ -1336,7 +1788,16 @@ class MainActivity : AppCompatActivity() {
         val lines = mutableListOf<String>()
         if (item.summary.isNotBlank()) lines.add(item.summary)
         lines.addAll(item.stats)
-        val unique = PobItem(name = item.name, rarity = "Unique", lines = lines)
+        val baseType = item.summary.ifBlank { item.nameEn }
+        val itemClass = WeaponTypes.itemClassOf(baseType, item.nameEn, item.name)
+        val unique = PobItem(
+            name = item.name,
+            rarity = "Unique",
+            lines = lines,
+            baseType = baseType,
+            itemClass = itemClass,
+            weapon = WeaponTypes.detect(itemClass, baseType, item.nameEn, item.name),
+        )
         dialog.binding.etModLines.setText(lines.joinToString("\n"))
         dialog.pendingUnique = unique
         Snackbar.make(binding.root, "%s 선택됨 — 저장을 누르면 장착됩니다".format(item.name), Snackbar.LENGTH_SHORT).show()
@@ -1426,10 +1887,21 @@ class MainActivity : AppCompatActivity() {
                     lines.isEmpty() && pobOverrides.containsKey(slot) -> pobOverrides.remove(slot)
                     lines.isNotEmpty() -> {
                         val replaced = dialog.pendingUnique
+                        val base = replaced?.baseType?.takeIf { it.isNotBlank() }
+                            ?: current?.baseType?.takeIf { it.isNotBlank() }
+                            ?: lines.firstOrNull().orEmpty()
+                        val cls = WeaponTypes.itemClassOf(base, lines.joinToString(" "))
+                            .ifBlank { replaced?.itemClass ?: current?.itemClass.orEmpty() }
+                        val weapon = WeaponTypes.detect(cls, base, lines.joinToString(" "))
+                            .takeIf { it != WeaponVisualType.NONE }
+                            ?: replaced?.weapon ?: current?.weapon ?: WeaponVisualType.NONE
                         pobOverrides[slot] = PobItem(
                             name = replaced?.name ?: current?.name ?: lines.firstOrNull() ?: "",
                             rarity = replaced?.rarity ?: current?.rarity ?: "Rare",
                             lines = lines.toMutableList(),
+                            baseType = base,
+                            itemClass = cls,
+                            weapon = weapon,
                         )
                     }
                 }
@@ -1574,6 +2046,7 @@ class MainActivity : AppCompatActivity() {
         const val HOME_URL = "https://poe2db.tw/kr/"
         const val PASSIVE_TREE_URL = "https://poe2db.tw/kr/passive-skill-tree/"
         const val ATLAS_TREE_URL = "https://poe2db.tw/kr/atlas-skill-tree/"
+        const val NINJA_BUILDS_URL = "https://poe.ninja/poe2/builds"
         const val PANE_LIST = 0
         const val PANE_MARKET = 1
         const val PANE_TREE = 2

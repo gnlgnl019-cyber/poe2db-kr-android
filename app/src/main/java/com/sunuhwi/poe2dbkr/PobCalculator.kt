@@ -82,6 +82,7 @@ object PobCalculator {
         val resists: List<Triple<String, Double, Double>>, // 이름, 기준, 현재
         val ehpBase: Double,
         val ehpNow: Double,
+        val factor: Double = 1.0,
     )
 
     /** 옵션 한 줄을 스탯 증감으로 환산한다. 영문/한글 주요 패턴만 인식한다. */
@@ -148,6 +149,14 @@ object PobCalculator {
         "drain ailments" to Mods(),
     )
 
+    /** 보조 젬인지 (PoB 2는 skillId가 Support로 시작한다) */
+    fun isSupport(gem: PobGem): Boolean {
+        val id = gem.skillId.lowercase()
+        if (id.startsWith("support")) return true
+        if (gem.name.lowercase().trim() in SUPPORT_GEMS) return true
+        return false
+    }
+
     private fun stat(build: PobBuild, vararg keys: String): Double {
         for (key in keys) {
             build.stats[key]?.let { return it }
@@ -173,8 +182,7 @@ object PobCalculator {
         }
 
         // 2. 메인 스킬 그룹 보조 젬 + 젬 레벨 변동
-        val mainGroup = build.skills.firstOrNull { it.label.toIntOrNull() == build.mainSocketGroup }
-            ?: build.skills.firstOrNull { it.enabled && it.gems.isNotEmpty() }
+        val mainGroup = Pob.mainGroup(build, 0)
         var support = Mods()
         if (mainGroup != null) {
             for (gem in mainGroup.gems) {
@@ -217,9 +225,12 @@ object PobCalculator {
         val total = gear + support + cfg
 
         // 4. 스탯 재계산
-        val dpsBase = stat(build, "TotalDPS", "CombinedDPS", "WithIgniteDPS")
-        val apsBase = maxOf(stat(build, "AttacksPerSecond"), stat(build, "CastsPerSecond"))
-            .takeIf { it > 0 } ?: 1.0
+        val speedStat = stat(build, "AttacksPerSecond", "CastsPerSecond", "Speed", "HitSpeed")
+        val averageHit = stat(build, "AverageHit", "AverageDamage")
+        val dpsFromHit = if (averageHit > 0 && speedStat > 0) averageHit * speedStat else 0.0
+        val dpsBase = stat(build, "TotalDPS", "CombinedDPS", "WithIgniteDPS").takeIf { it > 0 }
+            ?: dpsFromHit
+        val apsBase = speedStat.takeIf { it > 0 } ?: 1.0
         val speedPct = total.atkSpdPct + total.castSpdPct
         val dmgFactor = (1 + total.dmgPct / 100) * (1 + speedPct / 100) *
             (1 + total.critChancePct / 100) * (1 + total.critMultiFlat / 100)
@@ -228,7 +239,13 @@ object PobCalculator {
 
         val critBase = stat(build, "CritChance").takeIf { it > 0 } ?: 5.0
         val critNow = (critBase * (1 + total.critChancePct / 100)).coerceAtMost(100.0)
-        val critMultiBase = stat(build, "CritMultiplier").takeIf { it > 0 } ?: 150.0
+        // PoB 2는 배율을 3.5처럼 배수로 저장한다. 350처럼 퍼센트로 저장한 빌드도 받아 준다.
+        val rawMulti = stat(build, "CritMultiplier")
+        val critMultiBase = if (rawMulti > 0) {
+            if (rawMulti <= 10.0) rawMulti * 100.0 else rawMulti
+        } else {
+            150.0
+        }
         val critMultiNow = critMultiBase + total.critMultiFlat
 
         val lifeBase = stat(build, "Life")
@@ -258,6 +275,12 @@ object PobCalculator {
             return pool / (red * elClamped) / ehpMult
         }
 
+        val ehpPoB = stat(build, "TotalEHP")
+        val poolBase = (lifeBase + esBase).coerceAtLeast(1.0)
+        val poolNow = (lifeNow + esNow).coerceAtLeast(1.0)
+        val ehpBase = if (ehpPoB > 0) ehpPoB else ehp(poolBase, armourBase, fireB, coldB, lightB)
+        val ehpNow = if (ehpPoB > 0) ehpPoB * (poolNow / poolBase) else ehp(poolNow, armourNow, fireN, coldN, lightN)
+
         return Result(
             mods = total,
             dpsBase = dpsBase, dpsNow = dpsNow,
@@ -277,8 +300,9 @@ object PobCalculator {
                 Triple("번개", lightB, lightN),
                 Triple("카오스", chaosB, chaosN),
             ),
-            ehpBase = ehp(lifeBase + esBase, armourBase, fireB, coldB, lightB),
-            ehpNow = ehp(lifeNow + esNow, armourNow, fireN, coldN, lightN),
+            ehpBase = ehpBase,
+            ehpNow = ehpNow,
+            factor = dmgFactor,
         )
     }
 }

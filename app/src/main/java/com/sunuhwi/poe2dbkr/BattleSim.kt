@@ -28,8 +28,6 @@ enum class SkillEffectType(val label: String, val element: DamageElement) {
     MINION("소환수", DamageElement.PHYSICAL),
 }
 
-enum class WeaponType { BOW, STAFF, MELEE }
-
 /** 스킬 이름과 보조 젬으로 이펙트 계열을 고른다 */
 object SkillEffects {
 
@@ -74,17 +72,9 @@ object SkillEffects {
         }
     }
 
-    fun weaponFor(fx: SkillEffectType, weaponLines: List<String>): WeaponType {
-        val text = weaponLines.joinToString(" ").lowercase()
-        return when {
-            text.contains("bow") || text.contains("crossbow") -> WeaponType.BOW
-            text.contains("staff") || text.contains("wand") || text.contains("sceptre") ||
-                text.contains("scepter") -> WeaponType.STAFF
-            fx == SkillEffectType.ICE || fx == SkillEffectType.LIGHTNING -> WeaponType.BOW
-            fx == SkillEffectType.FIRE || fx == SkillEffectType.CHAOS ||
-                fx == SkillEffectType.MINION -> WeaponType.STAFF
-            else -> WeaponType.MELEE
-        }
+    fun weaponFor(fx: SkillEffectType, weaponLines: List<String>): WeaponVisualType {
+        val detected = WeaponTypes.detect(weaponLines.joinToString(" "))
+        return if (detected != WeaponVisualType.NONE) detected else WeaponTypes.fallbackFor(fx)
     }
 }
 
@@ -93,7 +83,7 @@ data class BattlePlayerStats(
     val className: String,
     val skillName: String,
     val fx: SkillEffectType,
-    val weapon: WeaponType,
+    val weapon: WeaponVisualType,
     val dps: Double,
     val aps: Double,
     val critChance: Double,
@@ -108,7 +98,15 @@ data class BattlePlayerStats(
     val chaosRes: Double,
     val ehp: Double,
     val dpsBase: Double = 0.0,
-)
+    val weaponLabel: String = "",
+    val triggers: List<TriggerSpec> = emptyList(),
+) {
+    val element: DamageElement get() = fx.element
+
+    /** 전장 HUD에 같이 보여줄 트리거 설명 */
+    val triggerText: String
+        get() = triggers.joinToString("  ") { spec -> "${spec.kind.short} · ${spec.skillNames}" }
+}
 
 enum class BattleMode(val label: String) { MAP("16T 맵핑"), BOSS("우버 보스") }
 
@@ -257,7 +255,7 @@ class Enemy(
 }
 
 enum class FxKind {
-    SLASH, ICE_CONE, RING, BOLT, PILLAR, ORB, AURA, SPEAR, SHOCKWAVE, CYCLONE, MINION_HIT, CLOUD, GROUND_CRACK,
+    SLASH, ICE_CONE, RING, BOLT, PILLAR, ORB, AURA, SPEAR, SHOCKWAVE, CYCLONE, MINION_HIT, CLOUD, GROUND_CRACK, METEOR,
 }
 
 class Fx(
@@ -300,7 +298,7 @@ class Popup(
     var size: Float = 1f,
 )
 
-enum class ProjKind { ICE_ARROW, LIGHT_ARROW, FIRE_ORB, CHAOS_ORB, MINION_ORB, ENEMY_BOLT }
+enum class ProjKind { ICE_ARROW, LIGHT_ARROW, FIRE_ORB, CHAOS_ORB, MINION_ORB, BOLT, ENEMY_BOLT }
 
 class Projectile(
     var x: Float,
@@ -333,7 +331,59 @@ data class BattleResult(
     val lifeLeft: Double,
     val esLeft: Double,
     val maxPool: Double,
+    val triggerCasts: Int = 0,
+    val triggerDamage: Double = 0.0,
+    val triggerText: String = "",
 )
+
+/** 트리거(메타) 스킬 하나의 전투 중 상태 */
+class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
+    var energy = 0.0
+        private set
+    var cooldown = 0f
+        private set
+    var casts = 0
+        private set
+    private var nextSkill = 0
+
+    /** 조건을 몇 번 채워야 한 번 터지는지 */
+    val threshold: Double = when (spec.kind.condition) {
+        TriggerCondition.CRIT -> 4.0
+        TriggerCondition.MINION_DEATH -> 1.0
+        else -> 3.0
+    }
+    val cooldownMax: Float = when (spec.kind) {
+        TriggerKind.CAST_ON_CRIT -> 0.35f
+        else -> 0.5f
+    }
+
+    /** 트리거가 자연히 터지는 간격(초) */
+    val interval: Double = maxOf(cooldownMax.toDouble(), threshold / critRate.coerceAtLeast(0.08))
+        .coerceAtMost(4.0)
+
+    fun tick(dt: Float) {
+        if (cooldown > 0f) cooldown = maxOf(0f, cooldown - dt)
+    }
+
+    fun addEnergy(amount: Double = 1.0) {
+        energy += amount
+    }
+
+    fun ready(): Boolean = energy >= threshold && cooldown <= 0f
+
+    fun consume(): TriggeredSkill? {
+        if (spec.skills.isEmpty()) return null
+        val skill = spec.skills[nextSkill % spec.skills.size]
+        nextSkill++
+        energy = 0.0
+        cooldown = cooldownMax
+        casts++
+        return skill
+    }
+
+    /** 한 번 발동할 때의 피해: 그 스킬의 지속 DPS × 발동 간격 */
+    fun castDamage(skill: TriggeredSkill): Double = (skill.dps * interval).coerceAtLeast(1.0)
+}
 
 class BattleWorld(
     val stats: BattlePlayerStats,
@@ -400,6 +450,29 @@ class BattleWorld(
     private var slamY = 0f
     private var slamRadius = 150f
     private val rand = Random(System.nanoTime())
+
+    val triggers: List<TriggerRuntime> =
+        stats.triggers.map { spec ->
+            val critRate = stats.aps * (stats.critChance / 100.0)
+            TriggerRuntime(spec, critRate)
+        }
+    var triggerCasts = 0
+        private set
+    var triggerDamage = 0.0
+        private set
+
+    private class PendingStrike(
+        val x: Float,
+        val y: Float,
+        val radius: Float,
+        val damage: Double,
+        val element: DamageElement,
+        val name: String,
+        val kind: FxKind,
+        var delay: Float,
+    )
+
+    private val pendingStrikes = ArrayList<PendingStrike>()
 
     val totalEnemies: Int get() = enemies.size
     val aliveCount: Int get() = enemies.count { it.alive }
@@ -512,6 +585,8 @@ class BattleWorld(
         updateEnemies(dt)
         updateProjectiles(dt)
         updateDots(dt)
+        updateTriggers(dt)
+        updateStrikes(dt)
         if (player.life <= 0.0) {
             player.life = 0.0
             state = State.DEFEAT
@@ -697,28 +772,28 @@ class BattleWorld(
             }
             SkillEffectType.ICE -> {
                 spawnProjectile(
-                    ProjKind.ICE_ARROW, target, damage, crit, DamageElement.COLD,
-                    speed = 880f, angle = angle,
+                    projectileKind(DamageElement.COLD), target, damage, crit, DamageElement.COLD,
+                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 1240f else 880f, angle = angle,
                 )
             }
             SkillEffectType.LIGHTNING -> {
                 spawnProjectile(
-                    ProjKind.LIGHT_ARROW, target, damage, crit, DamageElement.LIGHTNING,
-                    speed = 1080f, angle = angle,
+                    projectileKind(DamageElement.LIGHTNING), target, damage, crit, DamageElement.LIGHTNING,
+                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 1380f else 1080f, angle = angle,
                 )
                 addFx(FxKind.BOLT, player.x + cos(angle) * 26f, player.y + sin(angle) * 26f,
                     x2 = target.x, y2 = target.y, life = 0.14f, color = DamageElement.LIGHTNING.color, seed = rand.nextInt())
             }
             SkillEffectType.FIRE -> {
                 spawnProjectile(
-                    ProjKind.FIRE_ORB, target, damage, crit, DamageElement.FIRE,
-                    speed = 560f, angle = angle,
+                    projectileKind(DamageElement.FIRE), target, damage, crit, DamageElement.FIRE,
+                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 980f else 560f, angle = angle,
                 )
             }
             SkillEffectType.CHAOS -> {
                 spawnProjectile(
-                    ProjKind.CHAOS_ORB, target, damage, crit, DamageElement.CHAOS,
-                    speed = 470f, angle = angle,
+                    projectileKind(DamageElement.CHAOS), target, damage, crit, DamageElement.CHAOS,
+                    speed = if (stats.weapon == WeaponVisualType.CROSSBOW) 1040f else 470f, angle = angle,
                 )
             }
             SkillEffectType.MINION -> {
@@ -740,6 +815,21 @@ class BattleWorld(
         while (v > PI_F) v -= 2f * PI_F
         while (v < -PI_F) v += 2f * PI_F
         return v
+    }
+
+    private fun projectileKind(element: DamageElement): ProjKind = when (stats.weapon) {
+        WeaponVisualType.CROSSBOW -> ProjKind.BOLT
+        WeaponVisualType.BOW -> when (element) {
+            DamageElement.COLD -> ProjKind.ICE_ARROW
+            DamageElement.FIRE -> ProjKind.FIRE_ORB
+            else -> ProjKind.LIGHT_ARROW
+        }
+        else -> when (element) {
+            DamageElement.COLD -> ProjKind.ICE_ARROW
+            DamageElement.FIRE -> ProjKind.FIRE_ORB
+            DamageElement.CHAOS -> ProjKind.CHAOS_ORB
+            else -> ProjKind.LIGHT_ARROW
+        }
     }
 
     private fun nearbyEnemies(from: Enemy, range: Float, limit: Int): List<Enemy> =
@@ -958,7 +1048,187 @@ class BattleWorld(
         )
         leechPool += damage * 0.006
         onSkillHit(e, crit, angle)
+        feedTriggers(e, crit)
         if (e.hp <= 0) killEnemy(e)
+    }
+
+    // ------------------------------------------------------------ 트리거(치명타·감전·빙결·점화 시 시전)
+
+    private fun feedTriggers(e: Enemy, crit: Boolean) {
+        if (triggers.isEmpty()) return
+        val element = stats.fx.element
+        for (rt in triggers) {
+            if (rt.cooldown > 0f || rt.energy >= rt.threshold) continue
+            val hit = when (rt.spec.kind.condition) {
+                TriggerCondition.CRIT -> crit
+                TriggerCondition.SHOCK -> element == DamageElement.LIGHTNING &&
+                    (crit || rand.nextDouble() < 0.25)
+                TriggerCondition.FREEZE -> element == DamageElement.COLD &&
+                    (crit || rand.nextDouble() < 0.20)
+                TriggerCondition.IGNITE -> element == DamageElement.FIRE &&
+                    (crit || rand.nextDouble() < 0.30)
+                TriggerCondition.MINION_DEATH -> false
+            }
+            if (!hit) continue
+            rt.addEnergy(1.0)
+            if (rt.ready()) castTrigger(rt, e)
+        }
+    }
+
+    private fun updateTriggers(dt: Float) {
+        for (rt in triggers) {
+            rt.tick(dt)
+            if (rt.ready()) {
+                val target = nearestEnemy()
+                if (target != null) castTrigger(rt, target)
+            }
+        }
+    }
+
+    private fun castTrigger(rt: TriggerRuntime, target: Enemy) {
+        val skill = rt.consume() ?: return
+        val damage = rt.castDamage(skill)
+        triggerCasts++
+        val color = skill.fx.element.color
+        addPopup(
+            player.x + (rand.nextFloat() - 0.5f) * 14f,
+            player.y - 86f,
+            "${rt.spec.kind.short}!",
+            false, 0.7f, 0xFFCFF3FF.toInt(), 0.86f,
+        )
+        when (skill.fx) {
+            SkillEffectType.ICE -> spawnMeteor(target, damage, skill.name)
+            SkillEffectType.LIGHTNING -> triggerLightning(target, damage, skill.name)
+            SkillEffectType.FIRE -> triggerFire(target, damage, skill.name)
+            SkillEffectType.CHAOS -> triggerChaos(target, damage, skill.name)
+            SkillEffectType.MELEE -> triggerSlam(target, damage, skill.name)
+            SkillEffectType.MINION -> triggerMinions(target, damage, skill.name)
+        }
+        addFx(FxKind.AURA, player.x, player.y, radius = 54f, life = 0.3f, color = color)
+    }
+
+    /** 혜성: 하늘에서 얼음 덩어리가 떨어져 착탄 지점에 광역 피해 */
+    private fun spawnMeteor(target: Enemy, damage: Double, label: String) {
+        val fall = 0.55f
+        val radius = 96f
+        val x = target.x + (rand.nextFloat() - 0.5f) * 18f
+        val y = target.y + (rand.nextFloat() - 0.5f) * 10f
+        addFx(
+            FxKind.METEOR, x, y,
+            radius = radius, life = fall, color = DamageElement.COLD.color,
+            seed = rand.nextInt(), width = 1.2f,
+        )
+        addFx(FxKind.GROUND_CRACK, x, y, radius = radius, life = fall, color = 0xFF7FD8FF.toInt())
+        pendingStrikes.add(
+            PendingStrike(x, y, radius, damage, DamageElement.COLD, label, FxKind.METEOR, fall)
+        )
+    }
+
+    private fun triggerLightning(target: Enemy, damage: Double, label: String) {
+        val victims = (listOf(target) + nearbyEnemies(target, 140f, 2)).distinct().take(3)
+        var prev = target
+        victims.forEachIndexed { index, victim ->
+            addFx(
+                FxKind.BOLT, prev.x, prev.y - 30f, x2 = victim.x, y2 = victim.y - 20f,
+                life = 0.22f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1.3f,
+            )
+            prev = victim
+        }
+        addFx(FxKind.PILLAR, target.x, target.y, radius = 30f, life = 0.4f, color = 0xFFFFF6C8.toInt())
+        addFx(FxKind.RING, target.x, target.y, radius = 76f, life = 0.4f, color = 0xFFFFE272.toInt())
+        addBurst(target.x, target.y, 12, 0xFFFFF3A8.toInt(), 250f, 0.5f)
+        dealAreaDamage(target, damage, 88f, DamageElement.LIGHTNING, label)
+        shake = max(shake, 4.2f)
+    }
+
+    private fun triggerFire(target: Enemy, damage: Double, label: String) {
+        addFx(FxKind.RING, target.x, target.y, radius = 92f, life = 0.5f, color = 0xFFFF8A3D.toInt(), width = 1.2f)
+        addFx(FxKind.RING, target.x, target.y, radius = 52f, life = 0.36f, color = 0xFFFFD27A.toInt(), width = 0.8f)
+        addBurst(target.x, target.y, 16, 0xFFFFA64D.toInt(), 280f, 0.8f, gravity = -80f)
+        dealAreaDamage(target, damage, 92f, DamageElement.FIRE, label)
+        shake = max(shake, 4.6f)
+    }
+
+    private fun triggerChaos(target: Enemy, damage: Double, label: String) {
+        addFx(FxKind.AURA, target.x, target.y, radius = 82f, life = 0.7f, color = DamageElement.CHAOS.color)
+        addBurst(target.x, target.y, 14, 0xFFC182FF.toInt(), 200f, 0.9f, gravity = -50f)
+        dealAreaDamage(target, damage, 84f, DamageElement.CHAOS, label)
+    }
+
+    private fun triggerSlam(target: Enemy, damage: Double, label: String) {
+        addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = 78f, life = 0.45f, color = 0xFFFFD89A.toInt(), width = 1.4f)
+        addBurst(target.x, target.y, 10, 0xFFFFC24D.toInt(), 230f, 0.55f)
+        dealAreaDamage(target, damage, 76f, DamageElement.PHYSICAL, label)
+        shake = max(shake, 3.6f)
+    }
+
+    private fun triggerMinions(target: Enemy, damage: Double, label: String) {
+        val fan = listOf(target) + nearbyEnemies(target, 200f, 2)
+        fan.forEachIndexed { index, enemy ->
+            val angle = atan2(enemy.y - player.y, enemy.x - player.x)
+            spawnProjectile(
+                ProjKind.MINION_ORB, enemy, if (index == 0) damage else damage * 0.45,
+                false, DamageElement.PHYSICAL, speed = 660f, angle = angle,
+            )
+        }
+    }
+
+    private fun dealAreaDamage(center: Enemy, damage: Double, radius: Float, element: DamageElement, label: String) {
+        var hits = 0
+        for (other in enemies) {
+            if (!other.alive) continue
+            if (hypot(other.x - center.x, other.y - center.y) > radius) continue
+            val taken = damage * if (other === center) 1.0 else 0.62
+            other.hp -= taken
+            other.hitFlash = 1f
+            damageDealt += taken
+            triggerDamage += taken
+            hits++
+            addPopup(
+                other.x + (rand.nextFloat() - 0.5f) * 18f,
+                other.y - 52f * other.scale,
+                formatShort(taken), false, 0.6f, element.color, 0.92f,
+            )
+            if (other.hp <= 0) killEnemy(other)
+        }
+        if (hits > 0) {
+            addPopup(center.x, center.y - 72f * center.scale, label, false, 0.8f, 0xFFCFEFFF.toInt(), 0.78f)
+        }
+        leechPool += damage * 0.006
+    }
+
+    private fun updateStrikes(dt: Float) {
+        var i = 0
+        while (i < pendingStrikes.size) {
+            val strike = pendingStrikes[i]
+            strike.delay -= dt
+            if (strike.delay > 0f) {
+                i++
+                continue
+            }
+            addFx(FxKind.SHOCKWAVE, strike.x, strike.y, radius = strike.radius, life = 0.5f, color = strike.element.color, width = 1.5f)
+            addFx(FxKind.RING, strike.x, strike.y, radius = strike.radius * 0.7f, life = 0.4f, color = 0xFFE8FCFF.toInt())
+            addBurst(strike.x, strike.y, 18, 0xFFBFF4FF.toInt(), 300f, 0.75f, gravity = -60f)
+            val target = enemies.firstOrNull { it.alive && hypot(it.x - strike.x, it.y - strike.y) < 1f }
+            if (target != null) {
+                dealAreaDamage(target, strike.damage, strike.radius, strike.element, strike.name)
+            } else {
+                for (other in enemies) {
+                    if (!other.alive) continue
+                    if (hypot(other.x - strike.x, other.y - strike.y) > strike.radius) continue
+                    val taken = strike.damage * 0.62
+                    other.hp -= taken
+                    other.hitFlash = 1f
+                    damageDealt += taken
+                    triggerDamage += taken
+                    addPopup(other.x, other.y - 50f * other.scale, formatShort(taken), false, 0.6f, strike.element.color, 0.9f)
+                    if (other.hp <= 0) killEnemy(other)
+                }
+                addPopup(strike.x, strike.y - 60f, strike.name, false, 0.8f, 0xFFCFEFFF.toInt(), 0.78f)
+            }
+            shake = max(shake, 6.4f)
+            pendingStrikes.removeAt(i)
+        }
     }
 
     private fun onSkillHit(e: Enemy, crit: Boolean, angle: Float) {
@@ -1044,6 +1314,15 @@ class BattleWorld(
         addBurst(e.x, e.y, if (e.kind == EnemyKind.BOSS) 40 else 12, 0xFFE8D9B8.toInt(), if (e.kind == EnemyKind.BOSS) 420f else 250f, 0.9f)
         addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
         if (e.kind == EnemyKind.BOSS) shake = 10f
+        // 소환수가 적을 잡으면 "소환수 사망 시 시전" 대신 처치 에너지로 쌓아 준다
+        if (stats.fx == SkillEffectType.MINION && triggers.isNotEmpty()) {
+            for (rt in triggers) {
+                if (rt.spec.kind.condition != TriggerCondition.MINION_DEATH) continue
+                if (rt.cooldown > 0f || rt.energy >= rt.threshold) continue
+                rt.addEnergy(1.0)
+                if (rt.ready()) castTrigger(rt, e)
+            }
+        }
     }
 
     private fun hitPlayer(raw: Double, element: DamageElement, canEvade: Boolean, fromX: Float, fromY: Float, heavy: Boolean = false) {
@@ -1211,6 +1490,9 @@ class BattleWorld(
             lifeLeft = player.life,
             esLeft = player.es,
             maxPool = maxPool,
+            triggerCasts = triggerCasts,
+            triggerDamage = triggerDamage,
+            triggerText = stats.triggerText,
         )
     }
 

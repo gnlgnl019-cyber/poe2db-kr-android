@@ -43,6 +43,20 @@
     <string name="market_error">시세를 불러오지 못했습니다. 새로고침을 눌러 다시 시도하세요.</string>
     <string name="market_status">%1$s · %2$s %3$s개 · 5분 캐시</string>
     <string name="market_league_error">리그 목록을 불러오지 못했습니다</string>
+    <string name="market_spark_title">최근 7일 가격 추이</string>
+    <string name="market_detail_properties">성능</string>
+    <string name="market_detail_implicit">고정 옵션</string>
+    <string name="market_detail_explicit">옵션</string>
+    <string name="market_detail_granted">부여 스킬</string>
+    <string name="market_detail_requirements">요구 사항</string>
+    <string name="market_detail_db">내장 DB</string>
+    <string name="market_source_title">획득처</string>
+    <string name="market_source_loading">확인 중…</string>
+    <string name="market_source_none">poe2db에 별도 드랍 조건이 표시되지 않습니다 (월드 드랍 또는 제작)</string>
+    <string name="market_source_drop">드랍</string>
+    <string name="market_source_forge">제작</string>
+    <string name="market_open_page">poe2db에서 원문 보기</string>
+    <string name="market_no_spark">최근 추이 데이터가 없습니다</string>
 
     <string name="tree_passive">패시브 트리</string>
     <string name="tree_atlas">아틀라스 트리</string>
@@ -68,6 +82,13 @@
     <string name="pob_tab_config">설정</string>
     <string name="pob_tab_tree">패시브</string>
     <string name="pob_tab_battle">전투</string>
+    <string name="pob_tab_meta">메타</string>
+    <string name="meta_open_live">poe.ninja 빌드 랭킹 실시간으로 열기</string>
+    <string name="meta_note">poe.ninja 빌드 통계는 공개 API를 열어 두지 않아 앱이 직접 받아올 수 없습니다. 위 버튼으로 poe.ninja 빌드 화면을 앱 안에서 열면 전직 점유율·DPS 순위·캐릭터를 실시간으로 볼 수 있고, 빌드 코드도 그대로 복사할 수 있습니다. 아래는 같은 집계를 인용해 옮겨 둔 스냅샷입니다. poe.ninja가 자동 접속 확인(Cloudflare)을 띄우면 잠시 기다리거나 오른쪽 위 브라우저로 열기로 넘어가면 됩니다.</string>
+    <string name="meta_asc_title">전직 점유율 (리그 기준, %)</string>
+    <string name="meta_build_title">인기 빌드 · DPS 스냅샷</string>
+    <string name="meta_source_label">%1$s · 기준일 %2$s</string>
+    <string name="meta_web_title">poe.ninja 빌드 랭킹</string>
     <string name="pob_build_summary">스킬 그룹 %1$d개 · 장착 장비 %2$d개 · 패시브 %3$d포인트</string>
     <string name="pob_equip_save">저장</string>
     <string name="pob_modified">변경</string>
@@ -127,6 +148,12 @@
     <string name="battle_result_lose">사망  %1$.1fs</string>
     <string name="battle_result_body">가한 피해 %1$s · 실전 DPS %2$s\n치명타 %3$d회 · 피격 %4$d회 / 회피 %5$d회 · 처치 %6$d/%7$d\n생존율 %8$.0f%% (생명력 %9$s · 보호막 %10$s)</string>
     <string name="battle_fx_note">스킬 이펙트 직접 선택</string>
+    <string name="battle_trigger_auto">트리거 자동</string>
+    <string name="battle_trigger_test">CoC 테스트</string>
+    <string name="battle_trigger_off">트리거 끔</string>
+    <string name="battle_trigger_line">트리거: %1$s</string>
+    <string name="battle_trigger_none">트리거 없음 · PoB에 치명타 시 시전 같은 메타 젬이 없습니다</string>
+    <string name="battle_result_trigger">트리거 발동 %1$d회 · 트리거 피해 %2$s</string>
 
     <string name="bookmark_add">즐겨찾기 저장</string>
     <string name="bookmark_remove">즐겨찾기 해제</string>

@@ -81,4 +81,55 @@
             android:layout_weight="1"
             android:background="@color/bg" />
     </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="16dp"
+        android:orientation="vertical">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTreeZoomIn"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:text="+"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTreeZoomOut"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_marginTop="6dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:text="−"
+            android:textColor="@color/text_primary"
+            android:textSize="20sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTreeZoomReset"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_marginTop="6dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:text="⟲"
+            android:textColor="@color/gold"
+            android:textSize="18sp"
+            app:strokeColor="@color/gold_40" />
+    </LinearLayout>
 </FrameLayout>
