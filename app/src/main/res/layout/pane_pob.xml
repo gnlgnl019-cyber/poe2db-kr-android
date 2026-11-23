@@ -69,6 +69,30 @@
                             android:text="@string/pob_empty_hint"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvGearValue"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:background="?attr/selectableItemBackground"
+                            android:padding="6dp"
+                            android:textColor="@color/gold"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/tvGearDetail"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:background="@drawable/bg_search"
+                            android:lineSpacingExtra="2dp"
+                            android:padding="8dp"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
                     </LinearLayout>
 
                     <LinearLayout

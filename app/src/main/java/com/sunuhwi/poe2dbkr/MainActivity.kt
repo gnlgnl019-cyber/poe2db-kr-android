@@ -1054,6 +1054,10 @@ class MainActivity : AppCompatActivity() {
             override fun onTabReselected(tab: TabLayout.Tab) = Unit
         })
 
+        pobPane.tvGearValue.setOnClickListener {
+            gearExpanded = !gearExpanded
+            renderGearValue()
+        }
         pobPane.btnPobLoad.setOnClickListener { showPobLoadDialog() }
         pobPane.btnPobSample.setOnClickListener {
             loadPob(Pob.sampleCode(), null)
@@ -1296,6 +1300,9 @@ class MainActivity : AppCompatActivity() {
     private fun setupBattle() {
         battleView = pobPane.battleCanvas
         battleView.onFinished = { result -> showBattleResult(result) }
+        // 사망 화면의 단추 — 바로 다음 전투를 시작하거나 결과 화면을 걷는다.
+        battleView.onRetry = { startBattle() }
+        battleView.onClose = { pobPane.tvBattleResult.isVisible = false }
 
         buildBattleModeChips()
         buildBattleOptChips()
@@ -1979,7 +1986,18 @@ class MainActivity : AppCompatActivity() {
                 BattleWorld.formatShort(result.darkConsequencesDamage),
             )
         } else ""
-        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine + comboLine + minionLine + beastLine
+        // 사망했다면 무엇에 맞고 쓰러졌는지, 어느 스킬이 피해를 냈는지도 함께 적는다.
+        val deathLine = result.deathCause?.takeIf { !result.victory }?.let { cause ->
+            "\n" + getString(R.string.battle_result_death, cause.headline, cause.damageLine)
+        } ?: ""
+        val chargeLine = if (result.chargeText.isNotBlank()) {
+            "\n" + getString(R.string.battle_result_charges, result.chargeText, result.frenzyGained, result.chargesSpent)
+        } else ""
+        val skillLine = if (result.skillDamage.isNotEmpty()) {
+            "\n" + getString(R.string.battle_result_skills) + "\n" +
+                result.skillDamage.take(6).joinToString("\n") { "· " + it.line }
+        } else ""
+        pobPane.tvBattleResult.text = head + deathLine + "\n" + body + chargeLine + skillLine + triggerLine + ascendLine + comboLine + minionLine + beastLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false
@@ -2113,6 +2131,7 @@ class MainActivity : AppCompatActivity() {
                     resetBattleForNewBuild()
                     refreshPobCalc()
                     refreshSlots()
+                    refreshGearValue(build)
                     renderSkills()
                     refreshBattleHeader()
                     pobPane.pobTabs.getTabAt(0)?.select()
@@ -2175,6 +2194,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resetPob() {
+        gearValue = null
+        gearValueSignature = ""
+        pobPane.tvGearValue.isVisible = false
+        pobPane.tvGearDetail.isVisible = false
         pobOverrides.clear()
         pobFlasks.clear()
         inventorySelection = null
@@ -2198,6 +2221,80 @@ class MainActivity : AppCompatActivity() {
 
     /** 지금 옵션이 열린 슬롯. 아이콘을 다시 탭하면 null로 돌아간다. */
     private var inventorySelection: String? = null
+
+    // ------------------------------------------------------- 장비 가치
+    /** 마지막으로 산출한 장비 가치 (불러온 빌드 기준) */
+    private var gearValue: GearValue? = null
+    /** 어떤 장비 구성으로 계산했는지 — 같은 구성이면 다시 부르지 않는다 */
+    private var gearValueSignature = ""
+    /** 부위별 내역을 펼쳤는지 */
+    private var gearExpanded = false
+
+    /**
+     * 불러온 빌드의 장비 가치를 계산해 개요 카드 위쪽에 적는다.
+     *
+     * 주얼·젬·플라스크·호신부는 빼고 몸에 걸친 장비만 센다. 환율과 고유 시세는
+     * poe.ninja에서 한 번 받아 5분 동안 재사용하므로, 탭을 오가도 다시 부르지 않는다.
+     */
+    private fun refreshGearValue(build: PobBuild?) {
+        if (build == null) {
+            gearValue = null
+            gearValueSignature = ""
+            pobPane.tvGearValue.isVisible = false
+            pobPane.tvGearDetail.isVisible = false
+            return
+        }
+        val signature = gearSignature(build)
+        if (signature == gearValueSignature && gearValue != null) {
+            renderGearValue()
+            return
+        }
+        gearValueSignature = signature
+        gearValue = null
+        gearExpanded = false
+        pobPane.tvGearValue.isVisible = true
+        pobPane.tvGearValue.text = getString(R.string.gear_value_loading)
+        pobPane.tvGearDetail.isVisible = false
+        val overrides = HashMap(pobOverrides)
+        network.execute {
+            val league = activeLeague ?: runCatching { Market.leagues().firstOrNull()?.id }.getOrNull()
+            val value = runCatching { GearMarket.value(build, league, krDict, overrides) }.getOrNull()
+            handler.post {
+                if (pobBuild !== build) return@post
+                gearValue = value
+                renderGearValue()
+            }
+        }
+    }
+
+    /** 현재 장비 구성 지문 — 아이템이 바뀌면 값도 다시 계산한다 */
+    private fun gearSignature(build: PobBuild): String = buildString {
+        append(build.title).append('|')
+        for ((key, _) in GearPricing.SLOTS) {
+            val item = pobOverrides[key] ?: Pob.itemForSlot(build, key) ?: continue
+            append(key).append(':').append(item.name).append('/').append(item.baseType).append('/')
+            append(item.rarity).append('/').append(item.lines.joinToString(";")).append('|')
+        }
+    }
+
+    private fun renderGearValue() {
+        val value = gearValue
+        val headline = pobPane.tvGearValue
+        if (value == null || !value.hasItems) {
+            headline.isVisible = true
+            headline.text = getString(R.string.gear_value_empty)
+            pobPane.tvGearDetail.isVisible = false
+            return
+        }
+        headline.isVisible = true
+        headline.text = if (value.rates.chaosPerDivine > 0.0) {
+            getString(R.string.gear_value_headline, value.divineText, value.chaosText)
+        } else {
+            getString(R.string.gear_value_headline_no_rate, value.divineText)
+        }
+        pobPane.tvGearDetail.text = value.detail
+        pobPane.tvGearDetail.isVisible = gearExpanded
+    }
 
     private fun refreshSlots() {
         guardPob {
@@ -2883,6 +2980,7 @@ class MainActivity : AppCompatActivity() {
             pobOverrides.remove(slot)
             refreshSlots()
             refreshPobCalc()
+            refreshGearValue(pobBuild)
             Snackbar.make(binding.root, R.string.pob_slot_restored, Snackbar.LENGTH_SHORT).show()
             currentSlotDialog = null
             slotDialogReference?.dismiss()
@@ -2920,6 +3018,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 refreshSlots()
                 refreshPobCalc()
+                refreshGearValue(pobBuild)
                 Snackbar.make(binding.root, R.string.pob_equip_saved, Snackbar.LENGTH_SHORT).show()
             }
             .setNegativeButton(R.string.info_close, null)

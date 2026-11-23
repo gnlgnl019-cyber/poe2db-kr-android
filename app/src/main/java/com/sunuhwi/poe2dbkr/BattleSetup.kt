@@ -312,6 +312,26 @@ object BattleSetup {
             .filter { TriggerKind.normalizeName(it.name) != TriggerKind.normalizeName(Minions.DARK_CONSEQUENCES_EN) }
             .maxOfOrNull { it.dps } ?: 0.0
         val kit = kitSkills(build, dict, skillName, scale, dpsByName = skillDpsByName)
+        // 충전 운용(전투 격분·공명·충전 조절 등)은 젬·패시브·전직·고유 아이템 글에서 읽는다.
+        val chargeLines = ArrayList<String>()
+        for (group in build.skills) {
+            if (!group.enabled) continue
+            if (group.label.isNotBlank()) chargeLines.add(group.label)
+            for (gem in group.gems) if (gem.enabled) chargeLines.add(gem.name)
+        }
+        ascend?.nodes?.forEach { node ->
+            chargeLines.add(node.nameKo)
+            chargeLines.add(node.nameEn)
+            node.lines.forEach { chargeLines.add(it.text) }
+        }
+        unique.effects.forEach { chargeLines.add(it) }
+        for (id in build.treeNodeIds) {
+            val node = tree.nodes[id] ?: continue
+            chargeLines.add(node.nameKo)
+            chargeLines.add(node.nameEn)
+            chargeLines.add(node.stats)
+        }
+        val charges = Charges.read(chargeLines)
         return BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
                 .filter { it.isNotBlank() }.joinToString(" · "),
@@ -365,6 +385,7 @@ object BattleSetup {
             cooldownRatePct = ascend?.sim?.cooldownPct ?: 0.0,
             motion = SkillMotions.detect(skillName, group?.label.orEmpty(), skillKo),
             kit = kit,
+            charges = charges,
             beast = beast,
             beastProfile = beastProfile,
             combo = combo,

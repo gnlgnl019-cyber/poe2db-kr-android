@@ -290,6 +290,38 @@ object Market {
         return result.sortedByDescending { it.divine }
     }
 
+    /** 1 디바인에 몇 엑잘·카오스인지 — 화폐 교환 시세의 기준 환율을 그대로 읽는다. */
+    fun divineRates(league: String): CurrencyRates {
+        val url = "$BASE/exchange/current/overview?league=${URLEncoder.encode(league, "UTF-8")}&type=Currency"
+        val root = JSONObject(get(url))
+        val (_, exRate, chaosRate) = rates(root)
+        return CurrencyRates(exRate, chaosRate)
+    }
+
+    /**
+     * 고유 아이템 시세를 이름(소문자)과 이름|베이스로 찾을 수 있게 모은다.
+     * 무기·방어구·장신구 세 목록을 한 번에 훑으므로 빌드 장비 하나를 여러 번 조회하지 않는다.
+     */
+    fun uniqueQuotes(league: String, dict: KrDict): Map<String, UniqueQuote> {
+        val out = HashMap<String, UniqueQuote>()
+        for (type in listOf("UniqueWeapons", "UniqueArmours", "UniqueAccessories")) {
+            val rates = runCatching { overview(league, type, dict) }.getOrDefault(emptyList())
+            for (rate in rates) {
+                val name = rate.name.lowercase().trim()
+                if (name.isBlank()) continue
+                val quote = UniqueQuote(rate.name, rate.baseType, rate.divine, rate.listingCount, rate.corrupted)
+                // 같은 이름의 타락 매물이 섞여 오면 타락하지 않은 쪽을 먼저 남긴다.
+                val old = out[name]
+                if (old == null || (old.corrupted && !quote.corrupted)) out[name] = quote
+                if (rate.baseType.isNotBlank()) {
+                    val key = "$name|${rate.baseType.lowercase().trim()}"
+                    if (!out.containsKey(key)) out[key] = quote
+                }
+            }
+        }
+        return out
+    }
+
     fun sort(rates: List<MarketRate>, sort: MarketSort): List<MarketRate> = when (sort) {
         MarketSort.VALUE_DESC -> rates.sortedByDescending { it.divine }
         MarketSort.VALUE_ASC -> rates.sortedBy { it.divine }
@@ -399,6 +431,48 @@ object Market {
         value > 0 -> "%.4f".format(value)
         else -> "0"
     }.trimEnd('0').trimEnd('.').ifEmpty { "0" }
+}
+
+/**
+ * 빌드 장비 가치 조회.
+ *
+ * 환율과 고유 시세는 poe.ninja에서 받고, 희귀·마법 장비는 옵션 추정으로 채운다.
+ * 네트워크가 막혀도 추정치는 그대로 나오고, 화면에는 어떤 근거인지 함께 적힌다.
+ */
+object GearMarket {
+
+    fun value(
+        build: PobBuild,
+        league: String?,
+        dict: KrDict,
+        overrides: Map<String, PobItem> = emptyMap(),
+    ): GearValue {
+        val rates = if (league.isNullOrBlank()) CurrencyRates.NONE else {
+            runCatching { Market.divineRates(league) }.getOrDefault(CurrencyRates.NONE)
+        }
+        val quotes = if (league.isNullOrBlank()) emptyMap() else {
+            runCatching { Market.uniqueQuotes(league, dict) }.getOrDefault(emptyMap())
+        }
+        val notes = ArrayList<String>()
+        val trades = HashMap<String, TradePrice>()
+        // 희귀 장비는 공식 거래소에서 비슷한 매물을 찾아본다 (환율이 있어야 디바인으로 바꿀 수 있다).
+        if (!league.isNullOrBlank() && rates.usable) {
+            val trader = RareTrader(league, rates)
+            for ((slot, item) in GearPricing.tradeCandidates(build, overrides).take(Trade2.MAX_SEARCHES)) {
+                val price = trader.price(item) ?: continue
+                trades[slot] = price
+            }
+            if (trades.isNotEmpty()) {
+                notes.add("희귀 장비 ${trades.size}부위는 공식 거래소의 유사 매물 중위값입니다")
+            }
+            if (trader.skipped) {
+                notes.add("거래소에서 유사 매물을 다 찾지 못해(기본형 불일치·호출 제한) 나머지는 옵션 추정가입니다")
+            }
+        } else if (!league.isNullOrBlank()) {
+            notes.add("환율을 받지 못해 거래소 매물 가격을 디바인으로 바꾸지 못했습니다")
+        }
+        return GearPricing.value(build, rates, quotes, overrides, trades, notes)
+    }
 }
 
 /** poe2db 아이템 페이지에서 드랍/제작 정보만 뽑아 온다. */
