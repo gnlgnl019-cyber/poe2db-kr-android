@@ -282,6 +282,33 @@ class BattleMotionComboTest {
     }
 
     @Test
+    fun statsForCarriesTheChosenComboAndBuildSkills() {
+        val build = TestBuilds.build(
+            className = "Monk",
+            groups = listOf(
+                listOf("Whirling Slash", "Rapid Attacks II"),
+                listOf("Twister"),
+                listOf("Barrage"),
+            ),
+        )
+        val combo = listOf(
+            ComboStep("소용돌이 베기", SkillMotion.WHIRLING_SLASH, ComboRole.BUILD, repeats = 3),
+            ComboStep("연발 사격", SkillMotion.BARRAGE, ComboRole.BURST),
+            ComboStep("돌개바람", SkillMotion.TWISTER, ComboRole.BURST),
+        )
+        val stats = BattleSetup.statsFor(build, combo = combo)!!
+        println("[TEST] statsFor 콤보=${ComboPlanner.summary(stats.combo)} 빌드스킬=${stats.kit.map { it.name }}")
+        assertEquals(3, stats.combo.size)
+        assertEquals(SkillMotion.BARRAGE, stats.combo[1].motion)
+        val world = BattleWorld(stats, BattleMode.MAP, 12, false, null)
+        assertEquals(3, world.comboPlan.size)
+        repeat(60 * 4) { world.update(1.0 / 60.0) }
+        println("[TEST] 설정콤보 실행=${world.comboHistory.take(6)} HUD=${world.comboHud()}")
+        assertTrue("설정한 순서가 돌지 않았다: ${world.comboHistory}", world.comboHistory.contains("연발 사격"))
+        assertTrue("콤보 HUD가 없다: ${world.comboHud()}", world.comboHud().contains("봇"))
+    }
+
+    @Test
     fun comboSettingRoundTripsThroughStorage() {
         val options = listOf(
             ComboPick("Whirling Slash", "소용돌이 베기", SkillMotion.WHIRLING_SLASH, ComboRole.BUILD, dps = 100.0),
