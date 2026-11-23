@@ -128,6 +128,8 @@ data class BattlePlayerStats(
     val dpsEstimated: Boolean = false,
     /** PoB가 DPS를 무한(inf)으로 내보냈는지 */
     val dpsInfinite: Boolean = false,
+    /** PoB 무한대 수치를 표시 상한(2.1B급)으로 잡았는지 */
+    val dpsCapped: Boolean = false,
     /** 전직 이름 (예: 마셜 아티스트) */
     val ascendName: String = "",
     /** 화면에 보여 줄 전직 효과 요약 */
@@ -882,7 +884,7 @@ class BattleWorld(
         fun formatShort(value: Double): String = when {
             // 무한·NaN은 화면에 숫자 대신 대시로 내보낸다.
             !value.isFinite() -> "—"
-            value >= 1_000_000_000 -> String.format(java.util.Locale.KOREA, "%.2fB", value / 1_000_000_000)
+            value >= 1_000_000_000 -> String.format(java.util.Locale.KOREA, "%.1fB", value / 1_000_000_000)
             value >= 1_000_000 -> String.format(java.util.Locale.KOREA, "%.2fM", value / 1_000_000)
             value >= 10_000 -> String.format(java.util.Locale.KOREA, "%.0fK", value / 1_000)
             value >= 1_000 -> String.format(java.util.Locale.KOREA, "%.1fK", value / 1_000)

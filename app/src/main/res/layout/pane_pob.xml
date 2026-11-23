@@ -330,15 +330,72 @@
                     android:orientation="vertical" />
             </ScrollView>
 
-            <!-- 장비 -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvPobSlots"
+            <!-- 장비 — PoE2 인벤토리 장비창 -->
+            <ScrollView
+                android:id="@+id/pobPageItems"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
                 android:padding="12dp"
-                android:visibility="gone"
-                android:scrollbars="none" />
+                android:scrollbars="none"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/pob_inventory_title"
+                        android:textColor="@color/gold"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/pob_inventory_hint"
+                        android:textColor="@color/text_muted"
+                        android:textSize="11sp" />
+
+                    <LinearLayout
+                        android:id="@+id/inventoryGrid"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="vertical" />
+
+                    <LinearLayout
+                        android:id="@+id/inventoryDetail"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/bg_search"
+                        android:orientation="vertical"
+                        android:padding="14dp"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:layout_marginBottom="4dp"
+                        android:text="@string/pob_inventory_extras"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
+                    <LinearLayout
+                        android:id="@+id/inventoryExtras"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </ScrollView>
 
             <!-- 설정 -->
             <ScrollView

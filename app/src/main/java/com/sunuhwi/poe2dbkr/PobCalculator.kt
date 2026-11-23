@@ -9,6 +9,15 @@ object PobCalculator {
     /** 전투에서 쓰는 기본 보호막 재충전 지연(초). PoE2 일반 값. */
     const val ES_RECHARGE_DELAY = 2.6
 
+    /**
+     * PoB가 DPS를 무한(inf)으로 내보낸 빌드의 표시 상한.
+     *
+     * 두꺼비 폭발처럼 피해가 끝없이 되풀이되는 조합은 PoB 계산이 무한대로 발산해
+     * `TotalDPS=inf`로 나온다. poe.ninja도 그 값을 32비트 정수 상한(2,147,483,647)으로 적어
+     * `2.1B`로 보여 준다. 앱도 같은 값을 쓴다.
+     */
+    const val DPS_CAP = 2_147_483_647.0
+
     data class Mods(
         var life: Double = 0.0,
         var mana: Double = 0.0,
@@ -97,6 +106,10 @@ object PobCalculator {
         val dpsEstimated: Boolean = false,
         /** PoB가 DPS를 무한(inf)로 내보냈는지 */
         val dpsInfinite: Boolean = false,
+        /** PoB 무한대 수치를 표시 상한([DPS_CAP])으로 올려 잡았는지 */
+        val dpsCapped: Boolean = false,
+        /** 무한대 빌드에서 나머지 스킬 몫을 잡는 기준 DPS (평균 타격 × 공속 × 치명타) */
+        val dpsReference: Double = 0.0,
         val factor: Double = 1.0,
         /** 전직 노드가 주는 효과 범위 증가(%) — 전투 화면 타격 범위에 쓴다 */
         val ascendAoePct: Double = 0.0,
@@ -276,16 +289,24 @@ object PobCalculator {
             150.0
         }
         val dpsPoB = stat(build, "TotalDPS", "CombinedDPS", "WithIgniteDPS").takeIf { it > 0 }
-        // PoB가 DPS를 비우거나 무한(inf)으로 내보낸 빌드가 있다. 그럴 때만 직접 어림한다.
+        // PoB가 DPS를 비우거나 무한(inf)으로 내보낸 빌드가 있다.
+        val critFactor = (1.0 + (critBase / 100.0) * (critMultiBase / 100.0 - 1.0)).coerceAtLeast(0.0)
         val dpsFromHit = if (averageHit > 0 && speedStat > 0) {
-            val critFactor = 1.0 + (critBase / 100.0) * (critMultiBase / 100.0 - 1.0).coerceAtLeast(0.0)
             averageHit * speedStat * hitsPerUse(mainName) * critFactor
         } else {
             0.0
         }
-        val dpsBase = dpsPoB ?: dpsFromHit
-        val dpsEstimated = dpsPoB == null
+        // 무한대 빌드에서 나머지 스킬 몫을 잡을 때 쓰는 기준값 — 평균 타격 한 번을 초당으로 편 값이다.
+        val dpsReference = if (averageHit > 0 && speedStat > 0) {
+            averageHit * speedStat * critFactor
+        } else {
+            dpsPoB ?: dpsFromHit
+        }
         val dpsInfinite = dpsPoB == null && build.nonFiniteStats.any { it in DPS_STATS }
+        // 무한대는 4만대 추정치로 깎지 않는다. PoB가 계산을 풀지 못한 만큼 화력이 폭발한 빌드라
+        // poe.ninja와 같이 32비트 상한(2.1B)으로 보여 주는 쪽이 실제와 맞다.
+        val dpsBase = if (dpsInfinite) DPS_CAP else dpsPoB ?: dpsFromHit
+        val dpsEstimated = dpsPoB == null && !dpsInfinite
         val apsBase = speedStat.takeIf { it > 0 } ?: 1.0
         val speedPct = total.atkSpdPct + total.castSpdPct
         val dmgFactor = (1 + total.dmgPct / 100) * (1 + speedPct / 100) *
@@ -299,7 +320,11 @@ object PobCalculator {
         val projectile = SkillEffects.detect(skillName) != SkillEffectType.MELEE
         val uniqueFactor = UniqueEffects.damageFactor(unique, projectile, dpsEstimated)
         val darkDps = if (isDarkConsequences(build)) darkConsequencesDps(build, critMultiBase) else 0.0
-        val dpsNow = if (darkDps > 0.0) darkDps else dpsBase * dmgFactor * ascProjectileFactor * uniqueFactor
+        val dpsNow = when {
+            dpsInfinite -> DPS_CAP
+            darkDps > 0.0 -> darkDps
+            else -> dpsBase * dmgFactor * ascProjectileFactor * uniqueFactor
+        }
         val apsNow = apsBase * (1 + speedPct / 100)
 
         val critNow = (critBase * (1 + total.critChancePct / 100)).coerceAtMost(100.0)
@@ -364,6 +389,8 @@ object PobCalculator {
             ehpNow = ehpNow,
             dpsEstimated = dpsEstimated,
             dpsInfinite = dpsInfinite,
+            dpsCapped = dpsInfinite,
+            dpsReference = dpsReference,
             factor = dmgFactor * ascProjectileFactor,
             ascendAoePct = ascend?.sim?.aoePct ?: 0.0,
             esRechargeDelay = rechargeDelay,
@@ -372,7 +399,15 @@ object PobCalculator {
             ascendApplied = ascend?.nodes?.count { it.hasSim } ?: 0,
             ascendTotal = ascend?.count ?: 0,
             ascendSummary = ascend?.summary.orEmpty(),
-            skillDps = distribute(build, dpsNow, dpsEstimated || darkDps > 0.0, skillName, scale = dpsNow / dpsBase.coerceAtLeast(0.0001)),
+            skillDps = distribute(
+                build = build,
+                total = dpsNow,
+                estimated = dpsEstimated || darkDps > 0.0,
+                mainName = skillName,
+                scale = dpsNow / dpsBase.coerceAtLeast(0.0001),
+                capped = dpsInfinite,
+                reference = dpsReference,
+            ),
             totalDps = dpsNow,
             mainSkill = skillName,
         )
@@ -452,8 +487,13 @@ object PobCalculator {
         estimated: Boolean,
         mainName: String,
         scale: Double = 1.0,
+        /** PoB 무한대 빌드 — 주력은 표시 상한, 나머지는 제 주력 기준으로 따로 추정한다 */
+        capped: Boolean = false,
+        /** 나머지 스킬 몫을 잡는 기준 DPS */
+        reference: Double = 0.0,
     ): List<SkillDps> {
         val out = LinkedHashMap<String, SkillDps>()
+        if (capped) return cappedSkills(build, mainName, reference)
         val full = build.fullDpsSkills.filter { it.dps.isFinite() && it.dps > 0.0 }
         if (full.isNotEmpty()) {
             val factor = scale.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
@@ -532,4 +572,38 @@ object PobCalculator {
     private val DPS_STATS = setOf(
         "TotalDPS", "CombinedDPS", "WithIgniteDPS", "WithBleedDPS", "WithPoisonDPS",
     )
+
+    /** 사전에 없는 보조 젬 하나가 올려 주는 피해 비율(%). 화면용 추정치다. */
+    private const val UNKNOWN_SUPPORT_PCT = 12.0
+
+    /**
+     * PoB가 DPS를 무한대로 낸 빌드의 스킬별 목록.
+     *
+     * 주력 스킬 하나만 상한(2.1B)으로 잡고, 나머지는 각자 평균 타격·공속에서 출발한
+     * 제 주력 추정치로 따로 잡는다. 예전처럼 전체 DPS를 비중으로 나누면 나머지 스킬까지
+     * 수억대로 부풀어 poe.ninja의 스킬 목록(10k·5.8k·1.6k …)과 모양이 달라진다.
+     */
+    private fun cappedSkills(build: PobBuild, mainName: String, reference: Double): List<SkillDps> {
+        val out = LinkedHashMap<String, SkillDps>()
+        val mainKey = TriggerKind.normalizeName(mainName)
+        val ref = if (reference.isFinite() && reference > 0.0) reference else 0.0
+        for (group in build.skills) {
+            if (!group.enabled) continue
+            val supports = group.gems.filter { it.enabled && isSupport(it) }
+            val supportPct = supports.sumOf { gem ->
+                SUPPORT_GEMS[gem.name.lowercase().trim()]?.dmgPct ?: UNKNOWN_SUPPORT_PCT
+            }
+            val active = group.gems.filter { it.enabled && !isSupport(it) && PobTriggers.kindOf(it) == null }
+            for (gem in active) {
+                val key = TriggerKind.normalizeName(gem.name)
+                if (key.isEmpty() || key == mainKey || out.containsKey(key)) continue
+                val levelFactor = (1.0 + (gem.level - 20) * 0.02).coerceIn(0.4, 2.0)
+                val dps = ref * (1.0 + supportPct / 100.0) * hitsPerUse(gem.name) * levelFactor
+                out[key] = SkillDps(gem.name, dps, true, note = "주력 제외 추정")
+            }
+        }
+        val key = mainKey.ifEmpty { "main" }
+        out[key] = SkillDps(mainName, DPS_CAP, false, note = "PoB 무한대 · 표시 상한")
+        return out.values.sortedByDescending { it.dps }
+    }
 }

@@ -66,7 +66,10 @@ object PobLocale {
         // 번역이 빠진 줄이 있으면 한글 옵션 목록으로 통째로 바꾼다.
         val exact = dict.itemModsFor(item.name)
         val fixed = (exact?.implicits.orEmpty() + exact?.explicits.orEmpty()).filter { it.isNotBlank() }
-        if (fixed.isNotEmpty() && translated < own.size) return fixed
+        if (fixed.isNotEmpty() && translated < own.size) {
+            // poe2db 아이템 창에는 영문으로 남은 줄이 섞여 있기도 하다. 문장 틀로 한 번 더 옮긴다.
+            return fixed.map { line -> dict.modLine(line).ifBlank { line } }.distinct()
+        }
         return own.map { (raw, ko) ->
             when {
                 ko.isNotBlank() -> ko

@@ -326,6 +326,8 @@ object Minions {
         mainIsSummon: Boolean = false,
         playerDps: Double = 0.0,
         darkHitOverride: Double = 0.0,
+        /** 암울한 결과 DPS를 그대로 쓸 때 (PoB 무한대 빌드처럼 표시 상한까지 올린 값) */
+        darkDpsOverride: Double = 0.0,
         cooldownRatePct: Double = 0.0,
         critChance: Double = 7.0,
         critMulti: Double = 150.0,
@@ -413,6 +415,10 @@ object Minions {
             val critFactor = 1.0 + (critChance / 100.0) * (critMulti / 100.0 - 1.0).coerceAtLeast(0.0)
             val hit = if (darkHitOverride > 0.0) darkHitOverride else avg
             darkDps = hit * explodeRate * critFactor
+            if (darkDpsOverride.isFinite() && darkDpsOverride > darkDps) {
+                // PoB가 무한대로 계산한 빌드는 두꺼비 하나가 터질 때의 피해도 그만큼 커진다.
+                darkDps = darkDpsOverride
+            }
             notes.add("도이드리의 파멸: 두꺼비 ${toads}마리 · 암울한 결과 ${doedreLevel}레벨")
         }
 

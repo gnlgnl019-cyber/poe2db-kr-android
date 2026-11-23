@@ -108,6 +108,27 @@ class PobEquipLocaleTest {
         assertEquals("번개 저항 -30%", dict.modLine("-30% to Lightning Resistance"))
     }
 
+    /**
+     * 실제로 불러온 빌드의 장비창 옵션. 희귀·고유 아이템 이름과 옵션이 한글로 나와야 한다.
+     * 고유 아이템 옵션은 poe2db 아이템 창을 그대로 쓰고, 거기 남은 영문 줄도 문장 틀로 한 번 더 옮긴다.
+     */
+    @Test
+    fun equippedItemOptionsAreKorean() {
+        val build = Pob.decode(File("src/test/resources/pob_real_build.txt").readText())
+        val equipped = build.slots.values.mapNotNull { build.items[it] }
+        assertTrue("장비가 없다", equipped.isNotEmpty())
+        equipped.forEach { item ->
+            val lines = PobLocale.lines(dict, item)
+            val hangul = lines.count { line -> line.any { it.code > 0x7F } }
+            println("[TEST] ${PobLocale.title(dict, item)} → 한글 $hangul/${lines.size}")
+            assertTrue("옵션이 비었다: ${item.name}", lines.isNotEmpty())
+            assertTrue(
+                "한글 옵션이 절반도 안 된다: ${item.name} → $lines",
+                hangul * 2 >= lines.size,
+            )
+        }
+    }
+
     @Test
     fun everyLineOfLoadedRareItemsIsKorean() {
         val build = Pob.decode(Pob.sampleCode())

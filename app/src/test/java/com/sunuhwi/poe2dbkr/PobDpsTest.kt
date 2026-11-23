@@ -1,6 +1,7 @@
 package com.sunuhwi.poe2dbkr
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -46,22 +47,23 @@ class PobDpsTest {
                 "AverageHit" to 2_000.0,
                 "Speed" to 2.0,
                 "HitSpeed" to Double.POSITIVE_INFINITY,
-                "TotalDPS" to Double.POSITIVE_INFINITY,
                 "CritChance" to 0.0,
                 "CritMultiplier" to 1.5,
             ),
         )
-        build.nonFiniteStats.add("TotalDPS")
         build.nonFiniteStats.add("HitSpeed")
         val calc = PobCalculator.compute(build, emptyMap())
         println("[TEST] 선회 공격 dps=${calc.dpsNow}")
         // 2,000 × 2.0 × 3타 = 12,000
         assertTrue("다단 히트가 반영되지 않았다: ${calc.dpsNow}", calc.dpsNow >= 11_000.0)
         assertTrue("DPS가 무한", calc.dpsNow.isFinite())
+        assertTrue(calc.dpsEstimated)
     }
 
     @Test
-    fun hitBasedFallbackIsConsistent() {
+    fun infTotalDpsBecomesDisplayCap() {
+        // PoB가 TotalDPS를 무한대로 내보냈으면 계산이 발산한 빌드다.
+        // 평균 타격으로 4만대까지 깎지 않고 poe.ninja처럼 32비트 상한(2.1B)으로 보여 준다.
         val build = TestBuilds.build(
             groups = listOf(listOf("Lightning Arrow", "Primal Armament")),
             stats = TestBuilds.stats(
@@ -74,11 +76,32 @@ class PobDpsTest {
         )
         build.nonFiniteStats.add("TotalDPS")
         val calc = PobCalculator.compute(build, emptyMap())
+        println("[TEST] 상한 dps=${calc.dpsNow} 기준=${calc.dpsReference}")
+        assertEquals(PobCalculator.DPS_CAP, calc.dpsNow, 1.0)
+        assertTrue(calc.dpsInfinite)
+        assertTrue(calc.dpsCapped)
+        assertFalse("표시 상한은 추정치가 아니다", calc.dpsEstimated)
+        // 나머지 스킬 몫을 잡는 기준값은 평균 타격 × 공속 × 치명타로 남아 있어야 한다.
+        assertEquals(5_000.0 * 1.5 * 1.2, calc.dpsReference, 1.0)
+    }
+
+    @Test
+    fun hitBasedFallbackWithoutPobDpsStaysFinite() {
+        val build = TestBuilds.build(
+            groups = listOf(listOf("Lightning Arrow", "Primal Armament")),
+            stats = TestBuilds.stats(
+                "AverageHit" to 5_000.0,
+                "Speed" to 1.5,
+                "CritChance" to 20.0,
+                "CritMultiplier" to 2.0,
+            ),
+        )
+        val calc = PobCalculator.compute(build, emptyMap())
         // 5,000 × 1.5 × (1 + 0.2 × 1.0) = 9,000
         println("[TEST] fallback dps=${calc.dpsNow}")
         assertEquals(9_000.0, calc.dpsNow, 1.0)
         assertTrue(calc.dpsEstimated)
-        assertTrue(calc.dpsInfinite)
+        assertFalse(calc.dpsCapped)
     }
 
     @Test

@@ -1,96 +1,12 @@
 package com.sunuhwi.poe2dbkr
 
-import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.ViewGroup
-import androidx.core.content.ContextCompat
-import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
-import com.sunuhwi.poe2dbkr.databinding.ItemPobSlotBinding
 import com.sunuhwi.poe2dbkr.databinding.ItemPobUniqueBinding
-
-class PobSlotAdapter(
-    private val onClick: (String) -> Unit,
-) : ListAdapter<Pair<String, PobItem?>, PobSlotAdapter.SlotHolder>(Diff) {
-
-    private var displayNames: Map<String, String> = Pob.SLOTS
-    private var dict: KrDict = KrDict.EMPTY
-
-    fun setDict(value: KrDict) {
-        dict = value
-    }
-
-    fun submit(slots: List<Pair<String, PobItem?>>, overrides: Set<String>) {
-        overridden.clear()
-        overridden.addAll(overrides)
-        submitList(slots)
-    }
-
-    fun setDisplayNames(names: Map<String, String>) {
-        displayNames = names
-    }
-
-    private val overridden = mutableSetOf<String>()
-
-    class SlotHolder(val binding: ItemPobSlotBinding) : RecyclerView.ViewHolder(binding.root)
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): SlotHolder {
-        val binding = ItemPobSlotBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return SlotHolder(binding)
-    }
-
-    override fun onBindViewHolder(holder: SlotHolder, position: Int) {
-        val (slot, item) = currentList[position]
-        with(holder.binding) {
-            tvSlot.text = displayNames[slot] ?: slot
-            if (item == null) {
-                tvItemName.text = root.context.getString(R.string.pob_empty_slot)
-                tvItemName.setTextColor(ContextCompat.getColor(root.context, R.color.text_muted))
-                tvItemLines.text = ""
-                tvSlotBadge.visibility = android.view.View.GONE
-                ivItemIcon.setImageDrawable(null)
-                ivItemIcon.setBackgroundResource(R.drawable.bg_icon)
-            } else {
-                tvItemName.text = PobLocale.title(dict, item)
-                tvItemName.setTextColor(rarityColor(root, item.rarity))
-                tvItemLines.text = listOf(PobLocale.subtitle(dict, item), PobLocale.lines(dict, item).take(2).joinToString(" · "))
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · ")
-                tvSlotBadge.visibility =
-                    if (slot in overridden) android.view.View.VISIBLE else android.view.View.GONE
-                val icon = PobLocale.icon(dict, item)
-                ivItemIcon.setBackgroundResource(R.drawable.bg_icon)
-                ivItemIcon.load(icon.ifBlank { null }) {
-                    placeholder(R.drawable.bg_icon)
-                    error(R.drawable.bg_icon)
-                    crossfade(80)
-                }
-                ivItemIcon.isVisible = true
-            }
-            root.setOnClickListener { onClick(slot) }
-        }
-    }
-
-    companion object {
-        fun rarityColor(view: android.view.View, rarity: String): Int = when (rarity) {
-            "Unique" -> ContextCompat.getColor(view.context, R.color.unique_name)
-            "Magic" -> ContextCompat.getColor(view.context, R.color.magic_name)
-            "Rare" -> ContextCompat.getColor(view.context, R.color.rare_name)
-            else -> ContextCompat.getColor(view.context, R.color.text_primary)
-        }
-    }
-
-    private object Diff : DiffUtil.ItemCallback<Pair<String, PobItem?>>() {
-        override fun areItemsTheSame(oldItem: Pair<String, PobItem?>, newItem: Pair<String, PobItem?>) =
-            oldItem.first == newItem.first
-
-        override fun areContentsTheSame(oldItem: Pair<String, PobItem?>, newItem: Pair<String, PobItem?>) =
-            oldItem == newItem
-    }
-}
 
 class PobUniqueAdapter(
     private val onClick: (CatalogItem) -> Unit,

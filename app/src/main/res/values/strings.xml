@@ -155,6 +155,20 @@
     <string name="pob_reset_done">실험 내용을 초기화했습니다</string>
     <string name="pob_slot_restored">원본 아이템으로 되돌렸습니다</string>
     <string name="pob_equip_saved">장비를 바꿨습니다</string>
+    <string name="pob_inventory_title">장비창</string>
+    <string name="pob_inventory_hint">아이콘을 한 번 탭하면 그 아이템의 이름·등급·기본 수치·옵션이 열리고, 같은 아이콘을 다시 탭하면 닫힙니다.</string>
+    <string name="pob_inventory_extras">교체 무기 · 반지 · 부적 · 플라스크</string>
+    <string name="pob_inventory_empty">빈 슬롯</string>
+    <string name="pob_inventory_no_build">빌드를 불러오면 장비창이 여기에 나옵니다.</string>
+    <string name="pob_inventory_change">장비 바꾸기</string>
+    <string name="pob_inventory_close">닫기</string>
+    <string name="pob_inventory_options">옵션</string>
+    <string name="pob_inventory_changed">변경한 아이템</string>
+    <string name="pob_rarity_unique">고유</string>
+    <string name="pob_rarity_rare">희귀</string>
+    <string name="pob_rarity_magic">마법</string>
+    <string name="pob_rarity_normal">일반</string>
+    <string name="pob_skill_dps_capped">PoB 무한대 · 2.1B</string>
     <string name="pob_render_failed">빌드를 화면에 그리지 못했습니다 (%1$s). 다른 빌드 코드로 다시 시도해 주세요.</string>
 
     <string name="battle_need_build">PoB 빌드를 불러오면 그 수치 그대로 전투를 시작할 수 있습니다</string>
@@ -174,7 +188,7 @@
     <string name="battle_map_normal">일반 16T</string>
     <string name="battle_map_amp">피통·피해 증폭</string>
     <string name="battle_skill_auto">자동</string>
-    <string name="pob_dps_infinite">PoB가 이 빌드의 DPS를 무한(inf)으로 내보냈습니다 · 평균 타격 × 공속 × 치명타로 추정합니다</string>
+    <string name="pob_dps_infinite">PoB가 이 빌드의 DPS를 무한(inf)으로 계산했습니다 · poe.ninja와 같이 32비트 상한 2.1B로 표시합니다</string>
     <string name="pob_dps_missing">PoB에 DPS 값이 없어 평균 타격 × 공속 × 치명타로 추정합니다</string>
     <string name="battle_boss_note">보스 체력·피해는 커뮤니티 집계 기반 추정치입니다</string>
     <string name="battle_result_win">클리어  %1$.1fs</string>

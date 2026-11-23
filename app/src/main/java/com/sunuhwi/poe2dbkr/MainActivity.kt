@@ -26,6 +26,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.SystemBarStyle
@@ -48,7 +49,6 @@ import com.sunuhwi.poe2dbkr.databinding.DialogMarketItemBinding
 import com.sunuhwi.poe2dbkr.databinding.DialogPobLoadBinding
 import com.sunuhwi.poe2dbkr.databinding.DialogPobSlotBinding
 import com.sunuhwi.poe2dbkr.databinding.ItemPobGemBinding
-import com.sunuhwi.poe2dbkr.databinding.ItemPobSlotBinding
 import com.sunuhwi.poe2dbkr.databinding.PaneDetailBinding
 import com.sunuhwi.poe2dbkr.databinding.PaneListBinding
 import com.sunuhwi.poe2dbkr.databinding.PaneMarketBinding
@@ -69,7 +69,6 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var adapter: CatalogAdapter
     private lateinit var marketAdapter: MarketAdapter
-    private lateinit var slotAdapter: PobSlotAdapter
     private lateinit var bookmarks: BookmarkStore
     private lateinit var pobStore: PobStore
 
@@ -150,7 +149,6 @@ class MainActivity : AppCompatActivity() {
 
         I18n.preload(this) { dict ->
             krDict = dict
-            if (this::slotAdapter.isInitialized) slotAdapter.setDict(dict)
             if (marketRates.isNotEmpty()) {
                 marketRates = marketRates.map { localize(it, dict) }
                 applyMarketFilter()
@@ -1009,11 +1007,6 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------- PoB 실험실
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupPob() {
-        slotAdapter = PobSlotAdapter(onClick = { slot -> showSlotDialog(slot) })
-        slotAdapter.setDict(krDict)
-        pobPane.rvPobSlots.layoutManager = LinearLayoutManager(this)
-        pobPane.rvPobSlots.adapter = slotAdapter
-
         pobPane.pobTabs.tabMode = TabLayout.MODE_FIXED
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_overview))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_skills))
@@ -1026,7 +1019,7 @@ class MainActivity : AppCompatActivity() {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 val page = when (tab.position) {
                     1 -> pobPane.pobPageSkills
-                    2 -> pobPane.rvPobSlots
+                    2 -> pobPane.pobPageItems
                     3 -> pobPane.pobPageConfig
                     4 -> pobPane.pobPageTree
                     5 -> pobPane.pobPageBattle
@@ -1034,7 +1027,7 @@ class MainActivity : AppCompatActivity() {
                     else -> pobPane.pobPageOverview
                 }
                 listOf(
-                    pobPane.pobPageOverview, pobPane.pobPageSkills, pobPane.rvPobSlots,
+                    pobPane.pobPageOverview, pobPane.pobPageSkills, pobPane.pobPageItems,
                     pobPane.pobPageConfig, pobPane.pobPageTree, pobPane.pobPageBattle,
                     pobPane.pobPageMeta,
                 ).forEach { it.isVisible = it === page }
@@ -1508,13 +1501,16 @@ class MainActivity : AppCompatActivity() {
             stats.skillName,
             fxLabel,
             stats.aps,
-            fmt.format(stats.dps.toLong()),
+            dpsText(stats.dps),
             fmt.format(stats.ehp.toLong()),
         ) + if (stats.weaponLabel.isNotBlank()) "\n무기: ${stats.weaponLabel}" else ""
-        // PoB가 DPS를 inf로 내보낸 빌드는 화면 숫자가 추정치라는 것을 같이 적는다.
+        // PoB가 DPS를 inf로 내보낸 빌드는 화면 숫자가 추정치·상한이라는 것을 같이 적는다.
         if (stats.dpsEstimated) {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
                 getString(if (stats.dpsInfinite) R.string.pob_dps_infinite else R.string.pob_dps_missing)
+        } else if (stats.dpsCapped) {
+            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
+                getString(R.string.pob_dps_infinite)
         }
         // 빌드에 준비 단계가 필요한 콤보가 엮여 있으면 순서를 미리 보여 준다.
         val plan = ComboPlanner.plan(stats.motion, stats.kit)
@@ -1831,6 +1827,7 @@ class MainActivity : AppCompatActivity() {
                 buildTreeUrl = Poe2Tree.url(build, Poe2Tree.of(this))
                 pobOverrides.clear()
                 pobFlasks.clear()
+                inventorySelection = null
                 pobMainGroup = 0
                 battleSkillPick = null
                 try {
@@ -1911,6 +1908,7 @@ class MainActivity : AppCompatActivity() {
     private fun resetPob() {
         pobOverrides.clear()
         pobFlasks.clear()
+        inventorySelection = null
         pobConfig.enduranceCharges = 0
         pobConfig.frenzyCharges = 0
         pobConfig.powerCharges = 0
@@ -1929,22 +1927,255 @@ class MainActivity : AppCompatActivity() {
         Snackbar.make(binding.root, R.string.pob_reset_done, Snackbar.LENGTH_SHORT).show()
     }
 
+    /** 지금 옵션이 열린 슬롯. 아이콘을 다시 탭하면 null로 돌아간다. */
+    private var inventorySelection: String? = null
+
     private fun refreshSlots() {
         guardPob {
             val build = pobBuild
+            pobPane.inventoryGrid.removeAllViews()
+            pobPane.inventoryExtras.removeAllViews()
             if (build == null) {
-                slotAdapter.submit(emptyList(), emptySet())
+                inventorySelection = null
+                pobPane.inventoryDetail.isVisible = false
+                pobPane.inventoryGrid.addView(TextView(this).apply {
+                    text = getString(R.string.pob_inventory_no_build)
+                    setTextColor(ContextCompat.getColor(context, R.color.text_muted))
+                    textSize = 12f
+                    setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 0)
+                })
                 return
             }
-            val rows = ArrayList<Pair<String, PobItem?>>()
-            Pob.SLOTS.forEach { (slot, _) ->
-                rows.add(slot to (pobOverrides[slot] ?: Pob.itemForSlot(build, slot)))
-            }
-            build.slots.keys.filter { it.startsWith(Pob.FLASK_PREFIX) }.sorted().forEach { flask ->
-                rows.add(flask to Pob.itemForSlot(build, flask))
-            }
-            slotAdapter.submit(rows, pobOverrides.keys)
+            renderInventoryGrid(build)
+            renderInventoryExtras(build)
+            renderInventoryDetail(build)
         }
+    }
+
+    /** 아이콘 한 칸을 탭했을 때: 열기 → 같은 칸이면 닫기, 다른 칸이면 그 칸으로 바꾸기 */
+    private fun tapInventorySlot(slot: String) {
+        inventorySelection = PobInventory.toggle(inventorySelection, slot)
+        val build = pobBuild
+        if (build != null) {
+            renderInventoryGrid(build)
+            renderInventoryExtras(build)
+            renderInventoryDetail(build)
+        }
+    }
+
+    private fun inventoryItem(build: PobBuild, slot: String): PobItem? =
+        pobOverrides[slot] ?: Pob.itemForSlot(build, slot)
+
+    private fun renderInventoryGrid(build: PobBuild) {
+        val grid = pobPane.inventoryGrid
+        grid.removeAllViews()
+        val density = resources.displayMetrics.density
+        val gap = (6 * density).toInt()
+        val height = (88 * density).toInt()
+        for (row in 0 until PobInventory.ROWS) {
+            val rowView = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            rowView.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = gap }
+            var col = 0
+            while (col < PobInventory.COLUMNS) {
+                val cell = PobInventory.GRID.firstOrNull { it.row == row && it.col == col }
+                if (cell == null) {
+                    rowView.addView(View(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, height, 1f).apply {
+                            marginEnd = gap
+                        }
+                    })
+                    col++
+                    continue
+                }
+                rowView.addView(
+                    inventorySlotCell(build, cell.slot, compact = false).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, height, cell.colSpan.toFloat()).apply {
+                            marginEnd = gap
+                        }
+                    },
+                )
+                col += cell.colSpan
+            }
+            grid.addView(rowView)
+        }
+    }
+
+    /** 격자 아래 작은 칸 — 교체 무기·반지 3·부적·플라스크 */
+    private fun renderInventoryExtras(build: PobBuild) {
+        val box = pobPane.inventoryExtras
+        box.removeAllViews()
+        val density = resources.displayMetrics.density
+        val gap = (6 * density).toInt()
+        val height = (62 * density).toInt()
+        val slots = PobInventory.EXTRAS + PobInventory.flaskSlots(build)
+        slots.chunked(3).forEach { line ->
+            val rowView = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            rowView.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = gap }
+            line.forEach { slot ->
+                rowView.addView(
+                    inventorySlotCell(build, slot, compact = true).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, height, 1f).apply { marginEnd = gap }
+                    },
+                )
+            }
+            // 줄이 덜 찼으면 빈 자리를 같은 비율로 매운다.
+            repeat(3 - line.size) {
+                rowView.addView(View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, height, 1f).apply { marginEnd = gap }
+                })
+            }
+            box.addView(rowView)
+        }
+    }
+
+    /** 슬롯 한 칸: 아이콘·슬롯 이름·아이템 이름. 칸을 탭하면 옵션 창이 열리거나 닫힌다. */
+    private fun inventorySlotCell(
+        build: PobBuild,
+        slot: String,
+        compact: Boolean,
+    ): LinearLayout {
+        val item = inventoryItem(build, slot)
+        val selected = PobInventory.isSelected(inventorySelection, slot)
+        val density = resources.displayMetrics.density
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding((4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt(), (4 * density).toInt())
+            isClickable = true
+            isFocusable = true
+            setBackgroundResource(
+                if (selected) R.drawable.bg_slot_selected else PobInventory.rarityFrame(item?.rarity.orEmpty()),
+            )
+            setOnClickListener { tapInventorySlot(slot) }
+        }
+        val iconSize = if (compact) 30 else 40
+        cell.addView(ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                (iconSize * density).toInt(),
+                if (compact) (iconSize * density).toInt() else (iconSize * density * 0.8).toInt(),
+            )
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = getString(R.string.pob_item_icon)
+            val icon = if (item != null) PobLocale.icon(krDict, item) else ""
+            if (icon.isNotBlank()) {
+                load(icon) { placeholder(R.drawable.bg_icon); error(R.drawable.bg_icon); crossfade(80) }
+            } else {
+                setImageResource(R.drawable.bg_icon)
+            }
+        })
+        val slotName = Pob.SLOTS[slot] ?: slot
+        val showSlotName = !compact || item == null
+        if (showSlotName) {
+            cell.addView(TextView(this).apply {
+                text = slotName
+                setTextColor(ContextCompat.getColor(context, R.color.text_muted))
+                textSize = if (compact) 8f else 9f
+                maxLines = 1
+            })
+        }
+        cell.addView(TextView(this).apply {
+            text = item?.let { PobLocale.title(krDict, it) } ?: slotName.takeIf { compact } ?: getString(R.string.pob_inventory_empty)
+            setTextColor(
+                if (item != null) PobInventory.rarityColor(this, item.rarity)
+                else ContextCompat.getColor(context, R.color.text_muted)
+            )
+            textSize = if (compact) 8.5f else 9.5f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+        })
+        if (slot in pobOverrides) {
+            cell.addView(TextView(this).apply {
+                text = getString(R.string.pob_inventory_changed)
+                setTextColor(ContextCompat.getColor(context, R.color.gold))
+                textSize = 8f
+                maxLines = 1
+            })
+        }
+        return cell
+    }
+
+    /** 아이콘을 탭했을 때 열리는 아이템 옵션 창 */
+    private fun renderInventoryDetail(build: PobBuild) {
+        val box = pobPane.inventoryDetail
+        box.removeAllViews()
+        val slot = inventorySelection
+        val item = slot?.let { inventoryItem(build, it) }
+        if (slot == null) {
+            box.isVisible = false
+            return
+        }
+        box.isVisible = true
+        val density = resources.displayMetrics.density
+        val slotName = Pob.SLOTS[slot] ?: slot
+        val rarity = item?.rarity.orEmpty()
+        val rarityKo = PobInventory.rarityLabel(this, rarity)
+        box.addView(TextView(this).apply {
+            text = item?.let { PobLocale.title(krDict, it) } ?: getString(R.string.pob_inventory_empty)
+            setTextColor(
+                if (item != null) PobInventory.rarityColor(this, item.rarity)
+                else ContextCompat.getColor(context, R.color.text_muted)
+            )
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        box.addView(TextView(this).apply {
+            text = listOf(slotName, rarityKo, item?.let { PobLocale.subtitle(krDict, it) }.orEmpty())
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+            setTextColor(ContextCompat.getColor(context, R.color.text_muted))
+            textSize = 11f
+            setPadding(0, (2 * density).toInt(), 0, 0)
+        })
+        if (item != null) {
+            val options = PobLocale.lines(krDict, item)
+            if (options.isNotEmpty()) {
+                box.addView(TextView(this).apply {
+                    text = getString(R.string.pob_inventory_options)
+                    setTextColor(ContextCompat.getColor(context, R.color.gold))
+                    textSize = 11f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setPadding(0, (10 * density).toInt(), 0, (2 * density).toInt())
+                })
+                box.addView(TextView(this).apply {
+                    text = options.joinToString("\n") { "· $it" }
+                    setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                    textSize = 12f
+                    setLineSpacing((2 * density), 1f)
+                })
+            }
+        }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (12 * density).toInt(), 0, 0)
+        }
+        val change = com.google.android.material.button.MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle,
+        ).apply {
+            text = getString(R.string.pob_inventory_change)
+            textSize = 12f
+            minHeight = (40 * density).toInt()
+            insetTop = 0; insetBottom = 0
+            setTextColor(ContextCompat.getColor(context, R.color.gold))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { marginEnd = (6 * density).toInt() }
+            setOnClickListener { showSlotDialog(slot) }
+        }
+        val close = com.google.android.material.button.MaterialButton(this).apply {
+            text = getString(R.string.pob_inventory_close)
+            textSize = 12f
+            minHeight = (40 * density).toInt()
+            insetTop = 0; insetBottom = 0
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { tapInventorySlot(slot) }
+        }
+        buttons.addView(change)
+        buttons.addView(close)
+        box.addView(buttons)
     }
 
     private fun renderSkills() {
@@ -1957,6 +2188,10 @@ class MainActivity : AppCompatActivity() {
         val container = pobPane.skillsContainer
         container.removeAllViews()
         val density = resources.displayMetrics.density
+        // 그룹마다 그 스킬의 DPS를 같이 적어 어느 스킬이 화력을 끌고 가는지 보이게 한다.
+        val calc = runCatching {
+            PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig)
+        }.getOrNull()
         build.skills.forEachIndexed { groupIndex, group ->
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -1980,6 +2215,18 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             header.addView(title)
+            if (calc != null) {
+                val groupDps = groupDps(build, group, calc)
+                if (groupDps > 0.0) {
+                    header.addView(TextView(this).apply {
+                        text = BattleWorld.formatShort(groupDps)
+                        setTextColor(ContextCompat.getColor(context, R.color.unique_name))
+                        textSize = 12f
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        setPadding(0, 0, (10 * density).toInt(), 0)
+                    })
+                }
+            }
             if (group === Pob.mainGroup(build, pobMainGroup)) {
                 val main = TextView(this).apply {
                     text = getString(R.string.pob_main_skill)
@@ -2028,6 +2275,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** 스킬 그룹 하나의 DPS — 그 그룹 액티브 스킬 중 가장 센 값, 주력 그룹은 총 DPS */
+    private fun groupDps(build: PobBuild, group: PobSkillGroup, calc: PobCalculator.Result): Double {
+        val keys = group.gems
+            .filter { it.enabled && !PobCalculator.isSupport(it) && PobTriggers.kindOf(it) == null }
+            .map { TriggerKind.normalizeName(it.name) }
+            .toSet()
+        val fromList = calc.skillDps
+            .filter { TriggerKind.normalizeName(it.name) in keys }
+            .maxOfOrNull { it.dps } ?: 0.0
+        return if (group === Pob.mainGroup(build, pobMainGroup)) maxOf(fromList, calc.dpsNow) else fromList
+    }
+
     /** 스킬 그룹 제목. PoB는 label에 첫 젬 이름을 그대로 넣어 두고, 샘플 빌드는 "1 Lightning Arrow"처럼 번호를 붙인다. */
     private fun skillGroupTitle(group: PobSkillGroup, dict: KrDict): String {
         val raw = group.label.trim().ifBlank { group.gems.firstOrNull()?.name.orEmpty() }
@@ -2073,7 +2332,7 @@ class MainActivity : AppCompatActivity() {
         val result = PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig)
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
 
-        pobPane.tvDps.text = fmt.format(result.dpsNow.toLong())
+        pobPane.tvDps.text = dpsText(result.dpsNow)
         val dpsPct = if (result.dpsBase > 0) (result.dpsNow / result.dpsBase - 1) * 100 else 0.0
         pobPane.tvDpsDelta.text = when {
             result.dpsInfinite -> getString(R.string.pob_dps_infinite)
@@ -2236,6 +2495,13 @@ class MainActivity : AppCompatActivity() {
         else -> R.string.pob_tree_group_notable
     }
 
+    /** DPS 한 줄 표기 — 10억 이상은 poe.ninja처럼 2.1B로 줄여 쓴다. */
+    private fun dpsText(value: Double): String = when {
+        !value.isFinite() -> "—"
+        value >= 1_000_000_000 -> BattleWorld.formatShort(value)
+        else -> NumberFormat.getNumberInstance(Locale.KOREA).format(value.toLong())
+    }
+
     private fun appendDelta(view: TextView, base: Double, now: Double) {
         if (base <= 0) return
         val diff = now - base
@@ -2292,7 +2558,7 @@ class MainActivity : AppCompatActivity() {
             binding.slotHeader.isVisible = true
             binding.tvKoLines.isVisible = true
             binding.tvSlotItemTitle.text = PobLocale.title(krDict, current)
-            binding.tvSlotItemTitle.setTextColor(PobSlotAdapter.rarityColor(binding.root, current.rarity))
+            binding.tvSlotItemTitle.setTextColor(PobInventory.rarityColor(binding.root, current.rarity))
             binding.tvSlotItemSub.text = PobLocale.subtitle(krDict, current)
             binding.ivSlotIcon.load(PobLocale.icon(krDict, current).ifBlank { null }) {
                 placeholder(R.drawable.bg_icon)

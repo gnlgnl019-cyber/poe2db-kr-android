@@ -91,6 +91,8 @@ object BattleSetup {
         main: String = "",
         scale: Double = 1.0,
         limit: Int = 6,
+        /** 계산기가 잡은 스킬별 DPS (있으면 PoB Full DPS 대신 쓴다) */
+        dpsByName: Map<String, Double> = emptyMap(),
     ): List<KitSkill> {
         if (build == null || limit <= 0) return emptyList()
         val mainKey = main.trim().lowercase()
@@ -107,7 +109,8 @@ object BattleSetup {
                 if (!seen.add(key)) continue
                 val motion = SkillMotions.detect(gem.name, group.label)
                 if (motion == SkillMotion.DEFAULT) continue
-                val dps = (skillDps(build, gem.name) * scale).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+                val own = dpsByName[TriggerKind.normalizeName(gem.name)] ?: skillDps(build, gem.name)
+                val dps = (own * scale).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
                 out.add(
                     KitSkill(
                         name = dict.gemName(gem.name).ifBlank { gem.name },
@@ -126,7 +129,12 @@ object BattleSetup {
      * 공허의 형상 안에 넣은 근접 공격 스킬.
      * 상이 플레이어 대신 휘두르는 스킬이라, 상의 모션과 피해를 이 스킬로 잡는다.
      */
-    fun hollowSocketSkill(build: PobBuild?, dict: KrDict = KrDict.EMPTY, scale: Double = 1.0): KitSkill? {
+    fun hollowSocketSkill(
+        build: PobBuild?,
+        dict: KrDict = KrDict.EMPTY,
+        scale: Double = 1.0,
+        dpsByName: Map<String, Double> = emptyMap(),
+    ): KitSkill? {
         if (build == null) return null
         for (group in build.skills) {
             if (!group.enabled) continue
@@ -145,7 +153,8 @@ object BattleSetup {
                 if (key.contains("hollow") || gem.name.contains("공허")) continue
                 val motion = SkillMotions.detect(gem.name, group.label)
                 if (motion == SkillMotion.DEFAULT) continue
-                val dps = (skillDps(build, gem.name) * scale).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                val own = dpsByName[TriggerKind.normalizeName(gem.name)] ?: skillDps(build, gem.name)
+                val dps = (own * scale).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                 return KitSkill(
                     name = dict.gemName(gem.name).ifBlank { gem.name },
                     motion = motion,
@@ -244,14 +253,25 @@ object BattleSetup {
                 ?: skillDps(build, gem.name).takeIf { it > 0.0 }
         }
         val dpsNow = if (dark) calc.dpsNow else pickedDps?.times(scale) ?: calc.dpsNow
+        // 스킬별로 계산기가 잡아 둔 DPS (발동·콤보 젬도 주력 상한에 휩쓸리지 않게 한다)
+        val skillDpsByName = calc.skillDps
+            .filter { it.dps.isFinite() && it.dps > 0.0 }
+            .associate { TriggerKind.normalizeName(it.name) to it.dps }
         val triggers = when (triggerMode) {
             TriggerMode.OFF -> emptyList()
             TriggerMode.TEST -> PobTriggers.synthetic(dpsNow)
-            TriggerMode.AUTO -> PobTriggers.extract(build, dpsNow).map { spec ->
-                spec.copy(
-                    dps = spec.dps * scale,
-                    skills = spec.skills.map { skill -> skill.copy(dps = skill.dps * scale) },
-                )
+            TriggerMode.AUTO -> {
+                // 무한대 빌드는 주력이 상한(2.1B)이라, 그 값을 메타젬 몫으로 나누면
+                // 발동 스킬까지 수억 대가 된다. 스킬별로 잡아 둔 제 몫이 있으면 그것을 쓴다.
+                PobTriggers.extract(build, dpsNow).map { spec ->
+                    val skills = spec.skills.map { skill ->
+                        val own = if (calc.dpsCapped) {
+                            skillDpsByName[TriggerKind.normalizeName(skill.name)]
+                        } else null
+                        skill.copy(dps = (own ?: skill.dps) * scale)
+                    }
+                    spec.copy(dps = skills.sumOf { it.dps }, skills = skills)
+                }
             }
         }
         val evade = (calc.evasionNow / (calc.evasionNow + 7500.0) * 92.0).coerceAtMost(80.0)
@@ -263,6 +283,7 @@ object BattleSetup {
             mainIsSummon = Minions.typeOf(skillName) != null && !dark,
             playerDps = dpsNow,
             darkHitOverride = build.stats["AverageHit"] ?: 0.0,
+            darkDpsOverride = if (calc.dpsCapped) calc.dpsNow else 0.0,
             critChance = calc.critNow.takeIf { it > 0 } ?: 7.0,
             critMulti = calc.critMultiNow.takeIf { it > 100 } ?: 150.0,
             minionDamagePct = unique.sim.minionDamagePct,
@@ -297,6 +318,7 @@ object BattleSetup {
             triggers = triggers,
             dpsEstimated = pickedDps == null && calc.dpsEstimated && !dark,
             dpsInfinite = pickedDps == null && calc.dpsInfinite && !dark,
+            dpsCapped = pickedDps == null && calc.dpsCapped,
             ascendName = ascend?.ascendKo.orEmpty(),
             ascendSummary = ascend?.summary.orEmpty(),
             ascendNodes = ascend?.keyNames.orEmpty(),
@@ -321,8 +343,8 @@ object BattleSetup {
             metaEnergyPct = ascend?.sim?.metaEnergyPct ?: 0.0,
             cooldownRatePct = ascend?.sim?.cooldownPct ?: 0.0,
             motion = SkillMotions.detect(skillName, group?.label.orEmpty(), skillKo),
-            kit = kitSkills(build, dict, skillName, scale),
-            hollowSkill = hollowSocketSkill(build, dict, scale),
+            kit = kitSkills(build, dict, skillName, scale, dpsByName = skillDpsByName),
+            hollowSkill = hollowSocketSkill(build, dict, scale, dpsByName = skillDpsByName),
             minions = minions,
             unique = unique.sim,
             uniqueSummary = unique.summary,
