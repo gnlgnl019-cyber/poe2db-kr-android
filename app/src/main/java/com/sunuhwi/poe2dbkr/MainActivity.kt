@@ -1359,7 +1359,7 @@ class MainActivity : AppCompatActivity() {
         val group = pobPane.battleOptChips
         group.removeAllViews()
         if (battleMode == BattleMode.MAP) {
-            listOf(10, 25, 50, 100).forEach { count ->
+            listOf(10, 25, 50, 100, 200, 300, 500).forEach { count ->
                 group.addView(
                     battleChip(getString(R.string.battle_mob_count, count), battleMobCount == count) {
                         battleMobCount = count
@@ -1400,7 +1400,7 @@ class MainActivity : AppCompatActivity() {
     private fun buildBattleSkillChips() {
         val group = pobPane.battleSkillChips
         group.removeAllViews()
-        val options = BattleSetup.skillOptions(pobBuild, krDict)
+        val options = BattleSetup.skillOptions(pobBuild, krDict, dpsByName = battleSkillDps())
         // 고른 스킬이 이 빌드에 없으면(다른 빌드를 불러왔거나 스킬을 껐으면) 자동으로 돌아간다.
         if (battleSkillPick != null && options.none { it.gem == battleSkillPick }) battleSkillPick = null
         group.addView(
@@ -1470,6 +1470,18 @@ class MainActivity : AppCompatActivity() {
         tree = Poe2Tree.of(this),
     )
 
+    /** PoB가 비운 스킬별 DPS를 보충하기 위해 계산기 값만 따로 받아 둔다 (스킬 칩에 쓴다) */
+    private fun battleSkillDps(): Map<String, Double> {
+        val build = pobBuild ?: return emptyMap()
+        return runCatching {
+            val ascend = AscendancyEffects.profile(build, Poe2Tree.of(this))
+            val unique = UniqueEffects.profile(build, pobOverrides, krDict)
+            val calc = PobCalculator.compute(build, pobOverrides, pobFlasks, pobConfig, ascend, unique)
+            calc.skillDps.filter { it.dps.isFinite() && it.dps > 0.0 }
+                .associate { TriggerKind.normalizeName(it.name) to it.dps }
+        }.getOrDefault(emptyMap())
+    }
+
     private fun refreshBattleHeader() {
         try {
             refreshBattleHeaderBody()
@@ -1486,6 +1498,7 @@ class MainActivity : AppCompatActivity() {
             pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
             pobPane.tvBattleTrigger.isVisible = false
             pobPane.tvAscendancy.isVisible = false
+            pobPane.tvBattleUnique.isVisible = false
             return
         }
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
@@ -1521,6 +1534,35 @@ class MainActivity : AppCompatActivity() {
         } else {
             pobPane.tvAscendancy.isVisible = true
             pobPane.tvAscendancy.text = getString(R.string.battle_ascend_none)
+        }
+        // 소환수·반려수와 고유 아이템 효과 — 전투에 실제로 세울 것만 적는다.
+        val extraLines = ArrayList<String>()
+        if (!stats.minions.isEmpty) {
+            val minion = stats.minions
+            val toad = if (minion.hasDarkConsequences) {
+                " · 암울한 결과 ${BattleWorld.formatShort(minion.darkConsequencesDps)} DPS"
+            } else ""
+            extraLines.add("◈ ${minion.summary}$toad")
+            if (minion.spiritBudget > 0.0) {
+                extraLines.add(
+                    getString(
+                        R.string.battle_spirit_line,
+                        minion.spiritReserved.toInt(),
+                        minion.spiritBudget.toInt(),
+                    )
+                )
+            }
+            minion.notes.take(2).forEach { note -> extraLines.add("· $note") }
+        }
+        if (stats.uniqueSummary.isNotBlank()) {
+            extraLines.add("⬩ ${stats.uniqueSummary}")
+            stats.uniqueEffects.take(3).forEach { effect -> extraLines.add("· $effect") }
+        }
+        if (extraLines.isEmpty()) {
+            pobPane.tvBattleUnique.isVisible = false
+        } else {
+            pobPane.tvBattleUnique.isVisible = true
+            pobPane.tvBattleUnique.text = extraLines.joinToString("\n")
         }
         when {
             stats.triggers.isNotEmpty() -> {
@@ -1660,7 +1702,19 @@ class MainActivity : AppCompatActivity() {
                 result.bellCasts,
             )
         } else ""
-        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine + comboLine
+        // 소환수·두꺼비가 낸 피해도 따로 적는다.
+        val minionLine = if (result.minionText.isNotBlank() || result.toadExplosions > 0) {
+            "\n" + getString(
+                R.string.battle_result_minion,
+                if (result.minionText.isBlank()) "-" else result.minionText,
+                BattleWorld.formatShort(result.minionDamage),
+                result.minionKills,
+                result.minionDeaths,
+                result.toadExplosions,
+                BattleWorld.formatShort(result.darkConsequencesDamage),
+            )
+        } else ""
+        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine + comboLine + minionLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false

@@ -226,6 +226,7 @@ class BattleCanvasView @JvmOverloads constructor(
         drawFloor(canvas, w)
         drawTelegraphs(canvas, w)
         drawGroundFx(canvas, w)
+        drawCursedGrounds(canvas, w)
         drawWhirlwinds(canvas, w)
         drawEntities(canvas, w)
         drawTwisters(canvas, w)
@@ -421,8 +422,9 @@ class BattleCanvasView @JvmOverloads constructor(
     // -------------------------------------------------------------- 엔티티
 
     private fun drawEntities(canvas: Canvas, w: BattleWorld) {
-        val list = ArrayList<Any>(w.enemies.size + w.phantoms.size + w.bells.size + 1)
+        val list = ArrayList<Any>(w.enemies.size + w.phantoms.size + w.bells.size + w.minions.size + 1)
         for (e in w.enemies) if (e.alive || e.deadFade < 1f) list.add(e)
+        for (m in w.minions) if (m.alive || m.deadFade < 1f) list.add(m)
         for (b in w.bells) list.add(b)
         for (p in w.phantoms) list.add(p)
         list.add(w.player)
@@ -432,12 +434,14 @@ class BattleCanvasView @JvmOverloads constructor(
                 is PlayerState -> o.y
                 is Bell -> o.y
                 is Phantom -> o.y
+                is Minion -> o.y
                 else -> 0f
             }
         }
         for (o in list) {
             when (o) {
                 is Enemy -> drawEnemy(canvas, w, o)
+                is Minion -> drawMinion(canvas, w, o)
                 is PlayerState -> drawPlayer(canvas, w)
                 is Bell -> drawBell(canvas, w, o)
                 is Phantom -> drawPhantom(canvas, w, o)
@@ -694,69 +698,8 @@ class BattleCanvasView @JvmOverloads constructor(
         if (e.boss != null) {
             drawBossFigure(c, w, e, alphaF)
         } else {
-            // 잔몹도 종류가 보이게: 근접 돌진형(뿔·도끼), 원거리 술사형(후드·지팡이), 희귀 엘리트(왕관·오라)
-            val weapon = when (e.kind) {
-                EnemyKind.NORMAL -> WeaponVisualType.AXE
-                EnemyKind.MAGIC -> WeaponVisualType.STAFF
-                EnemyKind.RARE -> WeaponVisualType.MACE
-                EnemyKind.BOSS -> WeaponVisualType.SWORD
-            }
-            if (e.kind == EnemyKind.RARE) {
-                val pulse = 0.5f + 0.5f * sin(w.elapsed * 3.1f).toFloat()
-                fill.shader = RadialGradient(
-                    e.x, e.y - 16f * scale, 46f * scale,
-                    intArrayOf(alpha(0xFFFFC24D.toInt(), (40 + pulse * 36).toInt()), 0x00000000),
-                    null, Shader.TileMode.CLAMP,
-                )
-                c.drawCircle(e.x, e.y - 16f * scale, 46f * scale, fill)
-                fill.shader = null
-            }
-            drawStickman(
-                c = c, x = e.x, y = e.y, s = scale,
-                body = withAlpha(body, (255 * alphaF).toInt()),
-                accent = e.element.color,
-                facing = facing,
-                walk = e.walkPhase, moving = true,
-                attack = e.attackAnim, weapon = weapon,
-                glow = if (e.kind == EnemyKind.RARE) 0.6f else 0f,
-                boss = false,
-                bossColor = baseColor,
-                alphaMul = alphaF,
-                windup = e.windup,
-            )
-            // 종족 장식
-            val headY = e.y - 17f * scale - 19f * scale - 7.4f * scale
-            when (e.kind) {
-                EnemyKind.NORMAL -> {
-                    // 돌진형: 짧은 뿔 두 개
-                    stroke.strokeWidth = 2.2f * scale
-                    stroke.color = withAlpha(0xFF8A5A48.toInt(), (235 * alphaF).toInt())
-                    c.drawLine(e.x - 3.4f * scale, headY - 3f * scale, e.x - 6.4f * scale, headY - 9.6f * scale, stroke)
-                    c.drawLine(e.x + 3.4f * scale, headY - 3f * scale, e.x + 6.4f * scale, headY - 9.6f * scale, stroke)
-                }
-                EnemyKind.MAGIC -> {
-                    // 술사형: 후드
-                    path.reset()
-                    path.moveTo(e.x - 8f * scale, headY + 5f * scale)
-                    path.quadTo(e.x, headY - 12f * scale, e.x + 8f * scale, headY + 5f * scale)
-                    path.close()
-                    fill.color = withAlpha(0xFF4A5A9E.toInt(), (225 * alphaF).toInt())
-                    c.drawPath(path, fill)
-                    fill.color = withAlpha(0xFFBFD0FF.toInt(), (200 * alphaF).toInt())
-                    c.drawCircle(e.x, headY + 0.4f * scale, 1.9f * scale, fill)
-                }
-                EnemyKind.RARE -> {
-                    // 엘리트: 황금 왕관
-                    stroke.strokeWidth = 2.4f * scale
-                    stroke.color = withAlpha(0xFFFFD36A.toInt(), (245 * alphaF).toInt())
-                    val w2 = 7.2f * scale
-                    c.drawLine(e.x - w2, headY - 4.4f * scale, e.x - w2, headY - 9.4f * scale, stroke)
-                    c.drawLine(e.x, headY - 4.4f * scale, e.x, headY - 11.4f * scale, stroke)
-                    c.drawLine(e.x + w2, headY - 4.4f * scale, e.x + w2, headY - 9.4f * scale, stroke)
-                    c.drawLine(e.x - w2, headY - 4.4f * scale, e.x + w2, headY - 4.4f * scale, stroke)
-                }
-                else -> Unit
-            }
+            val look = MonsterDesign.look(e.kind, e.element, e.enraged)
+            drawMonsterFigure(c, w, e, look, alphaF, facing)
         }
 
         if (!e.alive) return
@@ -779,6 +722,469 @@ class BattleCanvasView @JvmOverloads constructor(
         if (e.dot > 0.0) {
             fill.color = alpha(0xFFC182FF.toInt(), 110)
             c.drawCircle(e.x, top - 8f * scale, 3.2f, fill)
+        }
+    }
+
+    /**
+     * 몬스터 한 마리.
+     *
+     * 플레이어는 밝은 뼈대, 소환수는 뼈·유령 빛으로 그리므로, 몬스터는 검은 외곽선을 두른
+     * 어두운 덩어리로 그린다. 종류마다 실루엣(굽은 등·후드·갑주)과 눈빛이 다르다.
+     */
+    private fun drawMonsterFigure(
+        c: Canvas,
+        w: BattleWorld,
+        e: Enemy,
+        look: MonsterLook,
+        alphaF: Float,
+        facing: Float,
+    ) {
+        val s = e.scale
+        val x = e.x
+        val y = e.y
+        val h = look.height * s
+        val halfW = look.width * 0.5f * s
+        val breathe = sin(w.elapsed * 2.2f + e.slotAngle).toFloat()
+        val bob = breathe * 0.9f * s
+        val topY = y - h + bob
+        val shY = topY + h * 0.30f
+        val hipY = y - h * 0.30f
+        val headR = h * 0.135f
+        val headY = topY + h * 0.09f
+        val dir = if (facing > 1.5f) -1f else 1f
+        val flash = e.hitFlash.coerceIn(0f, 1f)
+        val bodyColor = withAlpha(blend(look.body, 0xFFFFFFFF.toInt(), flash * 0.75f), (255 * alphaF).toInt().coerceIn(0, 255))
+        val outlineColor = withAlpha(look.outline, (240 * alphaF).toInt().coerceIn(0, 255))
+        val rimColor = withAlpha(look.rim, (210 * alphaF).toInt().coerceIn(0, 255))
+        val accent = withAlpha(e.element.color, (210 * alphaF).toInt().coerceIn(0, 255))
+
+        // 발광 오라 — 희귀·술사는 뒤에서 은은하게 번진다.
+        if (look.aura != 0 && look.auraRadius > 0f && e.alive) {
+            val pulse = 0.5f + 0.5f * sin(w.elapsed * 3.1f + e.slotAngle).toFloat()
+            val strength = ((if (e.enraged) 52 else 30) + pulse * 34).toFloat() * alphaF
+            glowAt(c, x, y - h * 0.45f, look.auraRadius * s, look.aura, strength.toInt().coerceIn(0, 255))
+        }
+
+        // 박쥐 날개 — 몸 뒤에서 천천히 펄럭인다.
+        if (look.wings) {
+            val flap = sin(w.elapsed * 4.1f + e.slotAngle).toFloat()
+            for (side in listOf(-1f, 1f)) {
+                path.reset()
+                path.moveTo(x + side * halfW * 0.30f, shY)
+                path.cubicTo(
+                    x + side * halfW * (1.75f + flap * 0.25f), shY - h * 0.52f,
+                    x + side * halfW * (2.45f + flap * 0.30f), shY - h * 0.02f,
+                    x + side * halfW * 0.55f, hipY - h * 0.02f,
+                )
+                path.close()
+                fill.color = withAlpha(0xFF17121C.toInt(), (165 * alphaF).toInt().coerceIn(0, 255))
+                c.drawPath(path, fill)
+                stroke.color = withAlpha(look.rim, (95 * alphaF).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 0.9f
+                c.drawPath(path, stroke)
+            }
+        }
+
+        // 다리 — 굽은 뒷다리
+        val stride = sin(e.walkPhase).toFloat() * h * 0.05f
+        stroke.strokeCap = Paint.Cap.ROUND
+        stroke.color = bodyColor
+        stroke.strokeWidth = h * 0.11f
+        c.drawLine(x - halfW * 0.40f, hipY, x - halfW * 0.58f - stride, y - 1f, stroke)
+        c.drawLine(x + halfW * 0.40f, hipY, x + halfW * 0.58f + stride, y - 1f, stroke)
+
+        // 몸통 — 앞으로 굽은 덩어리
+        path.reset()
+        path.moveTo(x - halfW * 0.48f, hipY + h * 0.02f)
+        path.cubicTo(x - halfW * 1.12f, shY + h * 0.14f, x - halfW * 1.02f, topY + h * 0.14f, x - halfW * 0.28f, topY + h * 0.10f)
+        path.cubicTo(x + halfW * 0.12f, topY - h * 0.02f, x + halfW * 0.72f, topY + h * 0.06f, x + halfW * 0.86f, shY)
+        path.cubicTo(x + halfW * 1.08f, shY + h * 0.18f, x + halfW * 0.74f, hipY + h * 0.02f, x + halfW * 0.48f, hipY + h * 0.02f)
+        path.close()
+        fill.color = bodyColor
+        c.drawPath(path, fill)
+        stroke.color = outlineColor
+        stroke.strokeWidth = 1.9f * s
+        c.drawPath(path, stroke)
+
+        // 테두리 하이라이트 (왼쪽 어깨)
+        path.reset()
+        path.moveTo(x - halfW * 0.70f, shY + h * 0.02f)
+        path.cubicTo(x - halfW * 0.85f, topY + h * 0.20f, x - halfW * 0.55f, topY + h * 0.12f, x - halfW * 0.30f, topY + h * 0.12f)
+        stroke.color = rimColor
+        stroke.strokeWidth = 1.2f * s
+        c.drawPath(path, stroke)
+
+        // 등 가시
+        if (look.spikes > 0) {
+            stroke.color = withAlpha(0xFFDDD0BC.toInt(), (200 * alphaF).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.7f * s
+            for (i in 0 until look.spikes) {
+                val t = (i + 1f) / (look.spikes + 1f)
+                val sx = x - dir * halfW * (0.80f + t * 0.12f)
+                val sy = topY + h * (0.16f + t * 0.30f)
+                c.drawLine(sx, sy, sx - dir * halfW * 0.38f, sy - h * 0.10f, stroke)
+            }
+            // 가시 끝을 속성빛으로
+            stroke.color = accent
+            stroke.strokeWidth = 0.8f
+            for (i in 0 until look.spikes) {
+                val t = (i + 1f) / (look.spikes + 1f)
+                val sx = x - dir * halfW * (0.98f + t * 0.12f)
+                val sy = topY + h * (0.10f + t * 0.30f)
+                c.drawCircle(sx, sy, 1.1f * s, fill.apply { color = accent })
+            }
+        }
+
+        // 머리
+        val headX = x + dir * halfW * 0.30f
+        fill.color = bodyColor
+        c.drawCircle(headX, headY, headR, fill)
+        stroke.color = outlineColor
+        stroke.strokeWidth = 1.9f * s
+        c.drawCircle(headX, headY, headR, stroke)
+
+        // 뿔 — 악마의 굽은 뿔
+        if (look.horns > 0) {
+            stroke.color = withAlpha(0xFFE2D5C0.toInt(), (240 * alphaF).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 2.1f * s
+            for (i in 0 until look.horns.coerceAtMost(2)) {
+                val hx = headX + (i - 0.5f) * headR * 1.15f
+                val tipX = hx - dir * headR * (0.65f + i * 0.25f)
+                path.reset()
+                path.moveTo(hx, headY - headR * 0.55f)
+                path.quadTo(hx - dir * headR * 0.15f, headY - headR * 1.6f, tipX, headY - headR * 2.05f)
+                c.drawPath(path, stroke)
+            }
+        }
+
+        // 후드 술사 — 머리를 덮는 뾰족 모자
+        if (look.build == MonsterBuild.HOODED_CASTER) {
+            path.reset()
+            path.moveTo(headX - headR * 1.35f, headY + headR * 0.75f)
+            path.quadTo(headX, headY - headR * 2.6f, headX + headR * 1.35f, headY + headR * 0.75f)
+            path.close()
+            fill.color = withAlpha(0xFF221C36.toInt(), (240 * alphaF).toInt().coerceIn(0, 255))
+            c.drawPath(path, fill)
+            stroke.color = withAlpha(look.rim, (150 * alphaF).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.1f * s
+            c.drawPath(path, stroke)
+        }
+
+        // 갑주 — 어깨 판·가슴 판·왕관
+        if (look.armored) {
+            val plate = withAlpha(0xFF3B3128.toInt(), (235 * alphaF).toInt().coerceIn(0, 255))
+            fill.color = plate
+            // 어깨 판
+            for (side in listOf(-1f, 1f)) {
+                rect.set(
+                    x + side * halfW * 0.95f - halfW * 0.32f,
+                    shY - h * 0.10f,
+                    x + side * halfW * 0.95f + halfW * 0.32f,
+                    shY + h * 0.10f,
+                )
+                c.drawOval(rect, fill)
+                stroke.color = withAlpha(look.rim, (170 * alphaF).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 1.2f * s
+                c.drawOval(rect, stroke)
+                // 어깨 가시
+                c.drawLine(
+                    x + side * halfW * 0.95f, shY - h * 0.06f,
+                    x + side * halfW * 1.18f, shY - h * 0.24f, stroke,
+                )
+            }
+            // 가슴 판
+            path.reset()
+            path.moveTo(x - halfW * 0.42f, shY + h * 0.06f)
+            path.lineTo(x + halfW * 0.42f, shY + h * 0.04f)
+            path.lineTo(x + halfW * 0.30f, shY + h * 0.30f)
+            path.lineTo(x - halfW * 0.30f, shY + h * 0.32f)
+            path.close()
+            fill.color = withAlpha(0xFF5A4A2E.toInt(), (235 * alphaF).toInt().coerceIn(0, 255))
+            c.drawPath(path, fill)
+            stroke.color = withAlpha(0xFFFFD36A.toInt(), (200 * alphaF).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.0f * s
+            c.drawPath(path, stroke)
+            // 왕관
+            stroke.strokeWidth = 2.2f * s
+            for (i in -1..1) {
+                c.drawLine(
+                    headX + i * headR * 0.75f, headY - headR * 0.75f,
+                    headX + i * headR * 0.95f, headY - headR * 1.65f, stroke,
+                )
+            }
+        }
+
+        // 팔과 발톱 — 공격할 때 크게 휘두른다
+        val swing = if (e.attackAnim > 0f) sin(e.attackAnim * 3.14159f).toFloat() else 0f
+        val windupLift = if (e.windup > 0f) (e.windup / 0.95f).coerceIn(0f, 1f) else 0f
+        val handX = x + dir * (halfW * 1.05f + swing * halfW * 0.85f)
+        val handY = shY + h * 0.26f - swing * h * 0.30f - windupLift * h * 0.18f
+        stroke.color = bodyColor
+        stroke.strokeWidth = h * 0.10f
+        c.drawLine(x + dir * halfW * 0.75f, shY + h * 0.05f, handX, handY, stroke)
+        stroke.color = outlineColor
+        stroke.strokeWidth = 1.4f * s
+        c.drawLine(x + dir * halfW * 0.75f, shY + h * 0.05f, handX, handY, stroke)
+        // 발톱 세 개
+        stroke.color = withAlpha(0xFFF0E4CE.toInt(), (235 * alphaF).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.6f * s
+        for (i in -1..1) {
+            c.drawLine(
+                handX, handY,
+                handX + dir * h * 0.10f + i * 2.2f * s,
+                handY + h * 0.11f - i * 2.2f * s,
+                stroke,
+            )
+        }
+        // 반대팔(작게)
+        stroke.color = bodyColor
+        stroke.strokeWidth = h * 0.085f
+        c.drawLine(
+            x - dir * halfW * 0.80f, shY + h * 0.06f,
+            x - dir * halfW * 1.02f, shY + h * 0.30f - swing * h * 0.08f, stroke,
+        )
+
+        // 무기 — 술사는 지팡이, 근접은 발톱만
+        if (look.build == MonsterBuild.HOODED_CASTER) {
+            val staffTop = headY - h * 0.55f
+            stroke.color = withAlpha(0xFF8A7250.toInt(), (240 * alphaF).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.6f * s
+            c.drawLine(handX, handY - h * 0.30f, handX + dir * 4f * s, staffTop, stroke)
+            glowAt(c, handX + dir * 4f * s, staffTop, 9f * s, e.element.color, (150 * alphaF).toInt().coerceIn(0, 255))
+        }
+
+        // 눈 — 붉거나 보랏빛으로 빛난다
+        if (e.alive) {
+            val eyeY = headY - headR * 0.10f
+            val eye1X = headX + dir * headR * 0.30f
+            val eye2X = headX - dir * headR * 0.30f
+            glowAt(c, eye1X, eyeY, 7.5f * s, look.eye, (200 * alphaF).toInt().coerceIn(0, 255))
+            glowAt(c, eye2X, eyeY, 7.5f * s, look.eye, (200 * alphaF).toInt().coerceIn(0, 255))
+            fill.color = withAlpha(0xFFFFF3E8.toInt(), (235 * alphaF).toInt().coerceIn(0, 255))
+            c.drawCircle(eye1X, eyeY, 1.15f * s, fill)
+            c.drawCircle(eye2X, eyeY, 1.15f * s, fill)
+        }
+
+        // 보스급 예고 — 곧 내려칠 때 발밑에 붉은 고리
+        if (e.windup > 0f) {
+            stroke.color = alpha(0xFFFF4B4B.toInt(), (150 * windupLift).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.6f
+            c.drawOval(x - 26f * s, y - 9f * s, x + 26f * s, y + 9f * s, stroke)
+        }
+    }
+
+    /**
+     * 소환수·반려수 한 마리.
+     *
+     * 뼈 소환수는 크림색 뼈대와 해골, 유령은 반투명 청록, 반려수는 네 발 짐승,
+     * 두꺼비는 초록 덩어리로 그려 플레이어·몬스터와 구분한다.
+     */
+    private fun drawMinion(c: Canvas, w: BattleWorld, m: Minion) {
+        val fade = if (m.alive) 1f else 1f - m.deadFade
+        if (fade <= 0.03f) return
+        val s = m.type.scale
+        val x = m.x
+        val y = m.y
+        val hop = if (m.isToad) abs(sin(m.anim * 8f)) * 5f * s else 0f
+        val bob = if (m.type.companion) sin(m.anim * 6f).toFloat() * 1.2f * s else 0f
+        val bodyY = y - hop + bob
+
+        if (m.alive) drawShadow(c, x, y, s * 0.7f)
+        when {
+            m.isToad -> drawToad(c, x, bodyY, s, fade, m)
+            m.type.companion -> drawBeast(c, x, bodyY, s, fade, m)
+            m.type.role == MinionRole.CASTER || m.type.role == MinionRole.RANGED ->
+                drawSkeleton(c, x, bodyY, s, fade, m, ranged = true)
+            m.type.untargetable -> drawSpirit(c, x, bodyY, s, fade, m)
+            else -> drawSkeleton(c, x, bodyY, s, fade, m, ranged = false)
+        }
+
+        // 소환수 체력 — 머리 위에 얇게
+        if (m.alive && m.hp < m.maxHp) {
+            val bw = 18f * s
+            fill.color = 0xAA000000.toInt()
+            rect.set(x - bw / 2f, bodyY - 44f * s, x + bw / 2f, bodyY - 41f * s)
+            c.drawRect(rect, fill)
+            fill.color = 0xFF7FD9A0.toInt()
+            rect.set(x - bw / 2f, bodyY - 44f * s, x - bw / 2f + bw * (m.hp / m.maxHp).toFloat().coerceIn(0f, 1f), bodyY - 41f * s)
+            c.drawRect(rect, fill)
+        }
+    }
+
+    /** 해골 소환수 — 크림색 뼈대, 어두운 눈구멍, 초록/보랏빛 속불 */
+    private fun drawSkeleton(c: Canvas, x: Float, y: Float, s: Float, fade: Float, m: Minion, ranged: Boolean) {
+        val bone = withAlpha(0xFFEDE4CE.toInt(), (245 * fade).toInt().coerceIn(0, 255))
+        val shade = withAlpha(0xFF9A8F76.toInt(), (220 * fade).toInt().coerceIn(0, 255))
+        val glow = withAlpha(0xFF7FE0C8.toInt(), (200 * fade).toInt().coerceIn(0, 255))
+        val swing = if (m.attackAnim > 0f) sin(m.attackAnim * 3.14f).toFloat() else 0f
+        val facing = if (m.facing > 1.5f) -1f else 1f
+        val headY = y - 34f * s
+        stroke.strokeCap = Paint.Cap.ROUND
+        stroke.color = bone
+        stroke.strokeWidth = 2.4f * s
+        // 다리
+        val stride = sin(m.walkPhase).toFloat() * 3f * s
+        c.drawLine(x - 2f * s, y - 14f * s, x - 4f * s - stride, y - 1f, stroke)
+        c.drawLine(x + 2f * s, y - 14f * s, x + 4f * s + stride, y - 1f, stroke)
+        // 척추·갈비
+        c.drawLine(x, y - 14f * s, x, y - 26f * s, stroke)
+        stroke.strokeWidth = 1.4f * s
+        for (i in 0 until 3) {
+            val ry = y - (17f + i * 3.2f) * s
+            c.drawLine(x - 5f * s, ry, x + 5f * s, ry, stroke)
+        }
+        // 팔
+        stroke.strokeWidth = 2.0f * s
+        c.drawLine(x, y - 25f * s, x + facing * (9f + swing * 8f) * s, y - (14f - swing * 8f) * s, stroke)
+        // 해골
+        fill.color = bone
+        c.drawCircle(x, headY, 5.6f * s, fill)
+        stroke.color = shade
+        stroke.strokeWidth = 1f * s
+        c.drawCircle(x, headY, 5.6f * s, stroke)
+        // 눈구멍
+        fill.color = withAlpha(0xFF1A1712.toInt(), (235 * fade).toInt().coerceIn(0, 255))
+        c.drawCircle(x - 2f * s, headY - 0.6f * s, 1.5f * s, fill)
+        c.drawCircle(x + 2f * s, headY - 0.6f * s, 1.5f * s, fill)
+        glowAt(c, x, headY - 0.6f * s, 5f * s, m.type.element.color, (120 * fade).toInt().coerceIn(0, 255))
+        // 이빨
+        stroke.color = shade
+        stroke.strokeWidth = 0.8f * s
+        c.drawLine(x - 2.2f * s, headY + 3.2f * s, x + 2.2f * s, headY + 3.2f * s, stroke)
+        if (ranged) {
+            // 활
+            stroke.color = withAlpha(0xFFB99A6A.toInt(), (240 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.4f * s
+            rect.set(x + facing * 5f * s - 4f * s, y - 30f * s, x + facing * 5f * s + 4f * s, y - 8f * s)
+            c.drawArc(rect, if (facing > 0) 270f else 90f, 180f, false, stroke)
+        } else {
+            // 낡은 검
+            stroke.color = withAlpha(0xFFBFB49A.toInt(), (235 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.8f * s
+            c.drawLine(
+                x + facing * 8f * s, y - 14f * s,
+                x + facing * (14f + swing * 6f) * s, y - (26f + swing * 4f) * s, stroke,
+            )
+        }
+        // 작은 불꽃 (속성빛)
+        if (m.attackAnim > 0.5f) {
+            glowAt(c, x + facing * 12f * s, y - 20f * s, 7f * s, m.type.element.color, (140 * fade).toInt().coerceIn(0, 255))
+        }
+    }
+
+    /** 격노의 유령·망령 — 반투명 청록 불꽃 두개골 */
+    private fun drawSpirit(c: Canvas, x: Float, y: Float, s: Float, fade: Float, m: Minion) {
+        val color = withAlpha(0xFF7FD9E8.toInt(), (150 * fade).toInt().coerceIn(0, 255))
+        fill.color = color
+        c.drawCircle(x, y - 28f * s, 5.2f * s, fill)
+        // 흘러내리는 불꽃 꼬리
+        path.reset()
+        path.moveTo(x - 4.5f * s, y - 25f * s)
+        path.quadTo(x - 2f * s, y - 8f * s, x, y - 2f * s)
+        path.quadTo(x + 2f * s, y - 8f * s, x + 4.5f * s, y - 25f * s)
+        path.close()
+        fill.color = withAlpha(0xFF4FA8C9.toInt(), (110 * fade).toInt().coerceIn(0, 255))
+        c.drawPath(path, fill)
+        glowAt(c, x, y - 28f * s, 12f * s, m.type.element.color, (150 * fade).toInt().coerceIn(0, 255))
+        fill.color = withAlpha(0xFF10222A.toInt(), (220 * fade).toInt().coerceIn(0, 255))
+        c.drawCircle(x - 1.8f * s, y - 28.5f * s, 1.3f * s, fill)
+        c.drawCircle(x + 1.8f * s, y - 28.5f * s, 1.3f * s, fill)
+    }
+
+    /** 반려수 — 네 발 짐승, 금빛 목걸이 */
+    private fun drawBeast(c: Canvas, x: Float, y: Float, s: Float, fade: Float, m: Minion) {
+        val fur = withAlpha(0xFF8A6544.toInt(), (245 * fade).toInt().coerceIn(0, 255))
+        val dark = withAlpha(0xFF4A3524.toInt(), (240 * fade).toInt().coerceIn(0, 255))
+        val facing = if (m.facing > 1.5f) -1f else 1f
+        val stride = sin(m.walkPhase).toFloat() * 3f * s
+        val bodyY = y - 16f * s
+        // 다리
+        stroke.color = dark
+        stroke.strokeWidth = 2.6f * s
+        stroke.strokeCap = Paint.Cap.ROUND
+        c.drawLine(x - 6f * s, bodyY + 5f * s, x - 7f * s - stride, y, stroke)
+        c.drawLine(x + 6f * s, bodyY + 5f * s, x + 7f * s + stride, y, stroke)
+        c.drawLine(x - 3f * s, bodyY + 6f * s, x - 3.5f * s + stride, y, stroke)
+        c.drawLine(x + 3f * s, bodyY + 6f * s, x + 3.5f * s - stride, y, stroke)
+        // 몸통
+        rect.set(x - 10f * s, bodyY - 6f * s, x + 10f * s, bodyY + 6f * s)
+        fill.color = fur
+        c.drawOval(rect, fill)
+        stroke.color = dark
+        stroke.strokeWidth = 1.2f * s
+        c.drawOval(rect, stroke)
+        // 머리
+        val hx = x + facing * 11f * s
+        val hy = bodyY - 5f * s
+        fill.color = fur
+        c.drawCircle(hx, hy, 5.2f * s, fill)
+        stroke.color = dark
+        stroke.strokeWidth = 1f * s
+        c.drawCircle(hx, hy, 5.2f * s, stroke)
+        // 귀
+        path.reset()
+        path.moveTo(hx - 2.5f * s, hy - 4f * s)
+        path.lineTo(hx - 1f * s, hy - 9f * s)
+        path.lineTo(hx + 1.5f * s, hy - 4.5f * s)
+        path.close()
+        fill.color = fur
+        c.drawPath(path, fill)
+        // 눈
+        fill.color = 0xFF2A1C12.toInt()
+        c.drawCircle(hx + facing * 1.6f * s, hy - 1f * s, 1.1f * s, fill)
+        // 금빛 목걸이
+        stroke.color = withAlpha(0xFFFFD36A.toInt(), (230 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.4f * s
+        c.drawLine(x + facing * 5f * s, bodyY - 3f * s, x + facing * 5f * s, bodyY + 3f * s, stroke)
+        // 꼬리
+        stroke.color = dark
+        stroke.strokeWidth = 2.2f * s
+        c.drawLine(
+            x - facing * 9f * s, bodyY - 2f * s,
+            x - facing * 13f * s, bodyY - 9f * s - sin(m.anim * 5f).toFloat() * 2f * s, stroke,
+        )
+    }
+
+    /** 마녀두꺼비 — 초록 덩어리, 보랏빛 눈 */
+    private fun drawToad(c: Canvas, x: Float, y: Float, s: Float, fade: Float, m: Minion) {
+        val skin = withAlpha(0xFF6E8A3E.toInt(), (245 * fade).toInt().coerceIn(0, 255))
+        val dark = withAlpha(0xFF3E4E22.toInt(), (240 * fade).toInt().coerceIn(0, 255))
+        rect.set(x - 10f * s, y - 12f * s, x + 10f * s, y - 2f * s)
+        fill.color = skin
+        c.drawOval(rect, fill)
+        stroke.color = dark
+        stroke.strokeWidth = 1.2f * s
+        c.drawOval(rect, stroke)
+        // 뒷다리
+        stroke.color = dark
+        stroke.strokeWidth = 2.2f * s
+        c.drawLine(x - 7f * s, y - 4f * s, x - 11f * s, y, stroke)
+        c.drawLine(x + 7f * s, y - 4f * s, x + 11f * s, y, stroke)
+        // 눈 두 개
+        glowAt(c, x - 3f * s, y - 10f * s, 5f * s, 0xFFB07AFF.toInt(), (180 * fade).toInt().coerceIn(0, 255))
+        fill.color = 0xFFE8D6FF.toInt()
+        c.drawCircle(x - 3f * s, y - 10f * s, 1.4f * s, fill)
+        c.drawCircle(x + 3f * s, y - 10f * s, 1.4f * s, fill)
+    }
+
+    /** 저주받은 지대 — 보랏빛 늪과 두꺼비가 깨어나는 무늬 */
+    private fun drawCursedGrounds(c: Canvas, w: BattleWorld) {
+        for (g in w.cursedGrounds) {
+            val pulse = 0.5f + 0.5f * sin(w.elapsed * 2.4f + g.x * 0.05f).toFloat()
+            fill.color = alpha(0xFF6B2E8A.toInt(), (44 + pulse * 26).toInt())
+            rect.set(g.x - g.radius, g.y - g.radius * 0.52f, g.x + g.radius, g.y + g.radius * 0.52f)
+            c.drawOval(rect, fill)
+            stroke.color = alpha(0xFFB07AFF.toInt(), (120 + pulse * 60).toInt())
+            stroke.strokeWidth = 1.6f
+            rect.set(g.x - g.radius * 0.92f, g.y - g.radius * 0.48f, g.x + g.radius * 0.92f, g.y + g.radius * 0.48f)
+            c.drawOval(rect, stroke)
+            // 늪 위를 떠도는 저주 문양
+            fill.color = alpha(0xFFD9B8FF.toInt(), (100 + pulse * 60).toInt())
+            for (i in 0 until 4) {
+                val a = w.elapsed.toFloat() * 0.6f + i * 1.57f
+                val r = g.radius * 0.6f
+                c.drawCircle(g.x + cos(a) * r, g.y + sin(a) * r * 0.45f, 1.8f, fill)
+            }
         }
     }
 
@@ -2170,7 +2576,11 @@ class BattleCanvasView @JvmOverloads constructor(
         val combo = w.comboHud()
         val comboLines = if (combo.isBlank()) emptyList()
         else wrapText(combo, max(80f * dp, badgeW - 20f * dp), 1)
-        val badgeH = (27f + (triggerLines.size + ascendLines.size + comboLines.size) * 11f) * dp
+        // 소환수·두꺼비 상태도 한 줄
+        val minion = w.minionHud()
+        val minionLines = if (minion.isBlank()) emptyList()
+        else wrapText("◈ $minion", max(80f * dp, badgeW - 20f * dp), 1)
+        val badgeH = (27f + (triggerLines.size + ascendLines.size + comboLines.size + minionLines.size) * 11f) * dp
 
         rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
@@ -2214,6 +2624,15 @@ class BattleCanvasView @JvmOverloads constructor(
             textLight.textSize = 9.5f * dp
             comboLines.forEachIndexed { index, line ->
                 val y = pad + (33f + (triggerLines.size + ascendLines.size + index) * 11f) * dp
+                c.drawText(line, pad + 10f * dp, y, textLight)
+            }
+            textLight.textSize = 10f * dp
+        }
+        if (minionLines.isNotEmpty()) {
+            textLight.color = 0xFFB9F0C8.toInt()
+            textLight.textSize = 9.5f * dp
+            minionLines.forEachIndexed { index, line ->
+                val y = pad + (33f + (triggerLines.size + ascendLines.size + comboLines.size + index) * 11f) * dp
                 c.drawText(line, pad + 10f * dp, y, textLight)
             }
             textLight.textSize = 10f * dp

@@ -681,6 +681,18 @@
                         android:textSize="11sp"
                         android:visibility="gone" />
 
+                    <TextView
+                        android:id="@+id/tvBattleUnique"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="12dp"
+                        android:paddingTop="2dp"
+                        android:paddingEnd="12dp"
+                        android:lineSpacingExtra="1dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="10.5sp"
+                        android:visibility="gone" />
+
                     <HorizontalScrollView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

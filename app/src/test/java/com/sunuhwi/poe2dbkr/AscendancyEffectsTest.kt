@@ -161,8 +161,9 @@ class AscendancyEffectsTest {
         assertTrue("부여 스킬이 전투에 넘어오지 않았다", withAsc.ascendSkills.isNotEmpty())
         assertEquals(withAsc.dps, withoutAsc.dps, 0.01)
 
-        val plain = BattleWorld(withoutAsc, BattleMode.MAP, 20, amp = false, boss = null)
-        val boosted = BattleWorld(withAsc, BattleMode.MAP, 20, amp = false, boss = null)
+        // 같은 난수 시드로 돌려야 전직 효과만큼의 차이를 볼 수 있다.
+        val plain = BattleWorld(withoutAsc, BattleMode.MAP, 20, amp = false, boss = null, seed = 7L)
+        val boosted = BattleWorld(withAsc, BattleMode.MAP, 20, amp = false, boss = null, seed = 7L)
         repeat(60 * 20) {
             plain.update(1.0 / 60.0)
             boosted.update(1.0 / 60.0)
@@ -173,9 +174,29 @@ class AscendancyEffectsTest {
         println("[ASC] 전직 적용 → 피해 ${boostedResult.damageDealt} · 처치 ${boostedResult.kills} · 부여 스킬 ${boostedResult.ascendCasts}회 ${boostedResult.ascendDamage}")
         assertTrue("전직 부여 스킬이 한 번도 안 돌았다", boostedResult.ascendCasts > 0)
         assertTrue("전직 부여 스킬 피해가 0이다", boostedResult.ascendDamage > 0)
+        // 이 빌드는 두꺼비 폭발이 피해의 대부분이라 총 피해 비교로는 전직 효과를 가려내기 어렵다.
+        // 같은 조건의 단일 보스전을 만들어 부여 스킬이 더해지는 피해만 따로 본다.
+        val solo = BattlePlayerStats(
+            className = "테스트", skillName = "빠른 참격", fx = SkillEffectType.MELEE,
+            weapon = WeaponVisualType.SWORD, dps = 120_000.0, aps = 2.0, critChance = 0.0,
+            critMulti = 150.0, life = 9_000.0, es = 0.0, physRed = 60.0, evade = 0.0,
+            fireRes = 75.0, coldRes = 75.0, lightRes = 75.0, chaosRes = 0.0, ehp = 40_000.0,
+        )
+        val hollow = solo.copy(
+            ascendSkills = withAsc.ascendSkills,
+            hollowSkill = KitSkill("선회 공격", SkillMotion.WHIRLING_ASSAULT, 40_000.0, ComboRole.MAIN),
+        )
+        val plainSolo = BattleWorld(solo, BattleMode.BOSS, 1, amp = false, boss = BossPresets.ALL[0], seed = 11L)
+        val hollowSolo = BattleWorld(hollow, BattleMode.BOSS, 1, amp = false, boss = BossPresets.ALL[0], seed = 11L)
+        repeat(60 * 12) {
+            plainSolo.update(1.0 / 60.0)
+            hollowSolo.update(1.0 / 60.0)
+        }
+        println("[ASC] 단일 보스 → 전직 없음 ${plainSolo.damageDealt} · 전직 적용 ${hollowSolo.damageDealt} · 부여 ${hollowSolo.ascendDamage}")
+        assertTrue("단일 보스전에서 전직 부여 스킬이 안 돌았다", hollowSolo.ascendCasts > 0)
         assertTrue(
-            "전직 적용 후에도 피해가 늘지 않았다: ${plainResult.damageDealt} → ${boostedResult.damageDealt}",
-            boostedResult.damageDealt > plainResult.damageDealt,
+            "전직 부여 스킬이 피해를 더하지 않았다: ${plainSolo.damageDealt} → ${hollowSolo.damageDealt}",
+            hollowSolo.damageDealt > plainSolo.damageDealt,
         )
     }
 

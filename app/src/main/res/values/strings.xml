@@ -192,6 +192,8 @@
     <string name="battle_result_ascend">전직 부여 스킬 %1$d회 · 피해 %2$s</string>
     <string name="battle_result_combo">봇 콤보 %1$s · 상 %2$d · 와류 %3$d · 돌개바람 %4$d · 종 %5$d</string>
     <string name="battle_combo_plan">봇 콤보: %1$s</string>
+    <string name="battle_spirit_line">정신력 %1$d / %2$d 점유</string>
+    <string name="battle_result_minion">소환수 %1$s · 피해 %2$s · 처치 %3$d · 소환수 사망 %4$d · 두꺼비 폭발 %5$d회 · 암울한 결과 %6$s</string>
 
     <string name="bookmark_add">즐겨찾기 저장</string>
     <string name="bookmark_remove">즐겨찾기 해제</string>

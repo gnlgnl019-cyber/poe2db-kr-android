@@ -175,7 +175,32 @@ data class BattlePlayerStats(
     val kit: List<KitSkill> = emptyList(),
     /** 공허의 형상 안에 넣은 근접 공격 — 상이 이 스킬을 한 번 휘두른다 */
     val hollowSkill: KitSkill? = null,
+
+    /** 소환수·반려수 구성 (두꺼비·암울한 결과 포함) */
+    val minions: MinionPlan = MinionPlan.EMPTY,
+
+    /** 적용된 고유 아이템 효과 */
+    val uniqueSummary: String = "",
+    val uniqueEffects: List<String> = emptyList(),
+    val uniqueApplied: Int = 0,
+
+    /** 플레이어가 직접 때리는 빌드인지 (두꺼비처럼 소환수가 때리는 빌드는 false) */
+    val playerCarriesDps: Boolean = true,
+
+    /** 주력 스킬별 DPS와 그 합 */
+    val skillDpsList: List<PobCalculator.SkillDps> = emptyList(),
+    val totalDps: Double = 0.0,
+
+    /**
+     * 플레이어가 직접 때릴 때 쓰는 DPS.
+     * 두꺼비처럼 다른 개체가 피해를 내는 빌드에서는 `dps`(총 DPS)와 다르다.
+     * 음수면 `dps`를 그대로 쓴다.
+     */
+    val playerDps: Double = -1.0,
 ) {
+    /** 플레이어 평타 계산에 쓸 DPS */
+    val hitDps: Double get() = if (playerDps >= 0.0) playerDps else dps
+
     val element: DamageElement get() = fx.element
 
     /** 공허의 형상 — 근접 공격을 할 때마다 상을 내보낸다 */
@@ -191,6 +216,14 @@ data class BattlePlayerStats(
     /** 전장 HUD에 같이 보여줄 전직 효과 한 줄 */
     val ascendText: String
         get() = if (ascendSummary.isBlank()) "" else "✦ $ascendSummary"
+
+    /** 전장 HUD에 같이 보여줄 소환수 한 줄 */
+    val minionText: String
+        get() = if (minions.isEmpty) "" else "◈ ${minions.summary}"
+
+    /** 전장 HUD에 같이 보여줄 고유 효과 한 줄 */
+    val uniqueText: String
+        get() = if (uniqueSummary.isBlank()) "" else "⬩ $uniqueSummary"
 }
 
 enum class BattleMode(val label: String) { MAP("16T 맵핑"), BOSS("우버 보스") }
@@ -358,6 +391,57 @@ class Enemy(
     /** 와류·돌개바람에 휘말린 시간 (이동 30% 감소) */
     var slowT = 0f
     val shocked: Boolean get() = shockT > 0f
+
+    /** 지금 이 적이 노리는 대상 (소환수 어그로) */
+    var targetMinion: Minion? = null
+    var aggroTimer = 0f
+}
+
+/**
+ * 전장에 세워진 소환수·반려수 한 마리.
+ *
+ * 소환수는 적을 쫓아가 때리고, 적은 가까운 소환수를 먼저 물기도 한다. 죽으면
+ * `소환수 사망 시 시전`의 에너지가 차고, 부활하는 해골은 잠시 뒤 다시 일어난다.
+ */
+class Minion(
+    val type: MinionType,
+    var x: Float,
+    var y: Float,
+    val maxHp: Double,
+    /** 한 번 때릴 때의 피해 */
+    val hitDamage: Double,
+    val attackInterval: Double,
+) {
+    var hp = maxHp
+    var alive = true
+    var attackTimer = 0.3f + Random.nextDouble().toFloat() * 0.4f
+    var attackAnim = 0f
+    var walkPhase = Random.nextDouble().toFloat() * 6.28f
+    var facing = 0f
+    var deadFade = 0f
+    var hitFlash = 0f
+    var respawn = 0f
+    var leapT = 0f
+    var leapFromX = x
+    var leapFromY = y
+    var leapX = x
+    var leapY = y
+    var target: Enemy? = null
+    var aggroTimer = 0f
+    var anim = 0f
+
+    /** 두꺼비인지 (도약해 터진다) */
+    val isToad: Boolean get() = type.role == MinionRole.TOAD
+
+    val scale: Float get() = type.scale
+    val label: String get() = type.label
+}
+
+/** 저주받은 지대 — 도이드리의 파멸이 마녀두꺼비를 만드는 자리 */
+class CursedGround(var x: Float, var y: Float, val radius: Float, val element: DamageElement) {
+    var spawnTimer = 0f
+    var pulse = 0f
+    var toads = 0
 }
 
 enum class FxKind {
@@ -543,6 +627,13 @@ data class BattleResult(
     val whirlwindCasts: Int = 0,
     val twisterCasts: Int = 0,
     val bellCasts: Int = 0,
+    /** 소환수·반려수·두꺼비가 낸 피해와 처치 */
+    val minionDamage: Double = 0.0,
+    val minionKills: Int = 0,
+    val minionDeaths: Int = 0,
+    val toadExplosions: Int = 0,
+    val darkConsequencesDamage: Double = 0.0,
+    val minionText: String = "",
 )
 
 /** 메타젬 하나의 전투 결과 */
@@ -766,6 +857,8 @@ class BattleWorld(
     val mobCount: Int,
     val amp: Boolean,
     val boss: BossPreset?,
+    /** 난수 시드 — 같은 조건의 두 전투를 비교할 때 쓴다 (기본은 실행마다 다름) */
+    seed: Long = System.nanoTime(),
 ) {
     companion object {
         const val W = 640f
@@ -774,6 +867,8 @@ class BattleWorld(
         private const val MAX_FX = 220
         private const val MAX_PARTICLES = 420
         private const val MAX_POPUPS = 46
+        /** 대규모 무리에서 화면에 동시에 세우는 적 수 상한 */
+        const val ACTIVE_CAP = 120
         /** 한 프레임에 처리할 수 있는 최대 공격 횟수 (초고속 공속 대응) */
         private const val MAX_STRIKES_PER_STEP = 6
         /** 메타 에너지 100%(발동 1회)에 해당하는 피해량 */
@@ -801,6 +896,40 @@ class BattleWorld(
     val particles = ArrayList<Particle>()
     val popups = ArrayList<Popup>()
     val player = PlayerState(stats)
+
+    // ---------------------------------------------------------- 소환수·반려수
+    /** 지금 전장에 있는 소환수 (죽은 것 포함, 흐려지면 지운다) */
+    val minions = ArrayList<Minion>()
+    /** 저주받은 지대 — 도이드리의 파멸 */
+    val cursedGrounds = ArrayList<CursedGround>()
+    /** 두꺼비가 터질 때의 폭발 한 번 피해 */
+    private val darkHitPerExplosion: Double = run {
+        val plan = stats.minions
+        if (!plan.hasDarkConsequences) 0.0
+        else plan.darkConsequencesDps / (Minions.TOAD_PER_AREA * Minions.TOAD_AREAS / Minions.TOAD_CYCLE)
+    }
+    var minionDamage = 0.0
+        private set
+    var minionKills = 0
+        private set
+    var minionDeaths = 0
+        private set
+    var toadExplosions = 0
+        private set
+    var darkConsequencesDamage = 0.0
+        private set
+    /** 반려수가 한 번이라도 전장에 나왔는지 (화면·테스트 확인용) */
+    val companionCount: Int get() = minions.count { it.alive && it.type.companion }
+
+    // ---------------------------------------------------------- 대규모 무리 스폰 풀
+    /** 500마리처럼 큰 무리는 화면에 한꺼번에 세우지 않고 남은 무리를 순서대로 채운다 */
+    private val spawnQueue = ArrayDeque<EnemyKind>()
+    private var plannedEnemies = 0
+    /** 화면에 동시에 세우는 적 수 상한 (기기 성능 보호) */
+    private val activeCap: Int = if (mode == BattleMode.BOSS) 1 else ACTIVE_CAP
+    /** 지금까지 전장에 세운 적 수 */
+    var spawnedEnemies = 0
+        private set
 
     var elapsed = 0.0
         private set
@@ -831,7 +960,7 @@ class BattleWorld(
     private var slamX = 0f
     private var slamY = 0f
     private var slamRadius = 150f
-    private val rand = Random(System.nanoTime())
+    private val rand = Random(seed)
 
     val triggers: List<TriggerRuntime> =
         stats.triggers.map { spec ->
@@ -960,8 +1089,11 @@ class BattleWorld(
     var lastBurstLabel = ""
         private set
 
-    val totalEnemies: Int get() = enemies.size
+    /** 이번 전투에 나오는 전체 적 수 (스폰 대기 포함) */
+    val totalEnemies: Int get() = if (mode == BattleMode.BOSS) 1 else plannedEnemies
     val aliveCount: Int get() = enemies.count { it.alive }
+    /** 아직 전장에 세우지 않은 적 수 */
+    val pendingCount: Int get() = spawnQueue.size
     val bossEnemy: Enemy? get() = enemies.firstOrNull { it.boss != null }
     val maxPool: Double get() = player.baseLife + player.baseEs
 
@@ -987,19 +1119,111 @@ class BattleWorld(
                 boss = b,
             )
             enemies.add(e)
+            plannedEnemies = 1
             bannerText = b.name
             banner = 2.2f
+            spawnMinions()
             return
         }
-        val rares = max(1, mobCount / 20)
-        val magics = max(1, mobCount / 6)
-        val normals = max(1, mobCount - rares - magics)
-        var index = 0
-        repeat(normals) { spawn(EnemyKind.NORMAL, index++) }
-        repeat(magics) { spawn(EnemyKind.MAGIC, index++) }
-        repeat(rares) { spawn(EnemyKind.RARE, index++) }
+        plannedEnemies = mobCount.coerceAtLeast(1)
+        val rares = max(1, plannedEnemies / 20)
+        val magics = max(1, plannedEnemies / 6)
+        val normals = max(1, plannedEnemies - rares - magics)
+        // 화면에 바로 세울 수 있는 만큼만 채우고, 나머지는 처치되면 순서대로 리필한다.
+        repeat(normals) { spawnQueue.addLast(EnemyKind.NORMAL) }
+        repeat(magics) { spawnQueue.addLast(EnemyKind.MAGIC) }
+        repeat(rares) { spawnQueue.addLast(EnemyKind.RARE) }
+        refillSpawns()
         bannerText = if (amp) "${mobCount}마리 · 증폭 16T" else "${mobCount}마리 · 16T"
         banner = 1.6f
+        spawnMinions()
+    }
+
+    /** 소환수·반려수를 플레이어 주위에 세운다. 두꺼비는 저주받은 지대에서 나온다. */
+    private fun spawnMinions() {
+        val plan = stats.minions
+        if (plan.isEmpty) return
+        var index = 0
+        for (spawn in plan.spawns) {
+            val type = spawn.type
+            repeat(spawn.count) {
+                val angle = index * 2.399f + 0.6f
+                val ring = 52f + (index % 3) * 16f
+                val x = (player.x + cos(angle) * ring).coerceIn(40f, W - 30f)
+                val y = (player.y + sin(angle) * ring * 0.6f + 18f).coerceIn(80f, H - 40f)
+                val life = (stats.life + stats.es) * type.lifeShare * (1.0 + plan.spiritBudget * 0.0004)
+                val dps = plan.minionDps / max(1, plan.spawns.sumOf { it.count })
+                val interval = if (type.role == MinionRole.CASTER || type.ranged) 0.9 else 0.65
+                minions.add(
+                    Minion(
+                        type = type,
+                        x = x,
+                        y = y,
+                        maxHp = life.coerceAtLeast(30.0),
+                        hitDamage = (dps * interval).coerceAtLeast(1.0),
+                        attackInterval = interval,
+                    )
+                )
+                index++
+            }
+        }
+        if (plan.toadCount > 0) {
+            // 저주받은 지대 두 곳을 적 무리 쪽에 깐다.
+            repeat(Minions.TOAD_AREAS) { area ->
+                val ax = (W * 0.5f + (area - 0.5f) * 180f).coerceIn(120f, W - 80f)
+                val ay = (H * 0.42f + area * 90f).coerceIn(120f, H - 80f)
+                cursedGrounds.add(CursedGround(ax, ay, 96f, DamageElement.CHAOS))
+            }
+            // 각 지대는 0.25초마다 한 마리씩, 최대 4마리까지 만든다.
+            repeat(plan.toadCount) { i -> spawnToad(i) }
+        }
+    }
+
+    private fun toadType(level: Int): MinionType = MinionType(
+        key = "witchtoad",
+        nameKo = "마녀두꺼비",
+        nameEn = "Witchtoad",
+        role = MinionRole.TOAD,
+        element = DamageElement.CHAOS,
+        count = 1,
+        maxCount = 8,
+        dpsShare = 0.0,
+        lifeShare = 0.02,
+        spirit = 0.0,
+        speed = 66f,
+        scale = 0.42f,
+    )
+
+    private fun spawnToad(index: Int) {
+        val plan = stats.minions
+        if (plan.toadCount <= 0) return
+        val ground = cursedGrounds.getOrNull(index % cursedGrounds.size.coerceAtLeast(1)) ?: return
+        val type = toadType(plan.toadLevel)
+        val x = ground.x + (rand.nextFloat() - 0.5f) * ground.radius
+        val y = ground.y + (rand.nextFloat() - 0.5f) * ground.radius * 0.6f
+        val life = (stats.life + stats.es) * type.lifeShare
+        minions.add(
+            Minion(
+                type = type,
+                x = x,
+                y = y,
+                maxHp = life.coerceAtLeast(10.0),
+                hitDamage = darkHitPerExplosion.coerceAtLeast(1.0),
+                attackInterval = 1.0,
+            )
+        )
+        ground.toads = minions.count { it.alive && it.isToad }
+    }
+
+    /** 죽어서 흐려진 적을 지우고, 비어 있는 자리를 대기 중인 무리로 채운다. */
+    private fun refillSpawns() {
+        if (spawnQueue.isEmpty()) return
+        // 죽어서 흐려지는 중인 적이 쌓이면 먼저 치운다 (그릴 목록을 상한 안으로 유지).
+        if (enemies.size >= activeCap + 30) enemies.removeAll { !it.alive }
+        var guard = 0
+        while (aliveCount < activeCap && spawnQueue.isNotEmpty() && guard++ < activeCap) {
+            spawnNext(spawnQueue.removeFirst())
+        }
     }
 
     private fun spawn(kind: EnemyKind, index: Int) {
@@ -1041,6 +1265,62 @@ class BattleWorld(
                 slotAngle = index * 2.399f,
             )
         )
+        spawnedEnemies++
+    }
+
+    /**
+     * 대기 중인 무리를 하나 꺼내 세운다.
+     * 첫 화면을 채운 뒤에는 무리가 사방에서 들어오는 것처럼 가장자리에서 세운다.
+     */
+    private fun spawnNext(kind: EnemyKind) {
+        if (spawnedEnemies < activeCap) {
+            spawn(kind, spawnedEnemies)
+            return
+        }
+        val side = rand.nextInt(3)
+        val x: Float
+        val y: Float
+        when (side) {
+            0 -> {
+                x = W - 18f
+                y = 90f + rand.nextFloat() * (H - 160f)
+            }
+            1 -> {
+                x = 90f + rand.nextFloat() * (W - 150f)
+                y = H - 20f
+            }
+            else -> {
+                x = 90f + rand.nextFloat() * (W - 150f)
+                y = 60f
+            }
+        }
+        val hpMul = if (amp) 1.8 else 1.0
+        val hitMul = if (amp) 1.4 else 1.0
+        val element = when (kind) {
+            EnemyKind.NORMAL -> DamageElement.PHYSICAL
+            EnemyKind.MAGIC -> listOf(
+                DamageElement.FIRE, DamageElement.COLD, DamageElement.LIGHTNING,
+            )[rand.nextInt(3)]
+            else -> listOf(
+                DamageElement.FIRE, DamageElement.COLD, DamageElement.LIGHTNING, DamageElement.PHYSICAL,
+            )[rand.nextInt(4)]
+        }
+        enemies.add(
+            Enemy(
+                kind = kind,
+                x = x,
+                y = y,
+                maxHp = kind.hp * hpMul,
+                hit = kind.hit * hitMul,
+                interval = kind.interval,
+                element = element,
+                ranged = kind == EnemyKind.MAGIC || kind == EnemyKind.RARE,
+                speed = kind.speed * (0.9f + rand.nextFloat() * 0.2f),
+                scale = kind.scale * 0.82f,
+                slotAngle = rand.nextFloat() * 6.28f,
+            )
+        )
+        spawnedEnemies++
     }
 
     // ------------------------------------------------------------ 진행
@@ -1068,6 +1348,7 @@ class BattleWorld(
             meleeBudget = 2
         }
         updatePlayer(dt)
+        updateMinions(dt)
         updateBossPatterns(dt)
         updateTelegraphs(dt)
         updateAilments(dt)
@@ -1082,12 +1363,13 @@ class BattleWorld(
         updateTwisters(dt)
         updateBells(dt)
         updateStrikes(dt)
+        refillSpawns()
         if (player.life <= 0.0) {
             player.life = 0.0
             state = State.DEFEAT
             addBurst(player.x, player.y, 26, 0xFFFF5A5A.toInt(), 260f, 1.1f)
             shake = 12f
-        } else if (enemies.none { it.alive }) {
+        } else if (spawnQueue.isEmpty() && enemies.none { it.alive }) {
             state = State.VICTORY
         }
     }
@@ -1124,6 +1406,8 @@ class BattleWorld(
             e.attackAnim = max(0f, e.attackAnim - dt / 0.3f)
             if (!e.alive) e.deadFade = min(1f, e.deadFade + dt * 2.2f)
         }
+        // 흐려진 적은 지워 목록이 500마리까지 무한히 길어지지 않게 한다.
+        if (enemies.size > activeCap) enemies.removeAll { !it.alive }
         player.hurtFlash = max(0f, player.hurtFlash - dt * 4f)
     }
 
@@ -1240,14 +1524,19 @@ class BattleWorld(
         var strikes = 0
         while (player.attackTimer <= 0f && strikes < MAX_STRIKES_PER_STEP) {
             val target = nearest
+            player.attackTimer += interval
+            player.attackAnim = 1f
+            strikes++
+            if (!stats.playerCarriesDps) {
+                // 두꺼비·소환수가 때리는 빌드 — 플레이어는 저주/토템을 놓는 동작만 한다.
+                player.attackCount++
+                continue
+            }
             if (target == null) {
                 player.attackTimer = 0.1f
                 break
             }
-            player.attackTimer += interval
-            player.attackAnim = 1f
             player.attackCount++
-            strikes++
             takeTurn(target)
         }
         updateWhirl(dt)
@@ -1270,10 +1559,276 @@ class BattleWorld(
         return best
     }
 
+    private fun nearestEnemyTo(x: Float, y: Float, range: Float = Float.MAX_VALUE): Enemy? {
+        var best: Enemy? = null
+        var bestD = range * range
+        for (e in enemies) {
+            if (!e.alive) continue
+            val d = (e.x - x) * (e.x - x) + (e.y - y) * (e.y - y)
+            if (d < bestD) {
+                bestD = d
+                best = e
+            }
+        }
+        return best
+    }
+
+    // ------------------------------------------------------------ 소환수·반려수
+
+    /**
+     * 소환수·반려수가 적을 쫓아가 때리고, 두꺼비가 도약해 터진다.
+     * 소환수의 피해는 플레이어 피해와 따로 세어 결과에 적는다.
+     */
+    private fun updateMinions(dt: Float) {
+        if (minions.isEmpty() && cursedGrounds.isEmpty()) {
+            if (stats.minions.toadCount > 0) spawnMinions()
+            return
+        }
+        for (m in minions) {
+            m.hitFlash = max(0f, m.hitFlash - dt * 5f)
+            m.attackAnim = max(0f, m.attackAnim - dt * 3.2f)
+            if (!m.alive) {
+                m.deadFade = min(1f, m.deadFade + dt * 2f)
+                if (m.respawn > 0f) {
+                    m.respawn -= dt
+                    if (m.respawn <= 0f) {
+                        m.alive = true
+                        m.hp = m.maxHp
+                        m.deadFade = 0f
+                        m.x = player.x + (rand.nextFloat() - 0.5f) * 70f
+                        m.y = player.y + 26f + (rand.nextFloat() - 0.5f) * 30f
+                        addFx(FxKind.RING, m.x, m.y, radius = 30f, life = 0.4f, color = 0xFFE8E0C8.toInt())
+                    }
+                }
+                continue
+            }
+            m.anim += dt
+            m.walkPhase += dt * if (m.type.role == MinionRole.COMPANION) 12f else 8f
+            if (m.isToad) {
+                updateToad(m, dt)
+                continue
+            }
+            val target = nearestEnemyTo(m.x, m.y)
+            m.target = target
+            if (target == null) {
+                // 적이 없으면 플레이어 옆으로 모인다.
+                val dx = player.x - m.x
+                val dy = player.y + 20f - m.y
+                val dist = hypot(dx, dy)
+                if (dist > 60f) {
+                    m.x += dx / dist * m.type.speed * 0.6f * dt
+                    m.y += dy / dist * m.type.speed * 0.6f * dt
+                    m.facing = atan2(dy, dx)
+                }
+                continue
+            }
+            val dx = target.x - m.x
+            val dy = target.y - m.y
+            val dist = hypot(dx, dy).coerceAtLeast(0.001f)
+            m.facing = atan2(dy, dx)
+            val stop = if (m.type.ranged) 132f else 22f * m.type.scale
+            if (dist > stop) {
+                val speed = m.type.speed * (if (m.attackAnim > 0.4f) 0.4f else 1f)
+                m.x += dx / dist * speed * dt
+                m.y += dy / dist * speed * dt
+            }
+            m.x = m.x.coerceIn(26f, W - 26f)
+            m.y = m.y.coerceIn(64f, H - 26f)
+            m.attackTimer -= dt
+            if (m.attackTimer <= 0f && dist < stop + 36f) {
+                m.attackTimer = (m.attackInterval * (0.9 + rand.nextDouble() * 0.2)).toFloat()
+                m.attackAnim = 1f
+                val crit = rand.nextDouble() * 100.0 < stats.critChance * 0.6
+                val hit = m.hitDamage * (if (crit) stats.critMulti / 100.0 else 1.0) * (0.9 + rand.nextDouble() * 0.2)
+                minionStrike(m, target, hit, crit)
+                if (m.type.role == MinionRole.SUPPORT) {
+                    // 해골 성직자는 때리기보다 주변 소환수를 고친다.
+                    healMinions(m)
+                }
+            }
+        }
+        minions.removeAll { !it.alive && it.deadFade >= 1f && it.respawn <= 0f }
+        updateCursedGrounds(dt)
+    }
+
+    /** 소환수의 타격 — 적에게 피해를 넣고, 원거리면 투사체 대신 즉시 명중 연출 */
+    private fun minionStrike(m: Minion, target: Enemy, damage: Double, crit: Boolean) {
+        if (!target.alive) return
+        val element = m.type.element
+        val dealt = applyShield(target, damage)
+        target.hp -= dealt
+        damageDealt += dealt
+        minionDamage += dealt
+        target.hitFlash = 1f
+        addPopup(
+            target.x + (rand.nextFloat() - 0.5f) * 16f,
+            target.y - 46f * target.scale,
+            if (crit) "CRIT! ${formatShort(dealt)}" else formatShort(dealt),
+            crit,
+            0.5f,
+            if (crit) 0xFFFFC24D.toInt() else element.color,
+            0.72f,
+        )
+        if (m.type.ranged) {
+            addFx(FxKind.BOLT, m.x, m.y - 20f, x2 = target.x, y2 = target.y - 20f, life = 0.16f, color = element.color, width = 0.9f)
+        } else {
+            addFx(FxKind.SLASH, target.x, target.y - 20f, angle = m.facing, radius = 22f, life = 0.16f, color = element.color)
+        }
+        // 소환수의 속성으로도 상태이상이 걸린다.
+        when (element) {
+            DamageElement.FIRE -> if (rand.nextDouble() < 0.18) {
+                target.igniteT = max(target.igniteT, 2.6f)
+                target.igniteDps = max(target.igniteDps, m.hitDamage * 0.15)
+            }
+            DamageElement.COLD -> if (rand.nextDouble() < 0.12) target.freezeT = max(target.freezeT, 1.4f)
+            DamageElement.LIGHTNING -> if (rand.nextDouble() < 0.15) target.shockT = max(target.shockT, 2.4f)
+            else -> Unit
+        }
+        if (target.hp <= 0.0) {
+            minionKills++
+            killEnemy(target)
+        }
+    }
+
+    private fun healMinions(source: Minion) {
+        var healed = false
+        for (other in minions) {
+            if (other === source || !other.alive) continue
+            if (other.hp < other.maxHp * 0.7 && hypot(other.x - source.x, other.y - source.y) < 140f) {
+                other.hp = min(other.maxHp, other.hp + other.maxHp * 0.06)
+                healed = true
+            }
+        }
+        if (healed) addFx(FxKind.RING, source.x, source.y, radius = 44f, life = 0.35f, color = 0xFF9CE8B0.toInt())
+    }
+
+    /** 두꺼비 — 가까운 적에게 도약해 터진다 */
+    private fun updateToad(m: Minion, dt: Float) {
+        if (m.leapT > 0f) {
+            m.leapT -= dt / 0.42f
+            val t = (1f - m.leapT).coerceIn(0f, 1f)
+            m.x = m.leapFromX + (m.leapX - m.leapFromX) * t
+            m.y = m.leapFromY + (m.leapY - m.leapFromY) * t - sin(t * 3.14159f) * 38f
+            m.facing = atan2(m.leapY - m.leapFromY, m.leapX - m.leapFromX)
+            if (m.leapT <= 0f) explodeToad(m)
+            return
+        }
+        m.attackTimer -= dt
+        val target = nearestEnemyTo(m.x, m.y, 260f)
+        if (target != null && m.attackTimer <= 0f) {
+            m.attackTimer = 0.45f + rand.nextFloat() * 0.35f
+            m.leapFromX = m.x
+            m.leapFromY = m.y
+            m.leapX = target.x
+            m.leapY = target.y
+            m.leapT = 1f
+        } else if (target == null) {
+            // 적이 없으면 저주받은 지대 안에서 팔짝인다.
+            val ground = cursedGrounds.minByOrNull { hypot(it.x - m.x, it.y - m.y) }
+            if (ground != null && m.attackTimer <= 0f) {
+                m.attackTimer = 1.1f
+                m.leapFromX = m.x
+                m.leapFromY = m.y
+                m.leapX = (ground.x + (rand.nextFloat() - 0.5f) * ground.radius).coerceIn(30f, W - 30f)
+                m.leapY = (ground.y + (rand.nextFloat() - 0.5f) * ground.radius * 0.6f).coerceIn(70f, H - 30f)
+                m.leapT = 1f
+            }
+        }
+    }
+
+    /** 마녀두꺼비 폭발 — 암울한 결과 */
+    private fun explodeToad(m: Minion) {
+        if (!m.alive) return
+        m.alive = false
+        m.deadFade = 0f
+        val radius = aoe(74f)
+        val element = DamageElement.CHAOS
+        addFx(FxKind.CLOUD, m.x, m.y, radius = radius, life = 0.55f, color = element.color)
+        addFx(FxKind.IMPACT, m.x, m.y, radius = radius, life = 0.35f, color = 0xFFD9C4FF.toInt())
+        addFx(FxKind.RING, m.x, m.y, radius = radius, life = 0.4f, color = 0xFFB07AFF.toInt())
+        addBurst(m.x, m.y - 10f, 14, element.color, 260f, 0.6f)
+        var hits = 0
+        for (e in enemies) {
+            if (!e.alive) continue
+            if (hypot(e.x - m.x, e.y - m.y) > radius + 16f * e.scale) continue
+            val dealt = applyShield(e, darkHitPerExplosion.coerceAtLeast(1.0) * (0.9 + rand.nextDouble() * 0.2))
+            e.hp -= dealt
+            damageDealt += dealt
+            minionDamage += dealt
+            darkConsequencesDamage += dealt
+            e.hitFlash = 1f
+            hits++
+            if (e.hp <= 0.0) {
+                minionKills++
+                killEnemy(e)
+            }
+        }
+        toadExplosions++
+        if (hits > 0) addPopup(m.x, m.y - 30f, "암울한 결과", false, 0.7f, 0xFFC9A6FF.toInt(), 0.9f)
+    }
+
+    /** 저주받은 지대 — 0.25초마다 두꺼비를 하나씩 만든다 */
+    private fun updateCursedGrounds(dt: Float) {
+        if (cursedGrounds.isEmpty()) return
+        cursedGrounds.forEachIndexed { index, ground ->
+            ground.pulse += dt
+            val aliveToads = minions.count { it.alive && it.isToad }
+            ground.toads = aliveToads
+            if (stats.minions.toadCount <= 0) return@forEachIndexed
+            if (aliveToads >= stats.minions.toadCount) return@forEachIndexed
+            ground.spawnTimer -= dt
+            if (ground.spawnTimer <= 0f) {
+                ground.spawnTimer = 0.25f
+                val toadsHere = minions.count { it.alive && it.isToad && hypot(it.x - ground.x, it.y - ground.y) < ground.radius * 1.4f }
+                if (toadsHere < Minions.TOAD_PER_AREA) spawnToad(index)
+            }
+        }
+    }
+
+    /** 소환수가 맞는다 */
+    private fun hitMinion(m: Minion, raw: Double, fromX: Float, fromY: Float) {
+        if (!m.alive) return
+        // 소환수는 저항이 따로 없어 원소 피해를 그대로 받는다.
+        m.hp -= raw
+        m.hitFlash = 1f
+        addPopup(m.x, m.y - 30f, formatShort(raw), false, 0.4f, 0xFFFF9A9A.toInt(), 0.62f)
+        addFx(FxKind.SLASH, fromX, fromY, angle = atan2(m.y - fromY, m.x - fromX), radius = 20f, life = 0.16f, color = 0xFFFF6A6A.toInt())
+        if (m.hp <= 0.0) killMinion(m)
+    }
+
+    private fun killMinion(m: Minion) {
+        if (!m.alive) return
+        m.alive = false
+        m.hp = 0.0
+        m.deadFade = 0f
+        minionDeaths++
+        addBurst(m.x, m.y - 8f, 10, 0xFFE8E0C8.toInt(), 200f, 0.6f)
+        // 소환수 사망 시 시전 — 유지형 소환수가 쓰러지면 메타 에너지가 찬다.
+        if (!m.isToad) fireEvent(TriggerCondition.MINION_DEATH, null, 1.0)
+        var total = 0
+        for (other in minions) if (other.alive && other.type.key == m.type.key) total++
+        if (total == 0) {
+            // 수가 줄면 일정 시간 뒤 다시 세운다.
+            m.respawn = 5.0f
+        }
+    }
+
+    /** 소환수 전체에게 들어오는 광역 피해 (보스 장판·함성) */
+    private fun damageMinionsInRadius(x: Float, y: Float, radius: Float, damage: Double) {
+        for (m in minions) {
+            if (!m.alive || m.isToad) continue
+            if (hypot(m.x - x, m.y - y) <= radius) {
+                m.hp -= damage * 0.7
+                m.hitFlash = 1f
+                if (m.hp <= 0.0) killMinion(m)
+            }
+        }
+    }
+
     /** PoB DPS를 평균 피해로 환산 (치명타 기대값 포함) */
     private fun baseHitDamage(): Double {
         val aps = effectiveAps()
-        val dps = stats.dps.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        val dps = stats.hitDps.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val critFactor = 1.0 + (stats.critChance / 100.0) * (stats.critMulti / 100.0 - 1.0)
         val perHit = dps / aps
         val factor = critFactor.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
@@ -2202,8 +2757,27 @@ class BattleWorld(
             val frozen = e.freezeT > 0f
             val walkRate = if (e.kind == EnemyKind.BOSS && e.boss != null) 5f else 8f
             e.walkPhase += dt * walkRate
-            val dx = player.x - e.x
-            val dy = player.y - e.y
+            // 소환수 어그로 — 가까운 소환수가 있으면 그쪽으로 돌아선다.
+            e.aggroTimer -= dt
+            if (e.aggroTimer <= 0f || e.targetMinion?.alive != true) {
+                e.aggroTimer = 0.7f + rand.nextFloat() * 0.6f
+                var pick: Minion? = null
+                var pickD = 190f * 190f
+                for (m in minions) {
+                    if (!m.alive || m.type.untargetable) continue
+                    val d2 = (m.x - e.x) * (m.x - e.x) + (m.y - e.y) * (m.y - e.y)
+                    if (d2 < pickD) {
+                        pickD = d2
+                        pick = m
+                    }
+                }
+                e.targetMinion = if (pick != null && rand.nextDouble() < 0.72) pick else null
+            }
+            val targetM = e.targetMinion?.takeIf { it.alive && !it.type.untargetable }
+            val tx = targetM?.x ?: player.x
+            val ty = targetM?.y ?: player.y
+            val dx = tx - e.x
+            val dy = ty - e.y
             val dist = hypot(dx, dy).coerceAtLeast(0.001f)
             val stop = if (e.ranged) 168f else 26f * e.scale
             val bossNow = e.boss
@@ -2213,6 +2787,7 @@ class BattleWorld(
                     bossPulseTimer = 2.2f
                     if (dist < 380f) {
                         hitPlayer(maxPool * 0.09, bossNow.element, false, e.x, e.y)
+                        damageMinionsInRadius(e.x, e.y, 190f, maxPool * 0.05)
                         addFx(FxKind.AURA, e.x, e.y, radius = 150f, life = 0.55f, color = bossNow.element.color)
                     }
                 }
@@ -2231,8 +2806,8 @@ class BattleWorld(
             if (dist > stop) {
                 val pull = if (dist > 300f) 1f else 0.82f
                 val ang = e.slotAngle + (elapsed * 0.10).toFloat()
-                val aimX = player.x + cos(ang) * stop * 0.9f
-                val aimY = player.y + sin(ang) * stop * 0.9f
+                val aimX = tx + cos(ang) * stop * 0.9f
+                val aimY = ty + sin(ang) * stop * 0.9f
                 val ax = aimX - e.x
                 val ay = aimY - e.y
                 val ad = hypot(ax, ay).coerceAtLeast(0.001f)
@@ -2273,10 +2848,21 @@ class BattleWorld(
                 if (bossNow != null && e.attackCount % 4 == 3) {
                     beginSlam(e)
                 } else if (e.ranged) {
-                    enemyShoot(e, dx / dist, dy / dist)
+                    if (targetM != null) {
+                        // 원거리 몬스터가 소환수를 노린다
+                        addFx(FxKind.BOLT, e.x, e.y - 30f, x2 = targetM.x, y2 = targetM.y - 16f, life = 0.16f, color = e.element.color, width = 1f)
+                        hitMinion(targetM, e.hit, e.x, e.y)
+                    } else {
+                        enemyShoot(e, dx / dist, dy / dist)
+                    }
                 } else {
-                    hitPlayer(e.hit, e.element, true, e.x, e.y)
-                    addFx(FxKind.SLASH, fastX(e.x, dx, dist), fastY(e.y, dy, dist), angle = atan2(dy, dx), radius = 32f, life = 0.2f, color = 0xFFB06060.toInt())
+                    if (targetM != null) {
+                        hitMinion(targetM, e.hit, e.x, e.y)
+                        addFx(FxKind.SLASH, fastX(e.x, dx, dist), fastY(e.y, dy, dist), angle = atan2(dy, dx), radius = 30f, life = 0.2f, color = 0xFFB06060.toInt())
+                    } else {
+                        hitPlayer(e.hit, e.element, true, e.x, e.y)
+                        addFx(FxKind.SLASH, fastX(e.x, dx, dist), fastY(e.y, dy, dist), angle = atan2(dy, dx), radius = 32f, life = 0.2f, color = 0xFFB06060.toInt())
+                    }
                 }
             }
         }
@@ -2344,6 +2930,7 @@ class BattleWorld(
                 hitPlayer(e.hit * 1.35, e.element, false, e.x, e.y, heavy = true)
             }
         }
+        damageMinionsInRadius(slamX, slamY, slamRadius, e.hit * 1.2)
     }
 
     private fun updateDots(dt: Float) {
@@ -2802,6 +3389,7 @@ class BattleWorld(
         if (!e.alive) return
         e.alive = false
         e.hp = 0.0
+        // 무리 리필은 step 끝에서 한다 (적 목록을 도는 중에 바꾸면 안 된다).
         kills++
         addBurst(e.x, e.y, if (e.kind == EnemyKind.BOSS) 40 else 12, 0xFFE8D9B8.toInt(), if (e.kind == EnemyKind.BOSS) 420f else 250f, 0.9f)
         addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
@@ -3516,7 +4104,27 @@ class BattleWorld(
             whirlwindCasts = whirlwindCasts,
             twisterCasts = twisterCasts,
             bellCasts = bellCasts,
+            minionDamage = minionDamage,
+            minionKills = minionKills,
+            minionDeaths = minionDeaths,
+            toadExplosions = toadExplosions,
+            darkConsequencesDamage = darkConsequencesDamage,
+            minionText = stats.minions.summary,
         )
+    }
+
+    /** 전장 HUD에 보여줄 소환수 줄 — 살아 있는 소환수 수와 두꺼비 폭발 횟수 */
+    fun minionHud(): String {
+        if (stats.minions.isEmpty) return ""
+        val alive = minions.count { it.alive && !it.isToad }
+        val toads = minions.count { it.alive && it.isToad }
+        val parts = ArrayList<String>()
+        if (alive > 0) parts.add("소환수 $alive")
+        if (stats.minions.toadCount > 0) {
+            parts.add("두꺼비 $toads/${stats.minions.toadCount}")
+            if (toadExplosions > 0) parts.add("암울한 결과 $toadExplosions")
+        }
+        return if (parts.isEmpty()) "" else parts.joinToString(" · ")
     }
 
 }

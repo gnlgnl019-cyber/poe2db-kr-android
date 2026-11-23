@@ -71,7 +71,8 @@ class RealBuildPobTest {
     fun battleRunsWithRealBuild() {
         val stats = BattleSetup.statsFor(build, dict = dict)!!
         val world = BattleWorld(stats, BattleMode.MAP, 25, amp = false, boss = null)
-        repeat(60 * 60) { world.update(1.0 / 60.0) }
+        // 암울한 결과(두꺼비 폭발)가 주력인 빌드라 25마리를 잡는 데 시간이 걸린다.
+        repeat(60 * 150) { world.update(1.0 / 60.0) }
         println("[TEST] state=${world.state} elapsed=${world.elapsed} kills=${world.kills}/${world.totalEnemies}")
         println("[TEST] damage=${world.damageDealt} taken=${world.damageTaken} life=${world.player.life}")
         assertTrue("피해량이 무한·NaN이다", world.damageDealt.isFinite())
@@ -87,8 +88,14 @@ class RealBuildPobTest {
         assertTrue("스킬 칩이 비었다", options.isNotEmpty())
         assertTrue("스킬 칩이 너무 많다: ${options.size}", options.size <= BattleSetup.SKILL_CHIP_LIMIT)
         val allGems = build.skills.flatMap { it.gems }.map { it.name }.toSet()
+        // 도이드리의 파멸이 발동시키는 암울한 결과는 젬 이름이 아니라 보조 젬이 만드는 스킬이다.
+        val triggered = if (Minions.darkConsequencesGroup(build) != null) {
+            setOf(Minions.DARK_CONSEQUENCES_EN)
+        } else {
+            emptySet()
+        }
         options.forEach { option ->
-            assertTrue("빌드에 없는 스킬이 칩에 올라왔다: ${option.gem}", option.gem in allGems)
+            assertTrue("빌드에 없는 스킬이 칩에 올라왔다: ${option.gem}", option.gem in allGems || option.gem in triggered)
         }
     }
 

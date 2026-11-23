@@ -34,12 +34,24 @@ object BattleSetup {
         build: PobBuild?,
         dict: KrDict = KrDict.EMPTY,
         limit: Int = SKILL_CHIP_LIMIT,
+        /** 계산된 스킬별 DPS (있으면 PoB 값 대신 이 값을 쓴다) */
+        dpsByName: Map<String, Double> = emptyMap(),
     ): List<BattleSkillOption> {
         if (build == null || limit <= 0) return emptyList()
         val main = Pob.mainGroup(build, 0)
         // 주력 그룹을 먼저 본다. 나머지는 PoB에 적힌 순서 그대로.
         val groups = build.skills.filter { it.enabled }.sortedBy { if (it === main) 0 else 1 }
         val out = LinkedHashMap<String, BattleSkillOption>()
+        // 도이드리의 파멸처럼 보조 젬이 발동시키는 스킬은 젬 목록에 없으므로 맨 앞에 따로 올린다.
+        if (PobCalculator.isDarkConsequences(build)) {
+            val direct = dpsByName[TriggerKind.normalizeName(Minions.DARK_CONSEQUENCES_EN)]
+            out[Minions.DARK_CONSEQUENCES_EN.lowercase()] = BattleSkillOption(
+                gem = Minions.DARK_CONSEQUENCES_EN,
+                name = dict.gemName(Minions.DARK_CONSEQUENCES_EN).ifBlank { Minions.DARK_CONSEQUENCES_KO },
+                fx = SkillEffectType.CHAOS,
+                dps = direct?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            )
+        }
         for (group in groups) {
             for (gem in group.gems) {
                 if (!gem.enabled) continue
@@ -47,11 +59,12 @@ object BattleSetup {
                 if (PobTriggers.kindOf(gem) != null) continue
                 val key = gem.name.trim().lowercase()
                 if (key.isEmpty() || out.containsKey(key)) continue
+                val direct = dpsByName[TriggerKind.normalizeName(gem.name)]
                 out[key] = BattleSkillOption(
                     gem = gem.name,
                     name = dict.gemName(gem.name).ifBlank { gem.name },
                     fx = SkillEffects.detect(gem.name, group.label),
-                    dps = skillDps(build, gem.name),
+                    dps = direct?.takeIf { it.isFinite() && it > 0.0 } ?: skillDps(build, gem.name),
                 )
                 if (out.size >= limit) return out.values.toList()
             }
@@ -194,19 +207,28 @@ object BattleSetup {
         if (build == null) return null
         // 빌드에 찍힌 전직 노드를 먼저 모아 두고, 그 효과를 수치 계산과 전투 양쪽에 넘긴다.
         val ascend = AscendancyEffects.profile(build, tree)
-        val calc = PobCalculator.compute(build, overrides, flasks, config, ascend)
+        val unique = UniqueEffects.profile(build, overrides, dict)
+        val calc = PobCalculator.compute(build, overrides, flasks, config, ascend, unique)
         val picked = activeSkill(build, skillOverride)
         val group = picked?.second ?: Pob.mainGroup(build, mainGroupPreference)
         val mainGem = picked?.first ?: mainGemOf(group)
-        val skillName = mainGem?.name ?: group?.label?.ifBlank { null } ?: build.className.ifBlank { "기본 공격" }
-        val fx = SkillEffects.detect(skillName, group?.label.orEmpty())
+        val dark = picked == null && PobCalculator.isDarkConsequences(build)
+        val skillName = when {
+            dark -> Minions.DARK_CONSEQUENCES_EN
+            else -> mainGem?.name ?: group?.label?.ifBlank { null } ?: build.className.ifBlank { "기본 공격" }
+        }
+        val fx = if (dark) SkillEffectType.CHAOS else SkillEffects.detect(skillName, group?.label.orEmpty())
         val weaponItem = Pob.weaponItem(build, overrides)
         val weapon = weaponItem?.weapon?.takeIf { it != WeaponVisualType.NONE }
             ?: WeaponTypes.detect(weaponItem?.itemClass, weaponItem?.baseType, weaponItem?.name)
                 .takeIf { it != WeaponVisualType.NONE }
             ?: WeaponTypes.fallbackFor(fx)
         val form = WeaponTypes.attackForm(weapon, fx)
-        val skillKo = dict.gemName(skillName).ifBlank { skillName }
+        val skillKo = if (dark) {
+            dict.gemName(skillName).ifBlank { Minions.DARK_CONSEQUENCES_KO }
+        } else {
+            dict.gemName(skillName).ifBlank { skillName }
+        }
         val weaponLabel = listOf(
             weapon.label,
             dict.name(weaponItem?.name.orEmpty()).ifBlank { weaponItem?.name.orEmpty() },
@@ -214,8 +236,14 @@ object BattleSetup {
         ).filter { it.isNotBlank() }.distinct().joinToString(" · ")
         val scale = if (calc.dpsBase > 0) calc.dpsNow / calc.dpsBase else 1.0
         // 고른 스킬의 DPS가 PoB에 있으면 그 값을 쓴다. 없으면 빌드 주력 DPS로 둔다.
-        val pickedDps = picked?.first?.let { skillDps(build, it.name) }?.takeIf { it > 0 }
-        val dpsNow = pickedDps?.times(scale) ?: calc.dpsNow
+        // 고른 스킬의 DPS는 계산기가 낸 스킬별 값을 먼저 쓰고, 없으면 PoB Full DPS 목록을 본다.
+        val pickedDps = picked?.first?.let { gem ->
+            val key = TriggerKind.normalizeName(gem.name)
+            calc.skillDps.firstOrNull { TriggerKind.normalizeName(it.name) == key }
+                ?.dps?.takeIf { it.isFinite() && it > 0.0 }
+                ?: skillDps(build, gem.name).takeIf { it > 0.0 }
+        }
+        val dpsNow = if (dark) calc.dpsNow else pickedDps?.times(scale) ?: calc.dpsNow
         val triggers = when (triggerMode) {
             TriggerMode.OFF -> emptyList()
             TriggerMode.TEST -> PobTriggers.synthetic(dpsNow)
@@ -228,6 +256,21 @@ object BattleSetup {
         }
         val evade = (calc.evasionNow / (calc.evasionNow + 7500.0) * 92.0).coerceAtMost(80.0)
         val res = calc.resists
+        // 500마리처럼 큰 무리를 세워도 정신력·자리 문제로 모두 나오지는 않는다.
+        val minions = Minions.plan(
+            build = build,
+            stats = build.stats,
+            mainIsSummon = Minions.typeOf(skillName) != null && !dark,
+            playerDps = dpsNow,
+            darkHitOverride = build.stats["AverageHit"] ?: 0.0,
+            critChance = calc.critNow.takeIf { it > 0 } ?: 7.0,
+            critMulti = calc.critMultiNow.takeIf { it > 100 } ?: 150.0,
+        )
+        // 두꺼비 빌드에서 플레이어가 직접 때리는 스킬(철퇴·선회 등)의 DPS.
+        // 암울한 결과 DPS를 플레이어 평타에 또 쓰면 두 번 세게 되므로 따로 잡는다.
+        val ownDps = calc.skillDps
+            .filter { TriggerKind.normalizeName(it.name) != TriggerKind.normalizeName(Minions.DARK_CONSEQUENCES_EN) }
+            .maxOfOrNull { it.dps } ?: 0.0
         return BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
                 .filter { it.isNotBlank() }.joinToString(" · "),
@@ -251,8 +294,8 @@ object BattleSetup {
             dpsBase = calc.dpsBase,
             weaponLabel = weaponLabel,
             triggers = triggers,
-            dpsEstimated = pickedDps == null && calc.dpsEstimated,
-            dpsInfinite = pickedDps == null && calc.dpsInfinite,
+            dpsEstimated = pickedDps == null && calc.dpsEstimated && !dark,
+            dpsInfinite = pickedDps == null && calc.dpsInfinite && !dark,
             ascendName = ascend?.ascendKo.orEmpty(),
             ascendSummary = ascend?.summary.orEmpty(),
             ascendNodes = ascend?.keyNames.orEmpty(),
@@ -279,6 +322,14 @@ object BattleSetup {
             motion = SkillMotions.detect(skillName, group?.label.orEmpty(), skillKo),
             kit = kitSkills(build, dict, skillName, scale),
             hollowSkill = hollowSocketSkill(build, dict, scale),
+            minions = minions,
+            uniqueSummary = unique.summary,
+            uniqueEffects = unique.effects,
+            uniqueApplied = unique.applied.size,
+            playerDps = if (dark) ownDps else -1.0,
+            playerCarriesDps = if (dark) ownDps > 0.0 else Minions.typeOf(skillName) == null,
+            skillDpsList = calc.skillDps,
+            totalDps = calc.totalDps,
         )
     }
 }

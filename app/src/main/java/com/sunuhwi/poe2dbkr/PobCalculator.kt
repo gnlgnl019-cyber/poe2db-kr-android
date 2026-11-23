@@ -60,6 +60,14 @@ object PobCalculator {
 
     data class StatLine(val label: String, val base: Double, val now: Double, val unit: String = "", val better: Int = 1)
 
+    /** 주력 스킬 하나의 DPS (PoB 값이 없으면 추정) */
+    data class SkillDps(
+        val name: String,
+        val dps: Double,
+        val estimated: Boolean = false,
+        val note: String = "",
+    )
+
     data class Result(
         val mods: Mods,
         val dpsBase: Double,
@@ -101,6 +109,11 @@ object PobCalculator {
         val ascendApplied: Int = 0,
         val ascendTotal: Int = 0,
         val ascendSummary: String = "",
+        /** 주력 스킬별 DPS와 그 합 */
+        val skillDps: List<SkillDps> = emptyList(),
+        val totalDps: Double = 0.0,
+        /** 주력 스킬 이름 */
+        val mainSkill: String = "",
     )
 
     /** 옵션 한 줄을 스탯 증감으로 환산한다. 영문/한글 주요 패턴만 인식한다. */
@@ -193,6 +206,8 @@ object PobCalculator {
         config: Config = Config(),
         /** 불러운 빌드에 찍힌 전직 노드 효과 */
         ascend: AscendancyEffects.Profile? = null,
+        /** 장착한 고유 아이템의 특수 효과 */
+        unique: UniqueEffects.Profile = UniqueEffects.EMPTY,
     ): Result {
         // 1. 장비 변동: 슬롯별 (새 아이템 - 원본 아이템) 옵션 차이
         var gear = Mods()
@@ -249,6 +264,7 @@ object PobCalculator {
         val total = gear + support + cfg
 
         // 4. 스탯 재계산
+        val mainName = mainSkillName(build)
         val speedStat = stat(build, "AttacksPerSecond", "CastsPerSecond", "Speed", "HitSpeed")
         val averageHit = stat(build, "AverageHit", "AverageDamage")
         val critBase = stat(build, "CritChance").takeIf { it > 0 } ?: 5.0
@@ -263,7 +279,7 @@ object PobCalculator {
         // PoB가 DPS를 비우거나 무한(inf)으로 내보낸 빌드가 있다. 그럴 때만 직접 어림한다.
         val dpsFromHit = if (averageHit > 0 && speedStat > 0) {
             val critFactor = 1.0 + (critBase / 100.0) * (critMultiBase / 100.0 - 1.0).coerceAtLeast(0.0)
-            averageHit * speedStat * critFactor
+            averageHit * speedStat * hitsPerUse(mainName) * critFactor
         } else {
             0.0
         }
@@ -279,7 +295,11 @@ object PobCalculator {
         //  - 그 밖의 수치는 PoB가 이미 PlayerStat에 합산했으므로 다시 곱하지 않는다.
         val ascExtraProj = ascend?.sim?.extraProjectiles ?: 0
         val ascProjectileFactor = if (dpsEstimated && ascExtraProj > 0) 1.0 + ascExtraProj else 1.0
-        val dpsNow = dpsBase * dmgFactor * ascProjectileFactor
+        val skillName = mainName
+        val projectile = SkillEffects.detect(skillName) != SkillEffectType.MELEE
+        val uniqueFactor = UniqueEffects.damageFactor(unique, projectile, dpsEstimated)
+        val darkDps = if (isDarkConsequences(build)) darkConsequencesDps(build, critMultiBase) else 0.0
+        val dpsNow = if (darkDps > 0.0) darkDps else dpsBase * dmgFactor * ascProjectileFactor * uniqueFactor
         val apsNow = apsBase * (1 + speedPct / 100)
 
         val critNow = (critBase * (1 + total.critChancePct / 100)).coerceAtMost(100.0)
@@ -352,7 +372,160 @@ object PobCalculator {
             ascendApplied = ascend?.nodes?.count { it.hasSim } ?: 0,
             ascendTotal = ascend?.count ?: 0,
             ascendSummary = ascend?.summary.orEmpty(),
+            skillDps = distribute(build, dpsNow, dpsEstimated || darkDps > 0.0, skillName, scale = dpsNow / dpsBase.coerceAtLeast(0.0001)),
+            totalDps = dpsNow,
+            mainSkill = skillName,
         )
+    }
+
+    /** 공격 한 번에 여러 번 명중하는 스킬의 명중 횟수 (PoB가 HitSpeed를 비울 때의 보정) */
+    fun hitsPerUse(skillName: String): Double {
+        val key = TriggerKind.normalizeName(skillName)
+        if (key.isEmpty()) return 1.0
+        return when {
+            key.contains("whirling assault") || key.contains("선회 공격") -> 3.0
+            key.contains("flicker strike") || key.contains("질풍") || key.contains("점멸") -> 2.0
+            key.contains("tempest") || key.contains("폭풍의 종") -> 1.6
+            key.contains("barrage") || key.contains("연발") || key.contains("rapid") -> 2.4
+            key.contains("spark") || key.contains("전기불꽃") -> 1.4
+            key.contains("sunder") || key.contains("분쇄") -> 1.3
+            else -> 1.0
+        }
+    }
+
+    /**
+     * PoB의 주력 스킬 이름.
+     * `mainActiveSkill`이 보조 젬(도이드리의 파멸)을 가리키면 그 보조 젬이 발동하는
+     * 암울한 결과가 실제 주력 스킬이다.
+     */
+    fun mainSkillName(build: PobBuild): String {
+        val group = Pob.mainGroup(build, 0) ?: return build.className.ifBlank { "기본 공격" }
+        val gems = group.gems.filter { it.enabled }
+        // 도이드리의 파멸이 붙은 저주는 저주가 아니라 두꺼비 폭발(암울한 결과)로 피해를 낸다.
+        // 주문 토템처럼 저주를 옭아주는 젬이 주력으로 잡혀도 실제 피해 스킬은 암울한 결과다.
+        if (gems.any { Minions.isDoedre(it.name) } && gems.any { Minions.isCurseGem(it.name) }) {
+            return Minions.DARK_CONSEQUENCES_EN
+        }
+        val wanted = group.mainActiveSkill
+        if (wanted > 0) {
+            gems.getOrNull(wanted - 1)?.let { gem ->
+                if (!isSupport(gem) && PobTriggers.kindOf(gem) == null) return gem.name
+            }
+        }
+        val actives = gems.filter { !isSupport(it) && PobTriggers.kindOf(it) == null }
+        return actives.firstOrNull()?.name ?: group.title
+    }
+
+    /** 빌드 주력이 도이드리의 파멸로 발동하는 암울한 결과인지 */
+    fun isDarkConsequences(build: PobBuild): Boolean {
+        val group = Minions.darkConsequencesGroup(build) ?: return false
+        // 저주 젬이 같이 있어야 두꺼비가 나온다.
+        return group.gems.any { it.enabled && Minions.isCurseGem(it.name) }
+    }
+
+    /**
+     * 암울한 결과의 초당 피해.
+     * PoB는 이 스킬을 inf로 내보내므로(두꺼비가 계속 터진다) `AverageHit`과 두꺼비 수·생성 주기로 어림한다.
+     */
+    fun darkConsequencesDps(build: PobBuild, critMultiBase: Double = 150.0): Double {
+        val group = Minions.darkConsequencesGroup(build) ?: return 0.0
+        val level = group.gems.filter { it.enabled }
+            .maxOfOrNull { gem -> if (Minions.isCurseGem(gem.name)) gem.level else 0 }
+            ?.takeIf { it > 0 } ?: 20
+        val (low, high) = Minions.darkConsequencesDamage(level)
+        val avg = (low + high) / 2.0
+        val hit = stat(build, "AverageHit").takeIf { it > 0 } ?: avg
+        val crit = stat(build, "CritChance").takeIf { it > 0 } ?: 7.0
+        val critFactor = 1.0 + (crit / 100.0) * (critMultiBase / 100.0 - 1.0).coerceAtLeast(0.0)
+        val rate = Minions.TOAD_PER_AREA * Minions.TOAD_AREAS / Minions.TOAD_CYCLE
+        return hit * rate * critFactor
+    }
+
+    /**
+     * 주력 스킬별 DPS 목록.
+     * PoB Full DPS 목록이 있으면 그 값을, 없으면 전체 DPS를 보조 젬·젬 레벨 비중으로 나눈다.
+     * 주력 스킬이 암울한 결과면 두꺼비 폭발이 전체 DPS가 된다.
+     */
+    fun distribute(
+        build: PobBuild,
+        total: Double,
+        estimated: Boolean,
+        mainName: String,
+        scale: Double = 1.0,
+    ): List<SkillDps> {
+        val out = LinkedHashMap<String, SkillDps>()
+        val full = build.fullDpsSkills.filter { it.dps.isFinite() && it.dps > 0.0 }
+        if (full.isNotEmpty()) {
+            val factor = scale.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+            full.forEach { skill ->
+                val key = TriggerKind.normalizeName(skill.name)
+                if (key.isEmpty()) return@forEach
+                val value = skill.dps * factor
+                val old = out[key]
+                out[key] = SkillDps(skill.name, (old?.dps ?: 0.0) + value, false)
+            }
+        }
+        // 주력 스킬이 목록에 없으면 넣는다 (PoB가 주력만 TotalDPS로 내보내는 경우).
+        val mainKey = TriggerKind.normalizeName(mainName)
+        if (mainKey.isNotEmpty() && out.keys.none { it == mainKey }) {
+            val rest = out.values.sumOf { it.dps }
+            val share = if (out.isEmpty()) total else (total - rest).coerceAtLeast(0.0)
+            out[mainKey] = SkillDps(mainName, share, estimated)
+        }
+        if (out.isEmpty()) {
+            if (total > 0.0) out[mainKey.ifEmpty { "주력" }] = SkillDps(mainName.ifBlank { "주력" }, total, estimated)
+            return out.values.toList()
+        }
+        // PoB가 스킬별 값을 주지 않았으면 보조 젬·레벨 비중으로 전체를 나눈다.
+        if (full.isEmpty()) {
+            val skills = build.skills.filter { it.enabled }
+                .flatMap { group ->
+                    group.gems.filter { it.enabled && !isSupport(it) && PobTriggers.kindOf(it) == null }
+                        .map { gem -> gem to group }
+                }
+                .distinctBy { it.first.name.lowercase() }
+            if (skills.isNotEmpty()) {
+                val weights = LinkedHashMap<String, Double>()
+                skills.forEach { (gem, group) ->
+                    val supportPct = group.gems.filter { it.enabled && isSupport(it) }
+                        .sumOf { g -> SUPPORT_GEMS[g.name.lowercase()]?.dmgPct ?: 0.0 }
+                    weights[gem.name] = ((1.0 + supportPct / 100.0) * (1.0 + (gem.level - 20) * 0.02))
+                        .coerceAtLeast(0.05)
+                }
+                // 주력 스킬은 같은 무게라도 눈에 띄게 큰 몫을 갖도록 가중치를 준다.
+                val mainGemName = weights.keys.firstOrNull { TriggerKind.normalizeName(it) == mainKey }
+                val raw = LinkedHashMap<String, Double>()
+                weights.forEach { (name, weight) ->
+                    val bonus = if (name == mainGemName) 3.0 else 1.0
+                    raw[name] = weight * bonus
+                }
+                val rawSum = raw.values.sum()
+                if (rawSum > 0.0) {
+                    out.clear()
+                    // 주력이 젬 목록에 없는 발동 스킬(암울한 결과 등)이면 55%를 먼저 떼어 준다.
+                    val mainRaw = if (mainGemName != null) raw.getValue(mainGemName) else 0.0
+                    val otherSum = (rawSum - mainRaw).coerceAtLeast(0.0001)
+                    val mainShare = if (mainGemName != null) {
+                        (mainRaw / rawSum).coerceAtLeast(0.55)
+                    } else {
+                        0.55
+                    }
+                    raw.forEach { (name, weight) ->
+                        if (name == mainGemName) return@forEach
+                        val share = (weight / otherSum) * (1.0 - mainShare)
+                        out[name] = SkillDps(name, total * share, estimated)
+                    }
+                    val mainLabel = mainGemName ?: mainKey.ifEmpty { "주력" }
+                    out[mainLabel] = SkillDps(
+                        mainGemName ?: mainName,
+                        total * mainShare,
+                        estimated,
+                        note = if (mainGemName == null) "발동 스킬" else "",
+                    )
+                }
+            }
+        }
+        return out.values.sortedByDescending { it.dps }
     }
 
     /** PoB가 DPS로 내보내는 스탯 이름들 */
