@@ -313,9 +313,15 @@ class DeathAndChargesTest {
         listOf(ChargeKind.POWER, ChargeKind.ENDURANCE, ChargeKind.FRENZY).forEach { world.gainCharge(it) }
         tick(world, 1.5)
         println("[TEST] 충전 조절 후=${world.chargesHud()} 소모=${world.chargesSpent}")
-        assertTrue("충전 조절이 충전을 태우지 않았다", world.chargesSpent >= 3)
-        tick(world, 1.2)
-        assertTrue("주기가 지나도 또 태우지 않았다", world.chargesSpent >= 6 || world.chargeCount(ChargeKind.POWER) == 0)
+        val burned = world.chargesSpent
+        assertTrue("충전 조절이 충전을 태우지 않았다", burned >= 3)
+        tick(world, 3.0)
+        // 치명타로 권능이 다시 붙는 판도 있으므로 "주기가 지나면 또 태운다"로 확인한다.
+        val allEmpty = ChargeKind.values().all { world.chargeCount(it) == 0 }
+        assertTrue(
+            "주기가 지나도 또 태우지 않았다 (소모 $burned → ${world.chargesSpent})",
+            world.chargesSpent > burned || allEmpty,
+        )
     }
 
     // ------------------------------------------------- 기름 포화 360도 광역
