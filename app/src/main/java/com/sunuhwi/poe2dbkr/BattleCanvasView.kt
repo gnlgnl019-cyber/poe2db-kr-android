@@ -226,7 +226,9 @@ class BattleCanvasView @JvmOverloads constructor(
         drawFloor(canvas, w)
         drawTelegraphs(canvas, w)
         drawGroundFx(canvas, w)
+        drawWhirlwinds(canvas, w)
         drawEntities(canvas, w)
+        drawTwisters(canvas, w)
         drawProjectiles(canvas, w)
         drawAirFx(canvas, w)
         drawParticles(canvas, w)
@@ -419,13 +421,17 @@ class BattleCanvasView @JvmOverloads constructor(
     // -------------------------------------------------------------- 엔티티
 
     private fun drawEntities(canvas: Canvas, w: BattleWorld) {
-        val list = ArrayList<Any>(w.enemies.size + 1)
+        val list = ArrayList<Any>(w.enemies.size + w.phantoms.size + w.bells.size + 1)
         for (e in w.enemies) if (e.alive || e.deadFade < 1f) list.add(e)
+        for (b in w.bells) list.add(b)
+        for (p in w.phantoms) list.add(p)
         list.add(w.player)
         list.sortBy { o ->
             when (o) {
                 is Enemy -> o.y
                 is PlayerState -> o.y
+                is Bell -> o.y
+                is Phantom -> o.y
                 else -> 0f
             }
         }
@@ -433,6 +439,8 @@ class BattleCanvasView @JvmOverloads constructor(
             when (o) {
                 is Enemy -> drawEnemy(canvas, w, o)
                 is PlayerState -> drawPlayer(canvas, w)
+                is Bell -> drawBell(canvas, w, o)
+                is Phantom -> drawPhantom(canvas, w, o)
             }
         }
     }
@@ -468,18 +476,189 @@ class BattleCanvasView @JvmOverloads constructor(
             c.drawCircle(p.x, p.y - 26f, 34f + 26f * (1f - g), stroke)
         }
         val bodyColor = blend(0xFFF4F0E4.toInt(), 0xFFFF5555.toInt(), p.hurtFlash * 0.85f)
-        drawStickman(
-            c = c, x = p.x, y = p.y, s = 1.62f,
-            body = bodyColor, accent = element.color,
-            facing = p.facing, walk = p.walkPhase, moving = p.moving,
-            attack = p.attackAnim, weapon = st.weapon, form = st.form,
-            glow = 0.35f + breath * 0.25f,
-        )
+        if (p.whirlTimer > 0f) {
+            // 선회 공격 — 몸을 크게 돌리며 주변을 벤다. 회전 궤적을 같이 남긴다.
+            val spin = p.whirlAngle
+            c.save()
+            c.rotate(Math.toDegrees(spin.toDouble()).toFloat(), p.x, p.y - 28f)
+            drawStickman(
+                c = c, x = p.x, y = p.y, s = 1.62f,
+                body = bodyColor, accent = element.color,
+                facing = spin, walk = p.walkPhase, moving = p.moving,
+                attack = 1f, weapon = st.weapon, form = st.form,
+                glow = 0.55f + breath * 0.25f,
+            )
+            c.restore()
+            val ring = 46f + sin(spin * 2f) * 4f
+            stroke.color = alpha(0xFFEAF4FF.toInt(), 170)
+            stroke.strokeWidth = 2.4f
+            c.drawOval(p.x - ring, p.y - ring * 0.45f, p.x + ring, p.y + ring * 0.45f, stroke)
+            stroke.color = alpha(0xFFBFD8FF.toInt(), 110)
+            stroke.strokeWidth = 1.2f
+            c.drawOval(p.x - ring * 0.7f, p.y - ring * 0.32f, p.x + ring * 0.7f, p.y + ring * 0.32f, stroke)
+            stroke.color = alpha(0xFFDCE8FF.toInt(), 150)
+            stroke.strokeWidth = 1.5f
+            for (i in 0 until 3) {
+                val a = spin + i * 2.09f
+                c.drawLine(
+                    p.x + cos(a) * 26f, p.y - 30f + sin(a) * 12f,
+                    p.x + cos(a) * 52f, p.y - 24f + sin(a) * 24f, stroke,
+                )
+            }
+        } else {
+            drawStickman(
+                c = c, x = p.x, y = p.y, s = 1.62f,
+                body = bodyColor, accent = element.color,
+                facing = p.facing, walk = p.walkPhase, moving = p.moving,
+                attack = p.attackAnim, weapon = st.weapon, form = st.form,
+                glow = 0.35f + breath * 0.25f,
+            )
+        }
         if (w.state == BattleWorld.State.DEFEAT) {
             stroke.color = 0x99FF4444.toInt()
             stroke.strokeWidth = 1.6f
             c.drawLine(p.x - 21f, p.y - 58f, p.x - 9f, p.y - 46f, stroke)
             c.drawLine(p.x - 9f, p.y - 58f, p.x - 21f, p.y - 46f, stroke)
+        }
+    }
+
+    /**
+     * 공허의 형상이 빗어 낸 상.
+     * 플레이어와 같은 스틱맨 실루엣을 보랏빛 반투명으로 그리고, 회전 각도에 맞춰 몸을 돌린다.
+     */
+    private fun drawPhantom(c: Canvas, w: BattleWorld, p: Phantom) {
+        val fade = p.fade
+        if (fade <= 0.03f) return
+        val purple = 0xFFB07AFF.toInt()
+        val glow = (70 + 50 * sin(w.elapsed * 16.0).toFloat()) * fade
+        fill.shader = RadialGradient(
+            p.x, p.y - 10f, 52f,
+            intArrayOf(alpha(purple, glow.toInt().coerceIn(0, 255)), 0x00000000),
+            null, Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(p.x, p.y - 10f, 52f, fill)
+        fill.shader = null
+        stroke.color = alpha(purple, (120 * fade).toInt())
+        stroke.strokeWidth = 1.6f
+        c.drawOval(p.x - 24f, p.y - 10f, p.x + 24f, p.y + 10f, stroke)
+
+        c.save()
+        c.rotate(Math.toDegrees((p.spin * 0.55f).toDouble()).toFloat(), p.x, p.y - 28f)
+        drawStickman(
+            c = c, x = p.x, y = p.y, s = 1.55f,
+            body = withAlpha(0xFFD9C4FF.toInt(), (170 * fade).toInt()),
+            accent = withAlpha(purple, (200 * fade).toInt()),
+            facing = p.facing, walk = p.age * 9f, moving = true,
+            attack = 1f, weapon = p.weapon, form = p.form,
+            glow = 0.45f * fade,
+        )
+        c.restore()
+
+        // 위로 끊어지듯 흩어지는 보랏빛 잔재
+        fill.color = alpha(purple, (110 * fade).toInt())
+        for (i in 0 until 4) {
+            val a = p.spin + i * 1.57f
+            val r = 12f + (p.age * 40f + i * 5f) % 26f
+            c.drawCircle(p.x + cos(a) * r, p.y - 20f - (p.age * 46f + i * 7f) % 30f, 2.2f - i * 0.3f, fill)
+        }
+    }
+
+    /** 폭풍의 종·공허의 종 — 땅에 박힌 채 흔들리는 종 */
+    private fun drawBell(c: Canvas, w: BattleWorld, b: Bell) {
+        val fade = b.fade
+        if (fade <= 0.03f) return
+        val gold = if (b.ghost) 0xFFD8C3A0.toInt() else 0xFFFFD98A.toInt()
+        val sway = sin(w.elapsed * 5.2f).toFloat() * (2f + b.swing * 8f)
+        fill.color = 0x55000000
+        c.drawOval(b.x - 22f, b.y - 7f, b.x + 22f, b.y + 7f, fill)
+        stroke.color = alpha(gold, (110 * fade).toInt())
+        stroke.strokeWidth = 1.6f
+        c.drawOval(b.x - 26f, b.y - 10f, b.x + 26f, b.y + 10f, stroke)
+
+        val topX = b.x + sway
+        val topY = b.y - 52f
+        path.reset()
+        path.moveTo(b.x - 17f, b.y - 4f)
+        path.cubicTo(b.x - 17f, b.y - 38f, topX - 7f, topY + 6f, topX - 6f, topY)
+        path.lineTo(topX + 6f, topY)
+        path.cubicTo(topX + 7f, topY + 6f, b.x + 17f, b.y - 38f, b.x + 17f, b.y - 4f)
+        path.close()
+        fill.shader = LinearGradient(
+            b.x, topY, b.x + 18f, b.y,
+            intArrayOf(alpha(gold, (220 * fade).toInt()), alpha(0xFF8A6A2E.toInt(), (190 * fade).toInt())),
+            null, Shader.TileMode.CLAMP,
+        )
+        c.drawPath(path, fill)
+        fill.shader = null
+        stroke.color = alpha(0xFFFFF3D0.toInt(), (180 * fade).toInt())
+        stroke.strokeWidth = 1.4f
+        c.drawPath(path, stroke)
+        // 꼭지와 종가락
+        fill.color = alpha(gold, (220 * fade).toInt())
+        c.drawCircle(topX, topY - 5f, 4f, fill)
+        stroke.color = alpha(0xFFFFF3D0.toInt(), (150 * fade).toInt())
+        stroke.strokeWidth = 1.2f
+        c.drawLine(topX, topY - 9f, topX - sway * 0.5f, topY - 18f, stroke)
+
+        // 울린 직후 펴지는 충격파 고리
+        if (b.swing > 0.02f) {
+            val r = 30f + (1f - b.swing) * 92f
+            stroke.color = alpha(0xFFFFE9A8.toInt(), (170 * b.swing * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 2.4f
+            c.drawOval(b.x - r, b.y - r * 0.42f, b.x + r, b.y + r * 0.42f, stroke)
+        }
+    }
+
+    /** 소용돌이 베기가 남긴 와류 — 바닥에서 도는 회오리 고리 */
+    private fun drawWhirlwinds(c: Canvas, w: BattleWorld) {
+        for (v in w.whirlwinds) {
+            val fade = v.fade
+            if (fade <= 0.03f) continue
+            fill.color = alpha(0xFF9FC4FF.toInt(), (22 * fade).toInt().coerceIn(0, 255))
+            c.drawOval(v.x - v.radius, v.y - v.radius * 0.5f, v.x + v.radius, v.y + v.radius * 0.5f, fill)
+            for (k in 0 until 3) {
+                val r = v.radius * (0.52f + k * 0.22f)
+                val spin = (w.elapsed * (2.1f + k * 0.7f)).toFloat() + k * 2.0f
+                stroke.color = alpha(
+                    if (k == 0) 0xFFE6F0FF.toInt() else 0xFFBFD8FF.toInt(),
+                    ((120 - k * 26) * fade).toInt().coerceIn(0, 255),
+                )
+                stroke.strokeWidth = 2.4f - k * 0.5f
+                rect.set(v.x - r, v.y - r * 0.5f, v.x + r, v.y + r * 0.5f)
+                c.drawArc(rect, Math.toDegrees(spin.toDouble()).toFloat(), 210f, false, stroke)
+            }
+            // 단계만큼 위로 솟는 먼지 기둥
+            fill.color = alpha(0xFFD6F0FF.toInt(), (90 * fade).toInt().coerceIn(0, 255))
+            c.drawCircle(v.x, v.y - 14f - v.stage * 6f, 3f + v.stage, fill)
+        }
+    }
+
+    /** 돌개바람 — 위로 좁아지는 회오리 깔때기 */
+    private fun drawTwisters(c: Canvas, w: BattleWorld) {
+        for (t in w.twisters) {
+            val fade = t.fade
+            if (fade <= 0.03f) continue
+            val tall = if (t.amplified) 132f else 104f
+            val tint = if (t.amplified) 0xFFE8F6FF.toInt() else 0xFFE2D8BE.toInt()
+            fill.color = alpha(tint, (26 * fade).toInt().coerceIn(0, 255))
+            c.drawOval(t.x - t.radius, t.y - t.radius * 0.46f, t.x + t.radius, t.y + t.radius * 0.46f, fill)
+            for (i in 0 until 6) {
+                val f = i / 5f
+                val r = t.radius * (0.95f - f * 0.62f)
+                val y = t.y - tall * f
+                val spin = (w.elapsed * (7f + i * 0.6f)).toFloat() + i * 1.1f
+                stroke.color = alpha(tint, ((150 - i * 16) * fade).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 2.6f - i * 0.25f
+                rect.set(t.x - r, y - r * 0.34f, t.x + r, y + r * 0.34f)
+                c.drawArc(rect, Math.toDegrees(spin.toDouble()).toFloat(), 240f, false, stroke)
+            }
+            // 휘말린 티끌
+            fill.color = alpha(0xFFF4F0E4.toInt(), (90 * fade).toInt().coerceIn(0, 255))
+            for (i in 0 until 3) {
+                val a = w.elapsed.toFloat() * 6f + i * 2.1f
+                val y = t.y - 20f - i * 26f
+                c.drawCircle(t.x + cos(a) * (t.radius * 0.5f), y, 1.8f, fill)
+            }
         }
     }
 
@@ -1833,6 +2012,52 @@ class BattleCanvasView @JvmOverloads constructor(
                     c.drawCircle(p.x, p.y, 21f, fill)
                     fill.shader = null
                 }
+                ProjKind.GRENADE -> {
+                    // 통통 튀는 유탄: 포물선 높이를 그대로 화면에 올린다
+                    val hop = sin(min(1f, p.lift * 1.6f) * 3.1416f) * 22f
+                    val gx = p.x
+                    val gy = p.y - hop
+                    fill.color = 0x33000000
+                    c.drawOval(gx - 7f, p.y + 2f, gx + 7f, p.y + 7f, fill)
+                    fill.shader = RadialGradient(
+                        gx - 2f, gy - 3f, 11f,
+                        intArrayOf(0xFF8A939E.toInt(), 0xFF3B424B.toInt(), 0xFF1C2026.toInt()),
+                        null, Shader.TileMode.CLAMP,
+                    )
+                    c.drawCircle(gx, gy, 9f, fill)
+                    fill.shader = null
+                    // 점화된 신관 — 퓨즈가 줄수록 빨라진다
+                    stroke.color = 0xFFC9A066.toInt()
+                    stroke.strokeWidth = 1.6f
+                    c.drawLine(gx + 3f, gy - 8f, gx + 7f, gy - 14f, stroke)
+                    val spark = 0.5f + 0.5f * sin((w.elapsed * (18.0 - p.fuse * 6.0)).toFloat())
+                    fill.shader = RadialGradient(
+                        gx + 7f, gy - 15f, 8f,
+                        intArrayOf(alpha(0xFFFFE9A8.toInt(), 240), alpha(0xFFFF7B3C.toInt(), 120), 0x00000000),
+                        null, Shader.TileMode.CLAMP,
+                    )
+                    c.drawCircle(gx + 7f, gy - 15f, 8f, fill)
+                    fill.shader = null
+                    fill.color = alpha(0xFFFFFFFF.toInt(), (200 * spark).toInt().coerceIn(0, 255))
+                    c.drawCircle(gx + 7f, gy - 15f, 2.4f, fill)
+                }
+                ProjKind.ICE_SHARD -> {
+                    // 얼음 화살이 부수러뜨린 파편
+                    c.save()
+                    c.rotate(Math.toDegrees(kotlin.math.atan2(p.dirY, p.dirX).toDouble()).toFloat(), p.x, p.y)
+                    path.reset()
+                    path.moveTo(9f, 0f)
+                    path.lineTo(-4f, -3.2f)
+                    path.lineTo(-1f, 0f)
+                    path.lineTo(-4f, 3.2f)
+                    path.close()
+                    fill.color = 0xFFE8FCFF.toInt()
+                    c.drawPath(path, fill)
+                    stroke.color = 0xCC8FE6FF.toInt()
+                    stroke.strokeWidth = 1f
+                    c.drawPath(path, stroke)
+                    c.restore()
+                }
                 ProjKind.ENEMY_BOLT -> {
                     fill.shader = RadialGradient(
                         p.x, p.y, 15f,
@@ -1941,7 +2166,11 @@ class BattleCanvasView @JvmOverloads constructor(
         val ascend = w.ascendHud()
         val ascendLines = if (ascend.isBlank()) emptyList()
         else wrapText(ascend, max(80f * dp, badgeW - 20f * dp), 2)
-        val badgeH = (27f + (triggerLines.size + ascendLines.size) * 11f) * dp
+        // 봇이 돌리는 콤보도 배지 안에 한 줄 붙인다.
+        val combo = w.comboHud()
+        val comboLines = if (combo.isBlank()) emptyList()
+        else wrapText(combo, max(80f * dp, badgeW - 20f * dp), 1)
+        val badgeH = (27f + (triggerLines.size + ascendLines.size + comboLines.size) * 11f) * dp
 
         rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
@@ -1976,6 +2205,15 @@ class BattleCanvasView @JvmOverloads constructor(
             textLight.textSize = 9.5f * dp
             ascendLines.forEachIndexed { index, line ->
                 val y = pad + (33f + (triggerLines.size + index) * 11f) * dp
+                c.drawText(line, pad + 10f * dp, y, textLight)
+            }
+            textLight.textSize = 10f * dp
+        }
+        if (comboLines.isNotEmpty()) {
+            textLight.color = 0xFFBFE4FF.toInt()
+            textLight.textSize = 9.5f * dp
+            comboLines.forEachIndexed { index, line ->
+                val y = pad + (33f + (triggerLines.size + ascendLines.size + index) * 11f) * dp
                 c.drawText(line, pad + 10f * dp, y, textLight)
             }
             textLight.textSize = 10f * dp

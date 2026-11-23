@@ -190,6 +190,8 @@
     <string name="battle_trigger_none">트리거 없음 · PoB에 치명타 시 시전 같은 메타 젬이 없습니다</string>
     <string name="battle_result_trigger">트리거 발동 %1$d회 · 트리거 피해 %2$s</string>
     <string name="battle_result_ascend">전직 부여 스킬 %1$d회 · 피해 %2$s</string>
+    <string name="battle_result_combo">봇 콤보 %1$s · 상 %2$d · 와류 %3$d · 돌개바람 %4$d · 종 %5$d</string>
+    <string name="battle_combo_plan">봇 콤보: %1$s</string>
 
     <string name="bookmark_add">즐겨찾기 저장</string>
     <string name="bookmark_remove">즐겨찾기 해제</string>

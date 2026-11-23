@@ -1503,6 +1503,12 @@ class MainActivity : AppCompatActivity() {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
                 getString(if (stats.dpsInfinite) R.string.pob_dps_infinite else R.string.pob_dps_missing)
         }
+        // 빌드에 준비 단계가 필요한 콤보가 엮여 있으면 순서를 미리 보여 준다.
+        val plan = ComboPlanner.plan(stats.motion, stats.kit)
+        if (plan.size > 1) {
+            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
+                getString(R.string.battle_combo_plan, ComboPlanner.summary(plan))
+        }
         // 빌드에 찍힌 전직 노드 효과 — 전투에 얼마나 반영됐는지 같이 적는다.
         if (stats.ascendSummary.isNotBlank()) {
             val suffix = if (stats.ascendApplied > 0) {
@@ -1642,7 +1648,19 @@ class MainActivity : AppCompatActivity() {
                 BattleWorld.formatShort(result.ascendDamage),
             )
         } else ""
-        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine
+        // 봇이 어떤 콤보를 돌렸고 준비 스킬이 몇 번 나갔는지
+        val comboCount = result.phantomCasts + result.whirlwindCasts + result.twisterCasts + result.bellCasts
+        val comboLine = if (result.comboName.isNotBlank() && comboCount > 0) {
+            "\n" + getString(
+                R.string.battle_result_combo,
+                result.comboName,
+                result.phantomCasts,
+                result.whirlwindCasts,
+                result.twisterCasts,
+                result.bellCasts,
+            )
+        } else ""
+        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine + comboLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false

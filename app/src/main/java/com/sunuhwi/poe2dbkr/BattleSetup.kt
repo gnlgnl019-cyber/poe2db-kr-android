@@ -68,6 +68,82 @@ object BattleSetup {
             .sumOf { it.dps }
     }
 
+    /**
+     * 빌드에 같이 들어 있는 액티브 스킬 중 모션을 아는 것만 골라 콤보 재료로 넘긴다.
+     * 소용돌이 베기·돌개바람·폭풍의 종·살상 장법처럼 준비 단계가 있는 스킬이 여기로 들어온다.
+     */
+    fun kitSkills(
+        build: PobBuild?,
+        dict: KrDict = KrDict.EMPTY,
+        main: String = "",
+        scale: Double = 1.0,
+        limit: Int = 6,
+    ): List<KitSkill> {
+        if (build == null || limit <= 0) return emptyList()
+        val mainKey = main.trim().lowercase()
+        val seen = HashSet<String>()
+        val out = ArrayList<KitSkill>()
+        for (group in build.skills) {
+            if (!group.enabled) continue
+            for (gem in group.gems) {
+                if (!gem.enabled) continue
+                if (PobCalculator.isSupport(gem)) continue
+                if (PobTriggers.kindOf(gem) != null) continue
+                val key = gem.name.trim().lowercase()
+                if (key.isEmpty() || key == mainKey) continue
+                if (!seen.add(key)) continue
+                val motion = SkillMotions.detect(gem.name, group.label)
+                if (motion == SkillMotion.DEFAULT) continue
+                val dps = (skillDps(build, gem.name) * scale).takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+                out.add(
+                    KitSkill(
+                        name = dict.gemName(gem.name).ifBlank { gem.name },
+                        motion = motion,
+                        dps = dps,
+                        role = SkillMotions.roleOf(motion),
+                    )
+                )
+                if (out.size >= limit) return out
+            }
+        }
+        return out
+    }
+
+    /**
+     * 공허의 형상 안에 넣은 근접 공격 스킬.
+     * 상이 플레이어 대신 휘두르는 스킬이라, 상의 모션과 피해를 이 스킬로 잡는다.
+     */
+    fun hollowSocketSkill(build: PobBuild?, dict: KrDict = KrDict.EMPTY, scale: Double = 1.0): KitSkill? {
+        if (build == null) return null
+        for (group in build.skills) {
+            if (!group.enabled) continue
+            val label = group.label.lowercase()
+            val isForm = group.gems.any { gem ->
+                gem.enabled && (
+                    gem.name.lowercase().contains("hollow form") ||
+                        gem.name.contains("공허의 형상")
+                    )
+            } || label.contains("hollow form") || label.contains("공허의 형상")
+            if (!isForm) continue
+            for (gem in group.gems) {
+                if (!gem.enabled) continue
+                if (PobCalculator.isSupport(gem)) continue
+                val key = gem.name.lowercase()
+                if (key.contains("hollow") || gem.name.contains("공허")) continue
+                val motion = SkillMotions.detect(gem.name, group.label)
+                if (motion == SkillMotion.DEFAULT) continue
+                val dps = (skillDps(build, gem.name) * scale).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                return KitSkill(
+                    name = dict.gemName(gem.name).ifBlank { gem.name },
+                    motion = motion,
+                    dps = dps,
+                    role = SkillMotions.roleOf(motion),
+                )
+            }
+        }
+        return null
+    }
+
     /** 빌드에서 켜져 있는 그 액티브 스킬(과 그 그룹). 보조 젬·메타젬은 고르지 않는다. */
     private fun activeSkill(build: PobBuild, name: String?): Pair<PobGem, PobSkillGroup>? {
         val key = name?.trim()?.lowercase().orEmpty()
@@ -200,6 +276,9 @@ object BattleSetup {
             lifeLeechPct = calc.ascendLifeLeechPct,
             metaEnergyPct = ascend?.sim?.metaEnergyPct ?: 0.0,
             cooldownRatePct = ascend?.sim?.cooldownPct ?: 0.0,
+            motion = SkillMotions.detect(skillName, group?.label.orEmpty(), skillKo),
+            kit = kitSkills(build, dict, skillName, scale),
+            hollowSkill = hollowSocketSkill(build, dict, scale),
         )
     }
 }

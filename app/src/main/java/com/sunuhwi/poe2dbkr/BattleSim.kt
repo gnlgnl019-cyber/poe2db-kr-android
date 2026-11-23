@@ -169,8 +169,20 @@ data class BattlePlayerStats(
     val metaEnergyPct: Double = 0.0,
     /** 재사용 대기시간 회복 속도 증가(%) — 메타젬·부여 스킬 간격을 줄인다 */
     val cooldownRatePct: Double = 0.0,
+    /** 스킬 이름으로 고른 인게임 모션 (선회 공격·돌개바람 등) */
+    val motion: SkillMotion = SkillMotions.detect(skillName),
+    /** 같은 빌드에 들어 있어 봇이 콤보로 엮는 액티브 스킬들 */
+    val kit: List<KitSkill> = emptyList(),
+    /** 공허의 형상 안에 넣은 근접 공격 — 상이 이 스킬을 한 번 휘두른다 */
+    val hollowSkill: KitSkill? = null,
 ) {
     val element: DamageElement get() = fx.element
+
+    /** 공허의 형상 — 근접 공격을 할 때마다 상을 내보낸다 */
+    val hollowForm: Boolean get() = ascendSkills.any { it.name.contains("형상") }
+
+    /** 공허의 집중 — 실체 없는 종을 주기적으로 띄운다 */
+    val hollowFocus: Boolean get() = ascendSkills.any { it.name.contains("집중") }
 
     /** 전장 HUD에 같이 보여줄 트리거 설명 */
     val triggerText: String
@@ -300,6 +312,11 @@ class PlayerState(stats: BattlePlayerStats) {
     var dodgeCooldown = 0f
     /** 순간이동 직후의 잔상 시간 */
     var blinkGlow = 0f
+    /** 선회 공격의 남은 회전 시간과 회전 각도 */
+    var whirlTimer = 0f
+    var whirlAngle = 0f
+    var whirlVx = 0f
+    var whirlVy = 0f
 }
 
 class Enemy(
@@ -338,6 +355,8 @@ class Enemy(
     var igniteDps = 0.0
     /** 올로스의 룬 보호막처럼 피해를 흡수하는 임시 보호막 */
     var shield = 0.0
+    /** 와류·돌개바람에 휘말린 시간 (이동 30% 감소) */
+    var slowT = 0f
     val shocked: Boolean get() = shockT > 0f
 }
 
@@ -386,7 +405,13 @@ class Popup(
     var size: Float = 1f,
 )
 
-enum class ProjKind { ICE_ARROW, LIGHT_ARROW, FIRE_ORB, FROST_ORB, CHAOS_ORB, MINION_ORB, BOLT, ARROW, SPARK, ENEMY_BOLT }
+enum class ProjKind {
+    ICE_ARROW, LIGHT_ARROW, FIRE_ORB, FROST_ORB, CHAOS_ORB, MINION_ORB, BOLT, ARROW, SPARK, ENEMY_BOLT,
+    /** 폭발 유탄 — 포물선으로 튕겼다가 퓨즈가 타면 터진다 */
+    GRENADE,
+    /** 얼음 화살 착탄 때 떨어지는 파편 */
+    ICE_SHARD,
+}
 
 class Projectile(
     var x: Float,
@@ -402,7 +427,89 @@ class Projectile(
     val kind: ProjKind,
     var life: Float = 3f,
     var trail: MutableList<Float> = ArrayList(),
+    /** 전기불꽃처럼 좌우로 흔들리며 가는 투사체의 흔들림 폭 */
+    var wobble: Float = 0f,
+    /** 유탄의 남은 퓨즈(초) */
+    var fuse: Float = 0f,
+    /** 유탄이 그리는 포물선 높이 */
+    var lift: Float = 0f,
 )
+
+/**
+ * 공허의 형상이 깨우는 상.
+ *
+ * 플레이어가 근접 공격을 할 때마다 플레이어 근처(6미터)에 나타나,
+ * 장착된 근접기를 부여받은 그대로 한 번 휘두르고 사라진다.
+ * 권능 충전을 하나 쓰면 상이 두 개 더 생긴다.
+ */
+class Phantom(
+    var x: Float,
+    var y: Float,
+    var facing: Float,
+    val damage: Double,
+    val life: Float,
+    val motion: SkillMotion,
+    val weapon: WeaponVisualType,
+    val form: AttackForm,
+) {
+    var age = 0f
+    val maxLife: Float = life
+    /** 남은 타격 횟수 — 회전 모션은 지나가면서 여러 번 친다 */
+    var ticks = SkillMotions.hitCount(motion).coerceAtLeast(1)
+    var tickTimer = 0.11f
+    /** 이번 프레임에 휘두른 각도 (그리기에 쓴다) */
+    var spin = 0f
+    /** 상이 앞으로 미끄러지는 속도 */
+    val drift: Float = if (motion == SkillMotion.WHIRLING_ASSAULT) 132f else 18f
+    val fade: Float get() = (1f - age / maxLife).coerceIn(0f, 1f)
+}
+
+/** 소용돌이 베기가 남기는 와류 — 겹치면 단계가 올라 커진다 */
+class Whirlwind(
+    var x: Float,
+    var y: Float,
+    var radius: Float,
+    var stage: Int,
+    var life: Float,
+) {
+    var age = 0f
+    val maxLife: Float = life
+    /** 플레이어가 한 번 빠져나갔는지 — 다시 가장자리를 지나면 붕괴한다 */
+    var armed = false
+    val fade: Float get() = (1f - age / maxLife).coerceIn(0f, 1f)
+}
+
+/** 돌개바람 — 천방지축으로 전진하며 반복해서 벤다 */
+class Twister(
+    var x: Float,
+    var y: Float,
+    var dirX: Float,
+    var dirY: Float,
+    val damage: Double,
+    var life: Float,
+    val amplified: Boolean,
+    val element: DamageElement,
+) {
+    var age = 0f
+    var tick = 0.05f
+    var angle = 0f
+    val radius: Float = if (amplified) 62f else 52f
+    val fade: Float get() = (1f - age / life).coerceIn(0f, 1f)
+}
+
+/** 폭풍의 종·공허의 집중이 띄우는 종. 때리면 충격파가 터진다. */
+class Bell(
+    var x: Float,
+    var y: Float,
+    var life: Float,
+    /** 공허의 집중이 띄운 종은 언제나 치명타로 터진다 */
+    val ghost: Boolean,
+) {
+    var age = 0f
+    var hits = 0
+    var swing = 0f
+    val fade: Float get() = (1f - age / life).coerceIn(0f, 1f)
+}
 
 /** 결과 요약 */
 data class BattleResult(
@@ -430,6 +537,12 @@ data class BattleResult(
     /** 전직 부여 스킬 발동 횟수와 그 피해 */
     val ascendCasts: Int = 0,
     val ascendDamage: Double = 0.0,
+    /** 봇이 돌린 콤보 이름과 부가 동작 횟수 */
+    val comboName: String = "",
+    val phantomCasts: Int = 0,
+    val whirlwindCasts: Int = 0,
+    val twisterCasts: Int = 0,
+    val bellCasts: Int = 0,
 )
 
 /** 메타젬 하나의 전투 결과 */
@@ -730,6 +843,17 @@ class BattleWorld(
     var triggerDamage = 0.0
         private set
 
+    /** 빌드에 들어 있는 스킬 조합으로 자동 생성한 콤보 순서 */
+    val comboPlan: List<ComboStep> = ComboPlanner.plan(stats.motion, stats.kit)
+    private var comboIndex = 0
+    private var comboServed = 0
+    /** 폭풍의 종을 쓰는 빌드인지 — 연계를 쌓아야 하는지 판단 */
+    private val usesBell: Boolean =
+        stats.motion == SkillMotion.TEMPEST_BELL || stats.kit.any { it.motion == SkillMotion.TEMPEST_BELL }
+
+    /** 봇이 자동으로 돌리는 콤보 설명 (전투 전 화면에 보여 준다) */
+    val comboSummary: String get() = ComboPlanner.summary(comboPlan)
+
     // ---------------------------------------------------------- 전직 부여 스킬
     /** 전직이 부여한 스킬(공허의 형상 등)의 남은 대기 시간 */
     private val ascendTimers = FloatArray(stats.ascendSkills.size) { i ->
@@ -743,6 +867,49 @@ class BattleWorld(
         private set
     var ascendDamage = 0.0
         private set
+
+    // ---------------------------------------------------------- 공허의 상·와류·돌개바람·종
+    /** 공허의 형상이 남긴 반투명 상 */
+    val phantoms = ArrayList<Phantom>()
+    /** 소용돌이 베기가 남긴 와류 */
+    val whirlwinds = ArrayList<Whirlwind>()
+    /** 돌개바람 */
+    val twisters = ArrayList<Twister>()
+    /** 폭풍의 종·실촐 없는 종 */
+    val bells = ArrayList<Bell>()
+    /** 쌓인 권능 충전 (상 추가 생성에 쓰인다) */
+    var powerCharges = 0
+        private set
+    /** 폭풍의 종에 쓰는 연계 */
+    var comboStacks = 0
+        private set
+    var phantomCasts = 0
+        private set
+    /** 지금까지 불러낸 상의 수 (한 번에 1~3개) */
+    var phantomSpawns = 0
+        private set
+    var whirlwindCasts = 0
+        private set
+    var twisterCasts = 0
+        private set
+    var bellCasts = 0
+        private set
+    /** 선회 공격이 돌아간 횟수와 그 안에서 들어간 다단 히트 수 */
+    var whirls = 0
+        private set
+    var whirlHits = 0
+        private set
+    /** 로그·HUD에 보여줄 지금 돌리는 콤보 */
+    var comboText = ""
+        private set
+    var lastComboEvent = ""
+        private set
+
+    private var whirlPool = 0.0
+    private var whirlTicks = 0
+    private var whirlTickTimer = 0f
+    private var hollowFocusTimer = 0f
+    private var phantomCooldown = 0f
 
     // ---------------------------------------------------------- 보스 패턴 상태
     val telegraphs = ArrayList<Telegraph>()
@@ -910,6 +1077,10 @@ class BattleWorld(
         updateTriggers(dt)
         updateCastQueue(dt)
         updateAscendancySkills(dt)
+        updatePhantoms(dt)
+        updateWhirlwinds(dt)
+        updateTwisters(dt)
+        updateBells(dt)
         updateStrikes(dt)
         if (player.life <= 0.0) {
             player.life = 0.0
@@ -977,6 +1148,7 @@ class BattleWorld(
         }
         player.attackAnim = max(0f, player.attackAnim - dt / 0.26f)
         player.dodgeCooldown = max(0f, player.dodgeCooldown - dt)
+        phantomCooldown = max(0f, phantomCooldown - dt)
 
         val nearest = nearestEnemy()
         var moving = false
@@ -999,6 +1171,14 @@ class BattleWorld(
             player.x += player.dashVx * dt
             player.y += player.dashVy * dt
             player.walkPhase += dt * 26f
+            moving = true
+        } else if (player.whirlTimer > 0f) {
+            // 선회 공격: 제자리에서 도는 게 아니라 적을 향해 빙글빙글 돌며 밀고 들어간다.
+            player.whirlTimer -= dt
+            player.whirlAngle += dt * 16f
+            player.x = (player.x + player.whirlVx * dt).coerceIn(44f, W - 44f)
+            player.y = (player.y + player.whirlVy * dt).coerceIn(84f, H - 34f)
+            player.walkPhase += dt * 22f
             moving = true
         } else if (nearest != null) {
             val dx = nearest.x - player.x
@@ -1068,8 +1248,9 @@ class BattleWorld(
             player.attackAnim = 1f
             player.attackCount++
             strikes++
-            fireAttack(target)
+            takeTurn(target)
         }
+        updateWhirl(dt)
         // 프레임이 크게 밀려 예약이 쌓였을 때는 한 번 비워 무한 연타를 막는다.
         if (player.attackTimer < -interval * MAX_STRIKES_PER_STEP) player.attackTimer = 0f
         else if (player.attackTimer <= 0f) player.attackTimer = interval
@@ -1118,11 +1299,624 @@ class BattleWorld(
             flickerStrike(target, damage, crit)
             return
         }
+        // 이름으로 알아본 모션(선회 공격·전기불꽃 등)이 있으면 그 모션으로 낸다.
+        if (castMotion(stats.motion, target, damage, crit, angle)) return
         when (stats.form) {
             AttackForm.MELEE, AttackForm.UNARMED -> meleeStrike(target, damage, crit, angle)
             AttackForm.BOW -> bowShot(target, damage, crit, angle)
             AttackForm.CROSSBOW -> crossbowShot(target, damage, crit, angle)
             AttackForm.CAST -> castSpell(target, damage, crit, angle)
+        }
+    }
+
+    /**
+     * 봇의 한 차례.
+     *
+     * 빌드에 준비 단계가 필요한 조합(와류→돌개바람, 연계→폭풍의 종 등)이 있으면
+     * 그 순서대로 스킬을 바꿔 쓰고, 아니면 주력 스킬로 그냥 친다.
+     */
+    private fun takeTurn(target: Enemy) {
+        val step = nextComboStep()
+        if (step != null && step.role == ComboRole.BURST &&
+            step.motion == SkillMotion.TEMPEST_BELL && comboStacks < ComboPlanner.BELL_COMBO
+        ) {
+            // 연계가 모자라면 종을 못 쓴다. 주력기로 연계부터 채운다.
+            comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+            fireAttack(target)
+            return
+        }
+        if (step != null && step.motion != stats.motion) {
+            performKitStep(step, target)
+            return
+        }
+        if (step != null && step.role == ComboRole.MAIN) {
+            if (usesBell) comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+        }
+        fireAttack(target)
+    }
+
+    /** 콤보 한 칸을 진행하고 화면에 지금 순서를 적는다 */
+    private fun nextComboStep(): ComboStep? {
+        if (comboPlan.size <= 1) return null
+        val step = comboPlan[comboIndex % comboPlan.size]
+        comboServed++
+        if (comboServed >= step.repeats) {
+            comboServed = 0
+            comboIndex = (comboIndex + 1) % comboPlan.size
+        }
+        val next = comboPlan[comboIndex % comboPlan.size]
+        comboText = when (step.role) {
+            ComboRole.BUILD -> "${step.label} · ${step.note.ifBlank { next.label }}"
+            ComboRole.BURST -> if (step.note.isBlank()) step.label else "${step.label} · ${step.note}"
+            ComboRole.CURSE -> "${step.label} → ${next.label}"
+            ComboRole.MAIN -> {
+                val stack = if (usesBell && step.repeats > 1) {
+                    " ${min(comboStacks, step.repeats)}/${step.repeats}"
+                } else ""
+                "${step.label}$stack → ${next.label}"
+            }
+        }
+        return step
+    }
+
+    /** 빌드의 다른 스킬을 한 번 쓴다 (봇이 콤보 순서에 따라 부른다) */
+    private fun performKitStep(step: ComboStep, target: Enemy) {
+        val kit = stats.kit.firstOrNull { it.motion == step.motion }
+        val dps = kit?.dps?.takeIf { it.isFinite() && it > 0.0 } ?: stats.dps * 0.55
+        val damage = (dps * 0.42).coerceAtLeast(1.0)
+        val crit = rand.nextDouble() * 100.0 < stats.critChance
+        val angle = atan2(target.y - player.y, target.x - player.x)
+        if (!castMotion(step.motion, target, damage, crit, angle)) fireAttack(target)
+    }
+
+    /**
+     * 스킬 모션별 동작. 인게임 모양을 보고 만든 회전·투사체·소용환 동작이다.
+     * 처리한 모션이면 true를 돌린다.
+     */
+    private fun castMotion(
+        motion: SkillMotion,
+        target: Enemy,
+        damage: Double,
+        crit: Boolean,
+        angle: Float,
+    ): Boolean {
+        when (motion) {
+            SkillMotion.WHIRLING_ASSAULT -> whirlAssault(target, damage, crit)
+            SkillMotion.WHIRLING_SLASH -> whirlSlash(target, damage, crit, angle)
+            SkillMotion.TWISTER -> spinTwister(target, damage, angle)
+            SkillMotion.TEMPEST_BELL -> ringBell(target, damage, crit)
+            SkillMotion.SPARK -> sparkVolley(target, damage, crit, angle)
+            SkillMotion.LIGHTNING_ARROW -> lightningArrow(target, damage, crit, angle)
+            SkillMotion.ICE_SHOT -> iceShot(target, damage, crit, angle)
+            SkillMotion.COMET -> cometStrike(target, damage)
+            SkillMotion.FIREBALL -> fireball(target, damage, crit, angle)
+            SkillMotion.GRENADE -> grenade(target, damage, angle)
+            SkillMotion.KILLING_PALM -> killingPalm(target, damage, crit)
+            SkillMotion.TORNADO_SHOT -> tornadoShot(target, damage, crit, angle)
+            SkillMotion.CURSE -> curseCast(target, damage, angle)
+            else -> return false
+        }
+        return true
+    }
+
+    /** 선회 공격 — 빙글빙글 돌며 적 쪽으로 전진하고, 그 사이 주변을 계속 벤다. */
+    private fun whirlAssault(target: Enemy, damage: Double, crit: Boolean) {
+        whirlPool += damage
+        // 아주 빠른 공속에서도 회전 히트가 무한정 쌓이지 않게 묶어 둔다.
+        if (whirlTicks < 8) whirlTicks += SkillMotions.hitCount(SkillMotion.WHIRLING_ASSAULT)
+        whirlTickTimer = min(whirlTickTimer, 0.03f)
+        whirls++
+        player.whirlTimer = 0.32f
+        val dx = target.x - player.x
+        val dy = target.y - player.y
+        val dist = hypot(dx, dy).coerceAtLeast(0.001f)
+        player.whirlVx = dx / dist * 195f
+        player.whirlVy = dy / dist * 195f
+        player.facing = atan2(dy, dx)
+        player.attackAnim = 1f
+        addFx(FxKind.CYCLONE, player.x, player.y - 8f, radius = aoe(98f), life = 0.34f, color = 0xFFEAF4FF.toInt(), width = 1.3f)
+        addFx(FxKind.RING, player.x, player.y, radius = aoe(66f), life = 0.26f, color = 0xFFBFD8FF.toInt())
+        if (crit) shake = max(shake, 3.2f)
+        spawnPhantoms(target)
+    }
+
+    /** 선회 공격의 다단 히트를 한 번씩 내리찍는다 */
+    private fun updateWhirl(dt: Float) {
+        if (whirlTicks <= 0) return
+        whirlTickTimer -= dt
+        if (whirlTickTimer > 0f) return
+        whirlTickTimer = 0.085f
+        whirlTicks--
+        val per = if (whirlTicks <= 0) whirlPool else whirlPool / (whirlTicks + 1)
+        whirlPool = max(0.0, whirlPool - per)
+        strikeWhirl(per)
+    }
+
+    /** 회전 한 바퀴 — 사방의 적을 베고 종도 친다 */
+    private fun strikeWhirl(damage: Double) {
+        val reach = aoe(114f)
+        val arc = rand.nextFloat() * 6.28f
+        addFx(FxKind.SLASH, player.x, player.y - 18f, angle = arc, radius = reach, life = 0.16f, color = 0xFFDCE8FF.toInt(), width = 1.5f)
+        addFx(FxKind.SLASH, player.x, player.y - 18f, angle = arc + 3.14f, radius = reach * 0.88f, life = 0.18f, color = 0xFFBFD4FF.toInt(), width = 1.1f)
+        addBurst(player.x, player.y - 10f, 2, 0xFFBFD8FF.toInt(), 140f, 0.3f)
+        val victims = enemies.filter { it.alive && hypot(it.x - player.x, it.y - player.y) < reach }
+            .sortedBy { hypot(it.x - player.x, it.y - player.y) }
+        if (victims.isEmpty()) {
+            nearestEnemy()?.let { hitEnemy(it, damage, false, arc, 0.8f) }
+        } else {
+            victims.take(6).forEachIndexed { index, e ->
+                hitEnemy(e, if (index == 0) damage else damage * 0.6, false, arc, 0.9f)
+                whirlHits++
+            }
+            // 다음 회전은 가장 가까운 적을 향해 전진한다
+            val t = victims.first()
+            if (player.whirlTimer > 0f) {
+                val a = atan2(t.y - player.y, t.x - player.x)
+                player.whirlVx = cos(a) * 195f
+                player.whirlVy = sin(a) * 195f
+            }
+        }
+        strikeBells(player.x, player.y, reach, damage)
+    }
+
+    /** 소용돌이 베기 — 크게 휘돌러 와류를 남긴다. 겹치면 단계가 올라 커진다. */
+    private fun whirlSlash(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val reach = aoe(120f)
+        addFx(FxKind.CYCLONE, player.x, player.y - 6f, radius = reach, life = 0.44f, color = 0xFFD6EEFF.toInt(), width = 1.4f)
+        addFx(FxKind.SLASH, player.x, player.y - 18f, angle = angle, radius = reach, life = 0.32f, color = 0xFFE6F0FF.toInt(), width = 1.9f)
+        addFx(FxKind.SLASH, player.x, player.y - 18f, angle = angle + 2.2f, radius = reach * 0.82f, life = 0.28f, color = 0xFFCFE0FF.toInt(), width = 1.2f)
+        val victims = enemies.filter { it.alive && hypot(it.x - player.x, it.y - player.y) < reach }
+        if (victims.isEmpty()) hitEnemy(target, damage, crit, angle, 1f)
+        victims.forEach { e ->
+            hitEnemy(e, if (e === target) damage else damage * 0.7, crit && e === target, angle, 0.9f)
+            e.slowT = max(e.slowT, 3.0f)
+        }
+        // 와류: 같은 자리에 있으면 단계를 올리고 적 쪽으로 밀려 간다
+        val existing = whirlwinds.minByOrNull { hypot(it.x - player.x, it.y - player.y) }
+        if (existing != null && hypot(existing.x - player.x, existing.y - player.y) < existing.radius * 0.85f) {
+            existing.stage = min(3, existing.stage + 1)
+            existing.radius = 68f + existing.stage * 18f
+            existing.life = max(existing.life, 3.4f)
+            existing.x += (target.x - existing.x) * 0.35f
+            existing.y += (target.y - existing.y) * 0.35f
+            lastComboEvent = "와류 ${existing.stage}단계"
+        } else {
+            if (whirlwinds.size >= 4) whirlwinds.removeAt(0)
+            whirlwinds.add(Whirlwind(player.x, player.y, 86f, 1, 3.8f))
+            whirlwindCasts++
+            lastComboEvent = "와류 1단계"
+        }
+        val stage = whirlwinds.maxOfOrNull { it.stage } ?: 1
+        addPopup(player.x, player.y - 96f, "와류 ${stage}단계", false, 0.7f, 0xFFBFE4FF.toInt(), 0.82f)
+        spawnPhantoms(target)
+    }
+
+    /** 돌개바람 — 창을 휘돌러 전진하는 회오리를 띄운다. 와류를 먹으면 증폭된다. */
+    private fun spinTwister(target: Enemy, damage: Double, angle: Float) {
+        val eaten = whirlwinds.toList()
+        whirlwinds.clear()
+        val count = 1 + min(3, eaten.size)
+        val total = damage * (1.0 + eaten.size * 0.55)
+        repeat(count) { i ->
+            val spread = (i - (count - 1) / 2f) * 0.30f
+            val twister = Twister(
+                x = (target.x + (rand.nextFloat() - 0.5f) * 44f).coerceIn(40f, W - 40f),
+                y = (target.y + (rand.nextFloat() - 0.5f) * 34f).coerceIn(70f, H - 30f),
+                dirX = cos(angle + spread),
+                dirY = sin(angle + spread),
+                damage = total / count,
+                life = 1.8f,
+                amplified = eaten.isNotEmpty(),
+                element = stats.fx.element,
+            )
+            twister.angle = angle + spread
+            twisters.add(twister)
+        }
+        twisterCasts += count
+        lastComboEvent = if (eaten.isNotEmpty()) "와류 소모 돌개바람 x$count" else "돌개바람 x$count"
+        addFx(FxKind.CYCLONE, player.x + cos(angle) * 26f, player.y - 16f, radius = 92f, life = 0.32f, color = 0xFFD6F0FF.toInt(), width = 1.3f)
+        addBurst(target.x, target.y - 20f, 10, 0xFFD6F0FF.toInt(), 220f, 0.5f)
+    }
+
+    /** 폭풍의 종 — 연계 4를 채우면 지팡이 종을 키워 지면에 떨어뜨린다. */
+    private fun ringBell(target: Enemy, damage: Double, crit: Boolean) {
+        if (comboStacks < ComboPlanner.BELL_COMBO && bells.none { it.ghost }) {
+            addPopup(player.x, player.y - 92f, "연계 ${comboStacks}/${ComboPlanner.BELL_COMBO}", false, 0.6f, 0xFF9FD8FF.toInt(), 0.8f)
+            meleeStrike(target, damage, crit, atan2(target.y - player.y, target.x - player.x))
+            return
+        }
+        comboStacks = 0
+        val angle = atan2(target.y - player.y, target.x - player.x)
+        val bx = (player.x + cos(angle) * 44f).coerceIn(50f, W - 50f)
+        val by = (player.y + sin(angle) * 34f).coerceIn(80f, H - 30f)
+        if (bells.count { !it.ghost } >= 3) bells.removeAll { !it.ghost }
+        bells.add(Bell(bx, by, 12f, ghost = false))
+        bellCasts++
+        val radius = aoe(124f)
+        addFx(FxKind.IMPACT, bx, by, radius = radius, life = 0.5f, color = 0xFFFFD98A.toInt(), width = 1.7f)
+        addFx(FxKind.SHOCKWAVE, bx, by, radius = radius, life = 0.6f, color = 0xFFFFE9A8.toInt(), width = 1.8f)
+        addBurst(bx, by, 16, 0xFFFFE9B0.toInt(), 300f, 0.7f)
+        shake = max(shake, 6.2f)
+        areaHit(bx, by, radius, damage * 1.2, DamageElement.PHYSICAL, "폭풍의 종", true)
+    }
+
+    /** 종을 때리면 충격파가 터지고, 공허의 종은 권능 충전을 돌려준다. */
+    private fun strikeBells(x: Float, y: Float, radius: Float, damage: Double) {
+        var i = 0
+        while (i < bells.size) {
+            val b = bells[i]
+            if (hypot(b.x - x, b.y - y) > radius + 20f) {
+                i++
+                continue
+            }
+            b.hits++
+            b.swing = 1f
+            val shock = aoe(if (b.ghost) 120f else 134f)
+            val hit = if (b.ghost) damage * 1.4 else damage * 0.8
+            addFx(FxKind.SHOCKWAVE, b.x, b.y, radius = shock, life = 0.52f, color = 0xFFFFE9A8.toInt(), width = 1.7f)
+            addFx(FxKind.RING, b.x, b.y, radius = shock * 0.62f, life = 0.4f, color = 0xFFFFD98A.toInt())
+            addBurst(b.x, b.y - 18f, 12, 0xFFFFE9B0.toInt(), 260f, 0.6f)
+            areaHit(b.x, b.y, shock, hit, DamageElement.PHYSICAL, if (b.ghost) "공허의 종" else "종 충격파", true)
+            if (b.ghost) {
+                ascendCasts++
+                ascendDamage += hit
+                gainPowerCharge()
+            }
+            shake = max(shake, 4.4f)
+            if (b.hits >= if (b.ghost) 1 else 3) bells.removeAt(i) else i++
+        }
+    }
+
+    /** 전기불꽃 — 지면을 지그재로 기어가는 번개 덩어리를 여러 개 날린다. */
+    private fun sparkVolley(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val count = 5
+        repeat(count) { i ->
+            val a = angle + (i - (count - 1) / 2f) * 0.13f + (rand.nextFloat() - 0.5f) * 0.10f
+            projectiles.add(
+                Projectile(
+                    x = player.x + cos(a) * 16f,
+                    y = player.y + sin(a) * 16f - 20f,
+                    dirX = cos(a), dirY = sin(a),
+                    speed = 500f + rand.nextFloat() * 80f,
+                    // 첫 덩어리가 실제 피해를 들고 가고, 나머지는 시야를 채우는 전기불꽃이다.
+                    damage = if (i == 0) damage else 0.0,
+                    crit = crit && i == 0,
+                    target = target,
+                    hostile = false,
+                    element = DamageElement.LIGHTNING,
+                    kind = ProjKind.SPARK,
+                    life = 2.0f,
+                    wobble = 0.62f,
+                )
+            )
+        }
+        addFx(FxKind.AURA, player.x, player.y - 26f, radius = 26f, life = 0.24f, color = 0xFFFFF3A8.toInt())
+        addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 22f, 6, 0xFFFFE272.toInt(), 170f, 0.3f)
+    }
+
+    /** 번개 화살 — 화살이 꿉으면 주변으로 연쇄 번개가 뻗는다 */
+    private fun lightningArrow(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val extra = stats.extraProjectiles.coerceIn(0, 4)
+        for (i in 0..extra) {
+            spawnProjectile(
+                ProjKind.LIGHT_ARROW, target, damage / (extra + 1), crit, DamageElement.LIGHTNING,
+                speed = 940f, angle = angle + (i - extra / 2f) * 0.09f,
+            )
+        }
+        addFx(FxKind.SLASH, player.x + cos(angle) * 16f, player.y + sin(angle) * 16f - 22f, angle = angle, radius = 26f, life = 0.13f, color = 0xFFFFF3A8.toInt(), width = 0.6f)
+        addBurst(player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, 5, 0xFFFFE272.toInt(), 190f, 0.26f)
+    }
+
+    /** 얼음 화살 — 명중하면 부채골로 얼음 파편이 흩어진다 */
+    private fun iceShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        spawnProjectile(ProjKind.ICE_ARROW, target, damage, crit, DamageElement.COLD, speed = 990f, angle = angle)
+        addFx(FxKind.SLASH, player.x + cos(angle) * 16f, player.y + sin(angle) * 16f - 22f, angle = angle, radius = 24f, life = 0.13f, color = 0xFFBFF4FF.toInt(), width = 0.6f)
+    }
+
+    /** 혜성 — 하늘에서 얼음 덩어리가 떨어지고, 시전자는 뒤로 도약한다 */
+    private fun cometStrike(target: Enemy, damage: Double) {
+        val radius = aoe(118f)
+        val fall = 0.55f
+        addFx(FxKind.METEOR, target.x, target.y, radius = radius, life = fall, color = DamageElement.COLD.color, width = 1.5f)
+        addFx(FxKind.GROUND_CRACK, target.x, target.y, radius = radius, life = fall, color = 0xFF7FD8FF.toInt())
+        pendingStrikes.add(PendingStrike(target.x, target.y, radius, damage, DamageElement.COLD, "혜성", FxKind.METEOR, fall))
+        val a = atan2(player.y - target.y, player.x - target.x)
+        player.dashTimer = 0.22f
+        player.dashVx = cos(a) * 230f
+        player.dashVy = sin(a) * 230f
+    }
+
+    /** 화염구 — 충돌하면서 폭발해 불티 고리를 뿌린다 */
+    private fun fireball(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        projectiles.add(
+            Projectile(
+                x = player.x + cos(angle) * 18f, y = player.y + sin(angle) * 18f - 22f,
+                dirX = cos(angle), dirY = sin(angle), speed = 620f,
+                damage = damage, crit = crit, target = target, hostile = false,
+                element = DamageElement.FIRE, kind = ProjKind.FIRE_ORB, life = 2.2f,
+            )
+        )
+        addFx(FxKind.AURA, player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, radius = 24f, life = 0.3f, color = 0xFFFF8A3D.toInt())
+    }
+
+    /** 폭발 유탄 — 통통 튀어 날아간 뒤 퓨즈가 타면 터진다 */
+    private fun grenade(target: Enemy, damage: Double, angle: Float) {
+        projectiles.add(
+            Projectile(
+                x = player.x + cos(angle) * 16f, y = player.y + sin(angle) * 16f - 24f,
+                dirX = cos(angle), dirY = sin(angle), speed = 560f,
+                damage = damage, crit = false, target = target, hostile = false,
+                element = DamageElement.FIRE, kind = ProjKind.GRENADE, life = 3.6f, fuse = 1.0f,
+            )
+        )
+        addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 24f, 4, 0xFFFFC24D.toInt(), 140f, 0.24f)
+    }
+
+    /** 살상 장법 — 적에게 질주해 마무리 타격하고 권능 충전을 챙긴다 */
+    private fun killingPalm(target: Enemy, damage: Double, crit: Boolean) {
+        val fromX = player.x
+        val fromY = player.y
+        val a = atan2(target.y - fromY, target.x - fromX)
+        player.x = (target.x - cos(a) * 34f).coerceIn(44f, W - 44f)
+        player.y = (target.y - sin(a) * 34f).coerceIn(84f, H - 34f)
+        player.facing = a
+        addFx(FxKind.STREAK, fromX, fromY - 24f, x2 = player.x, y2 = player.y - 24f, life = 0.14f, color = 0xFFCFE8FF.toInt(), width = 1.3f)
+        addFx(FxKind.AFTERIMAGE, fromX, fromY, angle = a, life = 0.2f, color = 0xFF9AD8FF.toInt(), width = 0.8f)
+        addFx(FxKind.IMPACT, target.x, target.y, radius = 44f, life = 0.32f, color = 0xFFDCE8FF.toInt(), width = 1.3f)
+        if (target.hp <= target.maxHp * 0.18) {
+            hitEnemy(target, target.hp.coerceAtLeast(1.0), crit, a, 1.3f)
+            gainPowerCharge()
+            addPopup(target.x, target.y - 82f * target.scale, "마무리 타격 · 권능", true, 0.9f, 0xFFFFE272.toInt(), 0.9f)
+        } else {
+            hitEnemy(target, damage, crit, a, 1f)
+        }
+        spawnPhantoms(target)
+    }
+
+    /** 회오리 사격 — 화살이 떨어진 자리에 회오리가 선다 */
+    private fun tornadoShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        spawnProjectile(ProjKind.ARROW, target, damage * 0.4, crit, DamageElement.PHYSICAL, speed = 760f, angle = angle)
+        twisters.add(
+            Twister(
+                x = target.x, y = target.y,
+                dirX = cos(angle), dirY = sin(angle),
+                damage = damage * 0.6, life = 2.0f, amplified = false,
+                element = DamageElement.PHYSICAL,
+            )
+        )
+        twisters.last().angle = angle
+        twisterCasts++
+        addFx(FxKind.CYCLONE, target.x, target.y - 14f, radius = 74f, life = 0.36f, color = 0xFFE8E0CC.toInt(), width = 1.2f)
+    }
+
+    /** 저주·징표 — 몸에서 저주가 퍼져 나간다 */
+    private fun curseCast(target: Enemy, damage: Double, angle: Float) {
+        val radius = aoe(118f)
+        addFx(FxKind.AURA, target.x, target.y, radius = radius, life = 0.85f, color = 0xFFC182FF.toInt())
+        addFx(FxKind.RING, target.x, target.y, radius = radius * 0.8f, life = 0.6f, color = 0xFF9B5DE5.toInt(), width = 1.2f)
+        addBurst(target.x, target.y - 16f, 10, 0xFFC182FF.toInt(), 150f, 0.8f, gravity = -60f)
+        areaHit(target.x, target.y, radius, damage, DamageElement.CHAOS, "저주", ratio = 0.8)
+        if (stats.motion == SkillMotion.CURSE) addFx(FxKind.AURA, player.x, player.y - 20f, radius = 40f, life = 0.4f, color = 0xFFC182FF.toInt())
+    }
+
+    /** 권능 충전 — 상을 더 만들거나 마무리 타격에 쓴다 (최대 6개) */
+    private fun gainPowerCharge() {
+        if (powerCharges >= 6) return
+        powerCharges++
+        addPopup(player.x, player.y - 104f, "권능 충전 $powerCharges", false, 0.6f, 0xFFCFE8FF.toInt(), 0.8f)
+    }
+
+    /** 권능 충전을 직접 채운다 (충전이 모자란 상황을 시험할 때) */
+    internal fun grantPowerCharges(count: Int) {
+        repeat(count) { gainPowerCharge() }
+    }
+
+    /** 한 지점을 중심으로 반경 안의 적을 벤다 */
+    private fun areaHit(
+        x: Float,
+        y: Float,
+        radius: Float,
+        damage: Double,
+        element: DamageElement,
+        label: String,
+        crit: Boolean = false,
+        ratio: Double = 0.65,
+    ): Int {
+        var hits = 0
+        for (e in enemies) {
+            if (!e.alive) continue
+            if (hypot(e.x - x, e.y - y) > radius) continue
+            val taken = applyShield(e, if (hits == 0) damage else damage * ratio)
+            e.hp -= taken
+            e.hitFlash = 1f
+            damageDealt += taken
+            hits++
+            addPopup(
+                e.x + (rand.nextFloat() - 0.5f) * 18f,
+                e.y - 52f * e.scale,
+                formatShort(taken), crit, 0.6f, element.color, 0.9f,
+            )
+            if (e.hp <= 0) killEnemy(e)
+        }
+        if (hits > 0) {
+            leechPool += damage * leechRate()
+            addPopup(x, y - 66f, label, false, 0.7f, 0xFFCFEFFF.toInt(), 0.75f)
+        }
+        return hits
+    }
+
+    /** 공허의 형상 — 근접기를 쓸 때마다 반투명 상을 내보낸다 */
+    private fun spawnPhantoms(target: Enemy) {
+        if (!stats.hollowForm || phantomCooldown > 0f) return
+        phantomCooldown = 0.34f
+        val count = if (powerCharges > 0) {
+            powerCharges--
+            3
+        } else 1
+        // 상은 공허의 형상에 넣은 근접기를 그대로 따라 쓴다.
+        val motion = stats.hollowSkill?.motion
+            ?: if (stats.motion == SkillMotion.DEFAULT) SkillMotion.WHIRLING_ASSAULT else stats.motion
+        val perHit = stats.hollowSkill?.dps?.takeIf { it > 0.0 }?.div(effectiveAps()) ?: baseHitDamage()
+        val damage = perHit * 0.8
+        repeat(count) {
+            val a = rand.nextFloat() * 6.283f
+            var x = target.x + cos(a) * (26f + rand.nextFloat() * 34f)
+            var y = target.y + sin(a) * (20f + rand.nextFloat() * 24f)
+            // 상은 플레이어 주위 6미터 안에만 생긴다
+            val dx = x - player.x
+            val dy = y - player.y
+            val d = hypot(dx, dy).coerceAtLeast(0.001f)
+            if (d > 84f) {
+                x = player.x + dx / d * 84f
+                y = player.y + dy / d * 84f
+            }
+            x = x.coerceIn(40f, W - 40f)
+            y = y.coerceIn(80f, H - 30f)
+            phantoms.add(
+                Phantom(                    x = x, y = y,
+                    facing = atan2(target.y - y, target.x - x),
+                    damage = damage,
+                    life = 0.66f,
+                    motion = motion,
+                    weapon = stats.weapon,
+                    form = stats.form,
+                )
+            )
+            addFx(FxKind.AURA, x, y - 12f, radius = 34f, life = 0.34f, color = 0xFFB07AFF.toInt())
+            addBurst(x, y - 20f, 6, 0xFFB07AFF.toInt(), 120f, 0.4f, gravity = -90f)
+            phantomSpawns++
+        }
+        if (count > 1) addPopup(player.x, player.y - 96f, "공허의 상 x$count", false, 0.8f, 0xFFC9A6FF.toInt(), 0.9f)
+    }
+
+    /** 상은 잠깐 떠서 장착 스킬을 한 번 휘두르고 사라진다 */
+    private fun updatePhantoms(dt: Float) {
+        var i = 0
+        while (i < phantoms.size) {
+            val p = phantoms[i]
+            p.age += dt
+            p.spin += dt * 15f
+            p.x += cos(p.facing) * p.drift * dt
+            p.y += sin(p.facing) * p.drift * 0.7f * dt
+            p.tickTimer -= dt
+            if (p.ticks > 0 && p.tickTimer <= 0f) {
+                p.ticks--
+                p.tickTimer = if (p.ticks > 0) 0.15f else 0.2f
+                phantomStrike(p)
+            }
+            if (p.age >= p.life) {
+                addBurst(p.x, p.y - 22f, 5, 0xFFB07AFF.toInt(), 90f, 0.4f, gravity = -70f)
+                phantoms.removeAt(i)
+                continue
+            }
+            i++
+        }
+    }
+
+    /** 상의 한 번의 공격 — 전직 부여 스킬 피해로 집계된다 */
+    private fun phantomStrike(p: Phantom) {
+        val reach = aoe(104f)
+        addFx(FxKind.SLASH, p.x, p.y - 18f, angle = p.spin, radius = reach, life = 0.2f, color = 0xFFC9A6FF.toInt(), width = 1.2f)
+        if (p.motion == SkillMotion.WHIRLING_ASSAULT) {
+            addFx(FxKind.CYCLONE, p.x, p.y - 6f, radius = reach * 0.8f, life = 0.24f, color = 0xFFB07AFF.toInt(), width = 1.1f)
+        }
+        val victims = enemies.filter { it.alive && hypot(it.x - p.x, it.y - p.y) < reach }
+            .sortedBy { hypot(it.x - p.x, it.y - p.y) }
+            .take(3)
+        if (victims.isEmpty()) return
+        val crit = rand.nextDouble() * 100.0 < stats.critChance
+        victims.forEachIndexed { index, e ->
+            val dealt = applyShield(e, if (index == 0) p.damage else p.damage * 0.55)
+            e.hp -= dealt
+            e.hitFlash = 0.9f
+            damageDealt += dealt
+            ascendDamage += dealt
+            addPopup(
+                e.x + (rand.nextFloat() - 0.5f) * 16f,
+                e.y - 50f * e.scale,
+                formatShort(dealt), false, 0.5f, 0xFFC9A6FF.toInt(), 0.86f,
+            )
+            if (e.hp <= 0) killEnemy(e)
+        }
+        ascendCasts++
+        phantomCasts++
+        strikeBells(p.x, p.y, reach, p.damage)
+        leechPool += p.damage * leechRate()
+        if (crit) shake = max(shake, 2.2f)
+    }
+
+    /** 와류: 적을 늦추고, 플레이어가 빠졌다가 가장자리를 지나면 붕괴하며 벤다 */
+    private fun updateWhirlwinds(dt: Float) {
+        var i = 0
+        while (i < whirlwinds.size) {
+            val w = whirlwinds[i]
+            w.age += dt
+            for (e in enemies) {
+                if (!e.alive) continue
+                if (hypot(e.x - w.x, e.y - w.y) < w.radius) e.slowT = max(e.slowT, 0.5f)
+            }
+            val d = hypot(player.x - w.x, player.y - w.y)
+            if (!w.armed && d > w.radius + 8f) w.armed = true
+            if (w.armed && d < w.radius + 26f) {
+                addFx(FxKind.SHOCKWAVE, w.x, w.y, radius = w.radius, life = 0.46f, color = 0xFFD6EEFF.toInt(), width = 1.6f)
+                addBurst(w.x, w.y, 14, 0xFFD6F0FF.toInt(), 230f, 0.6f)
+                enemies.forEach { e -> if (hypot(e.x - w.x, e.y - w.y) < w.radius) e.slowT = max(e.slowT, 1.2f) }
+                areaHit(w.x, w.y, w.radius, baseHitDamage() * (0.55 + w.stage * 0.25), DamageElement.PHYSICAL, "와류 붕괴")
+                whirlwinds.removeAt(i)
+                continue
+            }
+            if (w.age >= w.maxLife) {
+                whirlwinds.removeAt(i)
+                continue
+            }
+            i++
+        }
+    }
+
+    /** 돌개바람: 흔들리며 전진하고, 휘말린 적을 반복해서 벤다 */
+    private fun updateTwisters(dt: Float) {
+        var i = 0
+        while (i < twisters.size) {
+            val t = twisters[i]
+            t.age += dt
+            if (t.age >= t.life) {
+                addBurst(t.x, t.y - 20f, 8, 0xFFD6EEFF.toInt(), 190f, 0.5f)
+                twisters.removeAt(i)
+                continue
+            }
+            t.angle += (rand.nextFloat() - 0.5f) * 3.4f * dt
+            t.dirX = cos(t.angle)
+            t.dirY = sin(t.angle)
+            t.x = (t.x + t.dirX * 118f * dt).coerceIn(30f, W - 30f)
+            t.y = (t.y + t.dirY * 118f * dt).coerceIn(60f, H - 30f)
+            t.tick -= dt
+            if (t.tick <= 0f) {
+                t.tick = 0.24f
+                val hit = t.damage / 7.0
+                val inside = enemies.filter { it.alive && hypot(it.x - t.x, it.y - t.y) < t.radius }
+                inside.forEachIndexed { index, e ->
+                    e.slowT = max(e.slowT, 0.8f)
+                    hitEnemy(e, if (index == 0) hit else hit * 0.7, false, t.angle, 0.8f)
+                }
+                if (inside.isNotEmpty()) strikeBells(t.x, t.y, t.radius, hit)
+                addFx(FxKind.SHOCKWAVE, t.x, t.y, radius = t.radius * 0.9f, life = 0.3f, color = 0xFFD6F0FF.toInt(), width = 1.1f)
+            }
+            i++
+        }
+    }
+
+    /** 종·상 수명과 흔들림 */
+    private fun updateBells(dt: Float) {
+        var i = 0
+        while (i < bells.size) {
+            val b = bells[i]
+            b.age += dt
+            b.swing = max(0f, b.swing - dt * 3.4f)
+            if (b.age >= b.life) {
+                bells.removeAt(i)
+                continue
+            }
+            i++
         }
     }
 
@@ -1244,6 +2038,10 @@ class BattleWorld(
                 hitEnemy(e, if (i == 0) damage else damage * 0.55, crit && i == 0, angle, if (i == 0) 1f else 0.7f)
             }
         }
+        // 휘두른 자리에 종이 있으면 울린다
+        strikeBells(player.x, player.y, reach, damage)
+        // 공허의 형상은 근접 공격에 반응해 상을 깨운다
+        spawnPhantoms(target)
         if (crit) shake = max(shake, 5.2f)
     }
 
@@ -1381,6 +2179,7 @@ class BattleWorld(
             if (!e.alive) continue
             if (e.shockT > 0f) e.shockT = max(0f, e.shockT - dt)
             if (e.freezeT > 0f) e.freezeT = max(0f, e.freezeT - dt)
+            if (e.slowT > 0f) e.slowT = max(0f, e.slowT - dt)
             if (e.igniteT <= 0f) continue
             e.igniteT = max(0f, e.igniteT - dt)
             val tick = e.igniteDps * dt
@@ -1435,7 +2234,7 @@ class BattleWorld(
                 val ay = aimY - e.y
                 val ad = hypot(ax, ay).coerceAtLeast(0.001f)
                 val sp = e.speed * pull * (if (e.windup > 0f) 0.25f else 1f) *
-                    (if (frozen) 0.35f else 1f)
+                    (if (frozen) 0.35f else 1f) * (if (e.slowT > 0f) 0.7f else 1f)
                 e.vx = ax / ad * sp
                 e.vy = ay / ad * sp
                 e.x += e.vx * dt
@@ -1599,6 +2398,8 @@ class BattleWorld(
         if (crit) {
             // 한 방의 피해가 클수록 메타 에너지가 많이 찬다 (절대 피해 기준).
             fireEvent(TriggerCondition.CRIT, e, dealt / REFERENCE_HIT)
+            // 권능 충전은 치명타에서 가끔 생긴다 — 공허의 상을 더 만들 수 있다.
+            if (rand.nextDouble() < 0.12) gainPowerCharge()
         }
         if (e.hp <= 0) killEnemy(e)
     }
@@ -1759,49 +2560,27 @@ class BattleWorld(
     /**
      * 전직이 부여한 스킬을 굴린다.
      *
-     * 공허의 형상은 집중 유지 중 상을 만들어 장착한 근접 공격을 대신하게 하고,
-     * 공허의 집중은 3초마다 종을 세워 때리면 충격파가 터진다. 둘 다 PoB의 단일 타격
-     * 계산에는 안 들어가는 피해라 시뮬레이터가 직접 한 대씩 만들어 준다.
+     * 공허의 형상은 상을 따로 쌓지 않는다 — 플레이어가 근접기를 쓸 때마다
+     * [spawnPhantoms]가 반투명 상을 내보내 장착 스킬을 한 번 휘두르게 한다.
+     * 공허의 집중은 몇 초마다 실체 없는 종을 플레이어 주위에 띄워 두고,
+     * 그 종을 때리면 충격파와 권능 충전이 돌아온다.
      */
     private fun updateAscendancySkills(dt: Float) {
         if (stats.ascendSkills.isEmpty()) return
         stats.ascendSkills.forEachIndexed { index, skill ->
             ascendTimers[index] -= dt
             if (ascendTimers[index] > 0f) return@forEachIndexed
-            val target = nearestEnemy() ?: return@forEachIndexed
             ascendTimers[index] = ascendInterval(skill).toFloat()
-            val base = baseHitDamage() * skill.damageSharePct / 100.0
-            val damage = if (skill.alwaysCrit) base * stats.critMulti / 100.0 else base
-            val radius = aoe(skill.radius)
-            if (skill.name.contains("집중")) {
-                addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = radius, life = 0.5f, color = 0xFFE8D9B8.toInt(), width = 1.6f)
-                addFx(FxKind.RING, target.x, target.y, radius = radius * 0.7f, life = 0.42f, color = 0xFFFFE9A8.toInt())
-                addBurst(target.x, target.y - 20f, 16, 0xFFD8C3A0.toInt(), 260f, 0.7f)
-            } else {
-                addFx(FxKind.SLASH, target.x, target.y - 20f, angle = rand.nextFloat() * 6.28f, radius = radius, life = 0.24f, color = 0xFFB9E8FF.toInt(), width = 1.2f)
-                addFx(FxKind.AFTERIMAGE, target.x, target.y - 20f, life = 0.3f, color = 0xFF7FD3FF.toInt(), width = 0.8f)
-            }
-            addPopup(target.x, target.y - 70f * target.scale, skill.name, false, 0.8f, 0xFFCFEFFF.toInt(), 0.8f)
-            ascendCasts++
-            var hits = 0
-            for (other in enemies) {
-                if (!other.alive) continue
-                if (hypot(other.x - target.x, other.y - target.y) > radius) continue
-                val taken = applyShield(other, if (other === target) damage else damage * 0.6)
-                other.hp -= taken
-                other.hitFlash = 1f
-                damageDealt += taken
-                ascendDamage += taken
-                hits++
-                addPopup(
-                    other.x + (rand.nextFloat() - 0.5f) * 18f,
-                    other.y - 50f * other.scale,
-                    formatShort(taken), skill.alwaysCrit, 0.6f, skill.element.color, 0.92f,
-                )
-                if (other.hp <= 0) killEnemy(other)
-            }
-            if (hits > 0) leechPool += damage * leechRate()
-            shake = max(shake, 3.4f)
+            if (!skill.name.contains("집중")) return@forEachIndexed
+            if (bells.count { it.ghost } >= 3) return@forEachIndexed
+            // 종은 플레이어 주위 3미터 안에 나타난다
+            val a = rand.nextFloat() * 6.283f
+            val x = (player.x + cos(a) * (22f + rand.nextFloat() * 20f)).coerceIn(40f, W - 40f)
+            val y = (player.y + sin(a) * (16f + rand.nextFloat() * 16f)).coerceIn(84f, H - 30f)
+            bells.add(Bell(x, y, 21f, ghost = true))
+            addFx(FxKind.AURA, x, y - 14f, radius = 40f, life = 0.6f, color = 0xFFD8C3A0.toInt())
+            addBurst(x, y - 18f, 8, 0xFFE8D9B8.toInt(), 130f, 0.5f, gravity = -70f)
+            addPopup(x, y - 60f, "공허의 종", false, 0.8f, 0xFFE8D9B8.toInt(), 0.78f)
         }
     }
 
@@ -2108,6 +2887,74 @@ class BattleWorld(
 
     // ------------------------------------------------------------ 투사체
 
+    /** 투사체가 적에게 꿉었을 때 — 화살·구딴 종류별로 터지는 모양이 다르다 */
+    private fun onProjectileHit(p: Projectile, t: Enemy) {
+        val angle = atan2(p.dirY, p.dirX)
+        if (p.damage > 0.0) hitEnemy(t, p.damage, p.crit, angle)
+        when (p.kind) {
+            ProjKind.LIGHT_ARROW -> chainBurst(t, p.damage)
+            ProjKind.ICE_ARROW -> iceShards(t)
+            ProjKind.FIRE_ORB -> fireballBurst(t, p.damage)
+            else -> Unit
+        }
+    }
+
+    /** 번개 화살 착탄 — 주변 적에게 연쇄 번개가 뻗는다 */
+    private fun chainBurst(from: Enemy, damage: Double) {
+        var prev = from
+        nearbyEnemies(from, 165f, 3).forEachIndexed { index, other ->
+            addFx(FxKind.BOLT, prev.x, prev.y - 28f, x2 = other.x, y2 = other.y - 22f, life = 0.2f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1.1f)
+            val arc = damage * (0.55 - index * 0.12)
+            if (arc > 0.0) hitEnemy(other, arc, false, 0f, 0.8f)
+            addBurst(other.x, other.y - 18f, 5, 0xFFFFE272.toInt(), 170f, 0.35f)
+            prev = other
+        }
+        addFx(FxKind.PILLAR, from.x, from.y, radius = 26f, life = 0.3f, color = 0xFFFFF6C8.toInt())
+        addBurst(from.x, from.y - 16f, 8, 0xFFFFF3A8.toInt(), 200f, 0.4f)
+    }
+
+    /** 얼음 화살 착탄 — 부채골로 얼음 파편이 날아간다 */
+    private fun iceShards(from: Enemy) {
+        val base = atan2(player.y - from.y, player.x - from.x) + PI_F
+        addFx(FxKind.ICE_CONE, from.x, from.y, angle = base, radius = 78f, life = 0.5f, color = DamageElement.COLD.color)
+        val fan = nearbyEnemies(from, 150f, 4)
+        repeat(5) { i ->
+            val a = base + (i - 2) * 0.28f
+            val victim = fan.getOrNull(i % (fan.size.coerceAtLeast(1)))
+            projectiles.add(
+                Projectile(
+                    x = from.x, y = from.y - 16f,
+                    dirX = cos(a), dirY = sin(a), speed = 520f,
+                    damage = 0.0, crit = false, target = victim, hostile = false,
+                    element = DamageElement.COLD, kind = ProjKind.ICE_SHARD, life = 0.5f,
+                )
+            )
+        }
+        addBurst(from.x, from.y - 16f, 10, 0xFFBFF4FF.toInt(), 210f, 0.5f)
+    }
+
+    /** 화염구 폭발 — 불티 고리가 사방으로 퍼진다 */
+    private fun fireballBurst(at: Enemy, damage: Double) {
+        addFx(FxKind.RING, at.x, at.y, radius = 78f, life = 0.5f, color = 0xFFFF8A3D.toInt(), width = 1.3f)
+        addFx(FxKind.RING, at.x, at.y, radius = 46f, life = 0.34f, color = 0xFFFFD27A.toInt(), width = 0.8f)
+        repeat(10) {
+            val a = it * 0.628f
+            addBurst(at.x + cos(a) * 12f, at.y + sin(a) * 12f, 1, 0xFFFFA64D.toInt(), 210f, 0.5f, gravity = -70f)
+        }
+        areaHit(at.x, at.y, aoe(74f), damage * 0.45, DamageElement.FIRE, "화염구 폭발")
+        shake = max(shake, 3.2f)
+    }
+
+    /** 유탄 폭발 */
+    private fun grenadeBurst(p: Projectile) {
+        val radius = aoe(92f)
+        addFx(FxKind.IMPACT, p.x, p.y, radius = radius, life = 0.45f, color = 0xFFFF8A3D.toInt(), width = 1.5f)
+        addFx(FxKind.RING, p.x, p.y, radius = radius, life = 0.5f, color = 0xFFFFC24D.toInt(), width = 1.3f)
+        addBurst(p.x, p.y - 10f, 18, 0xFFFFA64D.toInt(), 300f, 0.75f, gravity = -60f)
+        areaHit(p.x, p.y, radius, p.damage, DamageElement.FIRE, "폭발 유탄")
+        shake = max(shake, 4.4f)
+    }
+
     private fun updateProjectiles(dt: Float) {
         var i = 0
         while (i < projectiles.size) {
@@ -2131,6 +2978,25 @@ class BattleWorld(
                     projectiles.removeAt(i)
                     continue
                 }
+            } else if (p.kind == ProjKind.GRENADE) {
+                // 유탄은 적을 쪼지 않고 통통 틴다 — 퓨즈가 다 타면 터진다
+                p.x += p.dirX * p.speed * dt
+                p.y += p.dirY * p.speed * dt
+                p.lift += dt
+                if (p.x < 30f || p.x > W - 30f) {
+                    p.dirX = -p.dirX
+                    p.x = p.x.coerceIn(30f, W - 30f)
+                }
+                if (p.y < 70f || p.y > H - 26f) {
+                    p.dirY = -p.dirY
+                    p.y = p.y.coerceIn(70f, H - 26f)
+                }
+                p.fuse -= dt
+                if (p.fuse <= 0f) {
+                    grenadeBurst(p)
+                    projectiles.removeAt(i)
+                    continue
+                }
             } else {
                 val target = p.target
                 if (target != null && target.alive) {
@@ -2139,6 +3005,13 @@ class BattleWorld(
                     val d = hypot(dx, dy).coerceAtLeast(0.001f)
                     p.dirX = dx / d
                     p.dirY = dy / d
+                }
+                // 전기불꽃은 지면을 지그재그로 기어간다
+                if (p.wobble > 0f) {
+                    val t = (elapsed * 11.0).toFloat() + p.trail.size * 0.35f
+                    val a = atan2(p.dirY, p.dirX) + sin(t) * p.wobble * dt * 14f
+                    p.dirX = cos(a)
+                    p.dirY = sin(a)
                 }
                 // 미니언은 살짝 휘어 날아간다
                 if (p.kind == ProjKind.MINION_ORB) {
@@ -2162,7 +3035,7 @@ class BattleWorld(
                 val ttlEnd = p.target == null || !p.target.alive
                 if (near || ttlEnd) {
                     if (t != null && t.alive) {
-                        hitEnemy(t, p.damage, p.crit, atan2(p.dirY, p.dirX))
+                        onProjectileHit(p, t)
                     } else {
                         addBurst(p.x, p.y, 4, p.element.color, 120f, 0.3f)
                     }
@@ -2229,6 +3102,20 @@ class BattleWorld(
         if (stats.ascendSkills.isEmpty()) return base
         val cast = if (ascendCasts > 0) " · 부여 스킬 ${ascendCasts}회" else ""
         return base + cast
+    }
+
+    /** 봇이 지금 돌리는 콤보 — 전장 HUD에 한 줄로 적는다. */
+    fun comboHud(): String {
+        if (comboPlan.size <= 1) return ""
+        val body = comboText.ifBlank { ComboPlanner.summary(comboPlan) }
+        val extra = buildString {
+            val stage = whirlwinds.maxOfOrNull { it.stage } ?: 0
+            if (stage > 0) append(" · 와류 ").append(stage).append("단계")
+            if (usesBell && comboStacks > 0) append(" · 연계 ").append(comboStacks)
+            if (twisters.isNotEmpty()) append(" · 돌개바람 ").append(twisters.size)
+            if (powerCharges > 0) append(" · 권능 ").append(powerCharges)
+        }
+        return "봇 $body$extra"
     }
 
     /** 현재 메타 에너지 %와 남은 연발 — 전투 화면 위쪽에 크게 띄운다. */
@@ -2620,6 +3507,11 @@ class BattleWorld(
             burstCasts = burstCasts,
             ascendCasts = ascendCasts,
             ascendDamage = ascendDamage,
+            comboName = if (comboPlan.size > 1) ComboPlanner.summary(comboPlan) else "",
+            phantomCasts = phantomCasts,
+            whirlwindCasts = whirlwindCasts,
+            twisterCasts = twisterCasts,
+            bellCasts = bellCasts,
         )
     }
 
