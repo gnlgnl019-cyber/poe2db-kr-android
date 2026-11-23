@@ -175,6 +175,16 @@ data class BattlePlayerStats(
     val motion: SkillMotion = SkillMotions.detect(skillName),
     /** 같은 빌드에 들어 있어 봇이 콤보로 엮는 액티브 스킬들 */
     val kit: List<KitSkill> = emptyList(),
+
+    /** 이 빌드가 부적으로 변신하는 야수 형상 (곰·늑대인간·와이번) */
+    val beast: BeastForm = BeastForm.NONE,
+    val beastProfile: BeastProfile = BeastProfile(),
+
+    /** 전투 탭에서 짠 콤보 순서 — 있으면 빌드 자동 콤보 대신 이 순서를 그대로 돈다 */
+    val combo: List<ComboStep> = emptyList(),
+
+    /** 주력 스킬이 기름 지대를 남기는 스킬인지 */
+    val oilSkill: Boolean = false,
     /** 공허의 형상 안에 넣은 근접 공격 — 상이 이 스킬을 한 번 휘두른다 */
     val hollowSkill: KitSkill? = null,
 
@@ -210,6 +220,9 @@ data class BattlePlayerStats(
 
     /** 공허의 형상 — 근접 공격을 할 때마다 상을 내보낸다 */
     val hollowForm: Boolean get() = ascendSkills.any { it.name.contains("형상") }
+
+    /** 부적으로 변신한 상태인지 */
+    val transformed: Boolean get() = beast.isBeast
 
     /** 공허의 집중 — 실체 없는 종을 주기적으로 띄운다 */
     val hollowFocus: Boolean get() = ascendSkills.any { it.name.contains("집중") }
@@ -350,6 +363,13 @@ class PlayerState(stats: BattlePlayerStats) {
     var dodgeCooldown = 0f
     /** 순간이동 직후의 잔상 시간 */
     var blinkGlow = 0f
+
+    /** 기름 포화처럼 집중 유지로 계속 쏘는 스킬의 경과 시간 */
+    var channel = 0f
+    /** 변신 연출이 끝난 뒤의 야수 상태 (0→1) */
+    var shiftAnim = 0f
+    /** 방금 변신했다 — 화면에 오라와 충격파를 남긴다 */
+    var shiftFlash = 0f
     /** 선회 공격의 남은 회전 시간과 회전 각도 */
     var whirlTimer = 0f
     var whirlAngle = 0f
@@ -402,6 +422,9 @@ class Enemy(
     var aggroTimer = 0f
     /** 명중 시 저주(고유 아이템)가 남은 시간 */
     var curseT = 0f
+
+    /** 기름에 젖어 노출된 시간 — 총 원소 저항이 낮아진 것으로 본다 */
+    var oilT = 0f
 }
 
 /**
@@ -451,9 +474,59 @@ class CursedGround(var x: Float, var y: Float, val radius: Float, val element: D
     var toads = 0
 }
 
+/**
+ * 기름 지대.
+ *
+ * 기름 포화·기름 유탄이 떨어뜨린 자리에 생긴다. 밟은 적은 20% 느려지고 노출되어
+ * 총 원소 저항이 20% 낮아진다. 점화 상태의 적·점화 지대·폭발이 닿으면 불이 붙어
+ * (burning) 감속 대신 계속 타오르며, 노출은 그대로 남는다. (poe2db 기름 지대 키워드)
+ */
+class OilGround(var x: Float, var y: Float, var radius: Float, var life: Float) {
+    var age = 0f
+    var burning = false
+    /** 불이 붙은 뒤 남은 연소 시간 */
+    var burnLife = 0f
+    var burnDps = 0.0
+    var pulse = 0f
+    /** 불붙은 기름이 피해를 나누어 주는 간격 */
+    var tickTimer = 0f
+    /** 한 번 불이 붙었는지 — 재점화로 피해가 무한히 늘지 않게 한다 */
+    var ignited = false
+    val fade: Float get() = (life / 1.2f).coerceIn(0f, 1f)
+}
+
+/** 땅에 박힌 주문 토템 — 제자리에서 주문을 쏜다 */
+class Totem(var x: Float, var y: Float, var life: Float) {
+    var age = 0f
+    var cast = 0f
+    var shots = 0
+    var pulse = 0f
+    val fade: Float get() = (life / 1.5f).coerceIn(0f, 1f)
+}
+
 enum class FxKind {
     SLASH, ICE_CONE, RING, BOLT, PILLAR, ORB, AURA, SPEAR, SHOCKWAVE, CYCLONE, MINION_HIT, CLOUD,
     GROUND_CRACK, METEOR, THRUST, IMPACT, AFTERIMAGE, STREAK,
+    /** 기름이 튀는 자국 */
+    OIL_SPLASH,
+    /** 기름에 불이 붙은 화염 */
+    OIL_FLAME,
+    /** 냉기 폭발 — 얼음 결정이 부채꼴로 박힌다 */
+    FROST_NOVA,
+    /** 여러 갈래로 튀는 번개 그물 */
+    ARC_WEB,
+    /** 저주 인장 문양 */
+    SIGIL,
+    /** 땅에 박힌 주문 토템 */
+    TOTEM,
+    /** 변신 오라 */
+    SHIFT,
+    /** 얼음 결정 파편 */
+    CRYSTAL,
+    /** 바닥에 퍼지는 흙먼지 고리 */
+    DUST,
+    /** 돌개바람·날개가 일으키는 돌풍 */
+    WING_GUST,
 }
 
 class Fx(
@@ -502,6 +575,10 @@ enum class ProjKind {
     GRENADE,
     /** 얼음 화살 착탄 때 떨어지는 파편 */
     ICE_SHARD,
+    /** 기름 포화가 토해 내는 기름 덩이 */
+    OIL,
+    /** 와이번이 뿜는 전기를 띤 기름 */
+    CHARGED_OIL,
 }
 
 class Projectile(
@@ -524,6 +601,10 @@ class Projectile(
     var fuse: Float = 0f,
     /** 유탄이 그리는 포물선 높이 */
     var lift: Float = 0f,
+    /** 전기불꽃처럼 튕기는 투사체의 남은 튕김 횟수 */
+    var bounces: Int = 0,
+    /** 기름 투사체가 만드는 기름 지대 지름 */
+    var oilRadius: Float = 0f,
 )
 
 /**
@@ -641,6 +722,13 @@ data class BattleResult(
     val toadExplosions: Int = 0,
     val darkConsequencesDamage: Double = 0.0,
     val minionText: String = "",
+    /** 부적 변신 상태와 기름 지대 운용 결과 */
+    val beast: BeastForm = BeastForm.NONE,
+    val beastText: String = "",
+    val oilSpills: Int = 0,
+    val oilIgnitions: Int = 0,
+    val oilDamage: Double = 0.0,
+    val oilShots: Int = 0,
 )
 
 /** 메타젬 하나의 전투 결과 */
@@ -983,16 +1071,29 @@ class BattleWorld(
     var triggerDamage = 0.0
         private set
 
-    /** 빌드에 들어 있는 스킬 조합으로 자동 생성한 콤보 순서 */
-    val comboPlan: List<ComboStep> = ComboPlanner.plan(stats.motion, stats.kit)
+    /** 콤보 순서 — 전투 탭에서 짜 둔 콤보가 있으면 그것을 그대로 돌린다 */
+    val comboPlan: List<ComboStep> =
+        if (stats.combo.isNotEmpty()) stats.combo else ComboPlanner.plan(stats.motion, stats.kit)
+    /** 사용자가 직접 짠 콤보인지 (자동 추천과 구분해 HUD에 적는다) */
+    val comboCustom: Boolean = stats.combo.isNotEmpty()
     private var comboIndex = 0
     private var comboServed = 0
+    /** 콤보 칸을 마지막으로 시전한 스킬과, 그 스킬이 실제로 나간 횟수 */
+    val comboCasts = LinkedHashMap<String, Int>()
+    /** 실제로 나간 콤보 스킬 이름 순서 (최근 40개) — 화면 검증·테스트에 쓴다 */
+    val comboHistory = ArrayList<String>()
+    /** 연계가 모자라 이번 차례를 주력기로 때우고 같은 칸에 머무른 횟수 */
+    var comboWaits = 0
+        private set
     /** 폭풍의 종을 쓰는 빌드인지 — 연계를 쌓아야 하는지 판단 */
     private val usesBell: Boolean =
         stats.motion == SkillMotion.TEMPEST_BELL || stats.kit.any { it.motion == SkillMotion.TEMPEST_BELL }
 
     /** 봇이 자동으로 돌리는 콤보 설명 (전투 전 화면에 보여 준다) */
     val comboSummary: String get() = ComboPlanner.summary(comboPlan)
+
+    /** 지금 콤보에서 서 있는 칸 (화면 칩 강조에 쓴다) */
+    val comboCurrent: Int get() = if (comboPlan.isEmpty()) 0 else comboIndex % comboPlan.size
 
     // ---------------------------------------------------------- 전직 부여 스킬
     /** 전직이 부여한 스킬(공허의 형상 등)의 남은 대기 시간 */
@@ -1011,8 +1112,28 @@ class BattleWorld(
     // ---------------------------------------------------------- 공허의 상·와류·돌개바람·종
     /** 공허의 형상이 남긴 반투명 상 */
     val phantoms = ArrayList<Phantom>()
-    /** 소용돌이 베기가 남긴 와류 */
+    /** 와류 */
     val whirlwinds = ArrayList<Whirlwind>()
+    /** 기름 지대 */
+    val oils = ArrayList<OilGround>()
+    /** 땅에 박힌 주문 토템 */
+    val totems = ArrayList<Totem>()
+    /** 기름 지대 위에 붙은 불꽃 수·터진 횟수 */
+    var oilSpills = 0
+        private set
+    var oilIgnitions = 0
+        private set
+    var oilDamage = 0.0
+        private set
+    /** 전기를 띤 기름을 쏜 횟수 (권능 충전 소모) */
+    var chargedOilShots = 0
+        private set
+    /** 기름 포화 연발 수 */
+    var barrageShots = 0
+        private set
+    /** 토템이 쏜 주문 횟수 */
+    var totemCasts = 0
+        private set
     /** 돌개바람 */
     val twisters = ArrayList<Twister>()
     /** 폭풍의 종·실촐 없는 종 */
@@ -1373,6 +1494,9 @@ class BattleWorld(
         updateWhirlwinds(dt)
         updateTwisters(dt)
         updateBells(dt)
+        updateOils(dt)
+        updateTotems(dt)
+        checkOilIgnition()
         updateStrikes(dt)
         refillSpawns()
         if (player.life <= 0.0) {
@@ -1443,6 +1567,19 @@ class BattleWorld(
             player.es = min(player.baseEs, player.es + player.baseEs * rate * dt)
         }
         player.attackAnim = max(0f, player.attackAnim - dt / 0.26f)
+        player.channel = max(0f, player.channel - dt)
+        player.shiftFlash = max(0f, player.shiftFlash - dt)
+        if (stats.beast.isBeast && player.shiftAnim < 1f) {
+            player.shiftAnim = min(1f, player.shiftAnim + dt * 1.8f)
+            if (player.shiftAnim >= 1f) {
+                addFx(FxKind.SHIFT, player.x, player.y - 24f, radius = 96f, life = 0.7f, color = stats.beast.element.color)
+                addFx(FxKind.RING, player.x, player.y, radius = 78f, life = 0.6f, color = stats.beast.element.color, width = 1.8f)
+                addBurst(player.x, player.y - 24f, 18, stats.beast.element.color, 240f, 0.8f, gravity = -60f)
+                bannerText = "${stats.beast.label} 형상"
+                banner = 1.8f
+                shake = max(shake, 4f)
+            }
+        }
         player.dodgeCooldown = max(0f, player.dodgeCooldown - dt)
         phantomCooldown = max(0f, phantomCooldown - dt)
 
@@ -1871,8 +2008,20 @@ class BattleWorld(
             flickerStrike(target, damage, crit)
             return
         }
-        // 이름으로 알아본 모션(선회 공격·전기불꽃 등)이 있으면 그 모션으로 낸다.
+        // 이름으로 알아본 모션(선회 공격·기름 포화·전기불꽃 등)이 있으면 그 모션으로 낸다.
         if (castMotion(stats.motion, target, damage, crit, angle)) return
+        // 야수로 변신한 빌드는 사람 무기 대신 발톱·숨결로 친다.
+        if (stats.beast.isBeast) {
+            val beastMotion = if (stats.beast == BeastForm.WYVERN &&
+                (stats.fx == SkillEffectType.FIRE || stats.fx == SkillEffectType.LIGHTNING)
+            ) {
+                SkillMotion.WYVERN_BREATH
+            } else {
+                SkillMotion.BEAST_MAUL
+            }
+            castMotion(beastMotion, target, damage, crit, angle)
+            return
+        }
         when (stats.form) {
             AttackForm.MELEE, AttackForm.UNARMED -> meleeStrike(target, damage, crit, angle)
             AttackForm.BOW -> bowShot(target, damage, crit, angle)
@@ -1889,22 +2038,41 @@ class BattleWorld(
      */
     private fun takeTurn(target: Enemy) {
         val step = nextComboStep()
-        if (step != null && step.role == ComboRole.BURST &&
-            step.motion == SkillMotion.TEMPEST_BELL && comboStacks < ComboPlanner.BELL_COMBO
-        ) {
-            // 연계가 모자라면 종을 못 쓴다. 주력기로 연계부터 채운다.
-            comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+        if (step == null) {
             fireAttack(target)
             return
         }
-        if (step != null && step.motion != stats.motion) {
-            performKitStep(step, target)
+        // 폭풍의 종은 연계 4가 필요하다 — 모자라면 이번 차례는 주력기로 연계를 채운다.
+        if (step.motion == SkillMotion.TEMPEST_BELL &&
+            step.role == ComboRole.BURST && comboStacks < ComboPlanner.BELL_COMBO
+        ) {
+            comboWaits++
+            comboIndex = (comboIndex - 1 + comboPlan.size) % comboPlan.size
+            comboServed = 0
+            comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+            comboText = "${step.label} · 연계 ${comboStacks}/${ComboPlanner.BELL_COMBO}"
+            noteComboCast(stats.skillName.ifBlank { "주력" })
+            fireAttack(target)
             return
         }
-        if (step != null && step.role == ComboRole.MAIN) {
-            if (usesBell) comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+        if (step.motion == stats.motion) {
+            if (usesBell && step.role == ComboRole.MAIN) {
+                comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+            }
+            noteComboCast(step.label)
+            fireAttack(target)
+            return
         }
-        fireAttack(target)
+        noteComboCast(step.label)
+        performKitStep(step, target)
+    }
+
+    /** 콤보 순서를 기록한다 */
+    private fun noteComboCast(label: String) {
+        if (label.isBlank()) return
+        comboCasts[label] = (comboCasts[label] ?: 0) + 1
+        comboHistory.add(label)
+        if (comboHistory.size > 40) comboHistory.removeAt(0)
     }
 
     /** 콤보 한 칸을 진행하고 화면에 지금 순서를 적는다 */
@@ -1934,7 +2102,9 @@ class BattleWorld(
     /** 빌드의 다른 스킬을 한 번 쓴다 (봇이 콤보 순서에 따라 부른다) */
     private fun performKitStep(step: ComboStep, target: Enemy) {
         val kit = stats.kit.firstOrNull { it.motion == step.motion }
-        val dps = kit?.dps?.takeIf { it.isFinite() && it > 0.0 } ?: stats.dps * 0.55
+        val dps = kit?.dps?.takeIf { it.isFinite() && it > 0.0 }
+            ?: step.dps.takeIf { it.isFinite() && it > 0.0 }
+            ?: stats.dps * 0.55
         val damage = (dps * 0.42).coerceAtLeast(1.0)
         val crit = rand.nextDouble() * 100.0 < stats.critChance
         val angle = atan2(target.y - player.y, target.x - player.x)
@@ -1966,6 +2136,13 @@ class BattleWorld(
             SkillMotion.KILLING_PALM -> killingPalm(target, damage, crit)
             SkillMotion.TORNADO_SHOT -> tornadoShot(target, damage, crit, angle)
             SkillMotion.CURSE -> curseCast(target, damage, angle)
+            SkillMotion.OIL_BARRAGE -> oilBarrage(target, damage)
+            SkillMotion.OIL_GRENADE -> oilGrenade(target, damage, angle)
+            SkillMotion.BARRAGE -> barrageVolley(target, damage, crit, angle)
+            SkillMotion.TOTEM -> placeTotem(target, damage, angle)
+            SkillMotion.BEAST_MAUL -> beastMaul(target, damage, crit, angle)
+            SkillMotion.BEAST_HOWL -> beastHowl(target, damage)
+            SkillMotion.WYVERN_BREATH -> wyvernBreath(target, damage, crit, angle)
             else -> return false
         }
         return true
@@ -2034,9 +2211,18 @@ class BattleWorld(
     /** 소용돌이 베기 — 크게 휘돌러 와류를 남긴다. 겹치면 단계가 올라 커진다. */
     private fun whirlSlash(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
         val reach = aoe(120f)
+        // 360도로 한 바퀴 도는 검기 원호 — 세 장을 시차를 두고 남긴다.
         addFx(FxKind.CYCLONE, player.x, player.y - 6f, radius = reach, life = 0.44f, color = 0xFFD6EEFF.toInt(), width = 1.4f)
-        addFx(FxKind.SLASH, player.x, player.y - 18f, angle = angle, radius = reach, life = 0.32f, color = 0xFFE6F0FF.toInt(), width = 1.9f)
-        addFx(FxKind.SLASH, player.x, player.y - 18f, angle = angle + 2.2f, radius = reach * 0.82f, life = 0.28f, color = 0xFFCFE0FF.toInt(), width = 1.2f)
+        for (i in 0 until 3) {
+            addFx(
+                FxKind.SLASH, player.x, player.y - 18f, angle = angle + i * 2.094f,
+                radius = reach * (1f - i * 0.06f), life = 0.30f + i * 0.03f,
+                color = if (i == 0) 0xFFE6F0FF.toInt() else 0xFFCFE0FF.toInt(),
+                width = 1.9f - i * 0.2f,
+            )
+        }
+        addFx(FxKind.DUST, player.x, player.y, radius = reach * 0.9f, life = 0.4f, color = 0xFFB9AFA6.toInt())
+        addBurst(player.x, player.y - 10f, 8, 0xFFD6EEFF.toInt(), 190f, 0.35f)
         val victims = enemies.filter { it.alive && hypot(it.x - player.x, it.y - player.y) < reach }
         if (victims.isEmpty()) hitEnemy(target, damage, crit, angle, 1f)
         victims.forEach { e ->
@@ -2059,6 +2245,13 @@ class BattleWorld(
             lastComboEvent = "와류 1단계"
         }
         val stage = whirlwinds.maxOfOrNull { it.stage } ?: 1
+        // 단계가 오를수록 바깥으로 퍼지는 단계 링
+        for (s in 1..stage) {
+            addFx(
+                FxKind.RING, player.x, player.y, radius = 52f + s * 22f,
+                life = 0.34f + s * 0.05f, color = 0xFFBFE4FF.toInt(), width = 1f + s * 0.25f,
+            )
+        }
         addPopup(player.x, player.y - 96f, "와류 ${stage}단계", false, 0.7f, 0xFFBFE4FF.toInt(), 0.82f)
         spawnPhantoms(target)
     }
@@ -2086,8 +2279,18 @@ class BattleWorld(
         }
         twisterCasts += count
         lastComboEvent = if (eaten.isNotEmpty()) "와류 소모 돌개바람 x$count" else "돌개바람 x$count"
-        addFx(FxKind.CYCLONE, player.x + cos(angle) * 26f, player.y - 16f, radius = 92f, life = 0.32f, color = 0xFFD6F0FF.toInt(), width = 1.3f)
+        // 두 팔을 내려친 자리에서 다층 회오리가 솟구친다.
+        for (i in 0 until 3) {
+            addFx(
+                FxKind.CYCLONE, player.x + cos(angle) * (26f + i * 10f), player.y - 16f - i * 10f,
+                radius = 92f - i * 18f, life = 0.30f + i * 0.05f,
+                color = if (i == 0) 0xFFD6F0FF.toInt() else 0xFFBBD8EE.toInt(),
+                width = 1.3f - i * 0.2f,
+            )
+        }
+        addFx(FxKind.WING_GUST, player.x, player.y - 12f, angle = angle, radius = 110f, life = 0.36f, color = 0xFFE8F6FF.toInt())
         addBurst(target.x, target.y - 20f, 10, 0xFFD6F0FF.toInt(), 220f, 0.5f)
+        addBurst(player.x, player.y - 20f, 8, 0xFFE8F6FF.toInt(), 190f, 0.4f)
     }
 
     /** 폭풍의 종 — 연계 4를 채우면 지팡이 종을 키워 지면에 떨어뜨린다. */
@@ -2141,15 +2344,16 @@ class BattleWorld(
 
     /** 전기불꽃 — 지면을 지그재로 기어가는 번개 덩어리를 여러 개 날린다. */
     private fun sparkVolley(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
-        val count = 5
+        // 인게임은 4~9개를 한 번에 날린다. 다 보이면 시야만 어지러우니 6개로 맞춘다.
+        val count = 6
         repeat(count) { i ->
-            val a = angle + (i - (count - 1) / 2f) * 0.13f + (rand.nextFloat() - 0.5f) * 0.10f
+            val a = angle + (i - (count - 1) / 2f) * 0.15f + (rand.nextFloat() - 0.5f) * 0.12f
             projectiles.add(
                 Projectile(
                     x = player.x + cos(a) * 16f,
                     y = player.y + sin(a) * 16f - 20f,
                     dirX = cos(a), dirY = sin(a),
-                    speed = 500f + rand.nextFloat() * 80f,
+                    speed = 480f + rand.nextFloat() * 120f,
                     // 첫 덩어리가 실제 피해를 들고 가고, 나머지는 시야를 채우는 전기불꽃이다.
                     damage = if (i == 0) damage else 0.0,
                     crit = crit && i == 0,
@@ -2158,12 +2362,20 @@ class BattleWorld(
                     element = DamageElement.LIGHTNING,
                     kind = ProjKind.SPARK,
                     life = 2.0f,
-                    wobble = 0.62f,
+                    wobble = 0.62f + rand.nextFloat() * 0.22f,
+                    bounces = 2,
                 )
             )
+            // 날아가기 전 손끝에서 갈라지는 잔 불꽃
+            addFx(
+                FxKind.BOLT, player.x + cos(a) * 14f, player.y + sin(a) * 14f - 22f,
+                x2 = player.x + cos(a) * (46f + i * 8f), y2 = player.y + sin(a) * 46f - 18f,
+                life = 0.13f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 0.8f,
+            )
         }
-        addFx(FxKind.AURA, player.x, player.y - 26f, radius = 26f, life = 0.24f, color = 0xFFFFF3A8.toInt())
-        addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 22f, 6, 0xFFFFE272.toInt(), 170f, 0.3f)
+        addFx(FxKind.AURA, player.x, player.y - 26f, radius = 30f, life = 0.26f, color = 0xFFFFF3A8.toInt())
+        addFx(FxKind.ARC_WEB, player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, angle = angle, radius = 46f, life = 0.2f, color = 0xFFFFE272.toInt())
+        addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 22f, 8, 0xFFFFE272.toInt(), 180f, 0.3f)
     }
 
     /** 번개 화살 — 화살이 꿉으면 주변으로 연쇄 번개가 뻗는다 */
@@ -2267,12 +2479,304 @@ class BattleWorld(
     /** 저주·징표 — 몸에서 저주가 퍼져 나간다 */
     private fun curseCast(target: Enemy, damage: Double, angle: Float) {
         val radius = aoe(118f)
+        addFx(FxKind.SIGIL, target.x, target.y, angle = angle, radius = radius, life = 0.8f, color = 0xFFC182FF.toInt(), seed = rand.nextInt())
         addFx(FxKind.AURA, target.x, target.y, radius = radius, life = 0.85f, color = 0xFFC182FF.toInt())
         addFx(FxKind.RING, target.x, target.y, radius = radius * 0.8f, life = 0.6f, color = 0xFF9B5DE5.toInt(), width = 1.2f)
-        addBurst(target.x, target.y - 16f, 10, 0xFFC182FF.toInt(), 150f, 0.8f, gravity = -60f)
+        addFx(FxKind.RING, target.x, target.y, radius = radius * 0.45f, life = 0.5f, color = 0xFFD9B8FF.toInt(), width = 0.9f)
+        addBurst(target.x, target.y - 16f, 12, 0xFFC182FF.toInt(), 160f, 0.8f, gravity = -60f)
         areaHit(target.x, target.y, radius, damage, DamageElement.CHAOS, "저주", ratio = 0.8)
-        if (stats.motion == SkillMotion.CURSE) addFx(FxKind.AURA, player.x, player.y - 20f, radius = 40f, life = 0.4f, color = 0xFFC182FF.toInt())
+        if (stats.motion == SkillMotion.CURSE) {
+            addFx(FxKind.SIGIL, player.x, player.y - 20f, radius = 46f, life = 0.45f, color = 0xFFC182FF.toInt(), seed = rand.nextInt())
+            addFx(FxKind.AURA, player.x, player.y - 20f, radius = 40f, life = 0.4f, color = 0xFFC182FF.toInt())
+        }
     }
+
+    // ------------------------------------------------------------ 기름 포화·기름 지대·변신
+
+    /**
+     * 기름 포화.
+     *
+     * 와이번으로 변신해 기름을 세 갈래로 순차 발사한다. 떨어진 자리에는 6초짜리
+     * 기름 지대가 생겨 적을 20% 늦추고 노출(총 원소 저항 -20%)시킨다.
+     * 권능 충전이 있으면 하나를 태워 집중을 유지하며 기름 지대를 남기지 않는
+     * 전기를 띤 기름을 계속 퍼붓는다. (poe2db.tw/kr/Oil_Barrage)
+     */
+    private fun oilBarrage(target: Enemy, damage: Double) {
+        val angle = atan2(target.y - player.y, target.x - player.x)
+        val shots = 3
+        val per = (damage / shots).coerceAtLeast(1.0)
+        repeat(shots) { i ->
+            val a = angle + (i - (shots - 1) / 2f) * 0.16f + (rand.nextFloat() - 0.5f) * 0.05f
+            projectiles.add(
+                Projectile(
+                    x = player.x + cos(a) * 22f,
+                    y = player.y + sin(a) * 22f - 34f,
+                    dirX = cos(a), dirY = sin(a),
+                    speed = 520f + i * 45f,
+                    damage = per, crit = false, target = target, hostile = false,
+                    element = DamageElement.FIRE, kind = ProjKind.OIL,
+                    life = 2.2f, oilRadius = aoe(62f),
+                )
+            )
+        }
+        barrageShots += shots
+        player.channel = 1.1f
+        // 숨을 내뿜는 자리에 기름 안개
+        addFx(
+            FxKind.OIL_SPLASH, player.x + cos(angle) * 26f, player.y - 34f,
+            angle = angle, radius = 28f, life = 0.34f, color = 0xFF8C7433.toInt(),
+        )
+        addBurst(player.x + cos(angle) * 28f, player.y - 32f, 7, 0xFFC7A64B.toInt(), 160f, 0.4f)
+        // 권능 충전을 태워 집중 유지 — 기름 지대를 만들지 않는 전기 기름을 섞어 쏜다.
+        if (powerCharges > 0) {
+            powerCharges--
+            chargedOilShots += 2
+            repeat(2) { i ->
+                val a = angle + (i - 0.5f) * 0.22f
+                projectiles.add(
+                    Projectile(
+                        x = player.x + cos(a) * 24f,
+                        y = player.y + sin(a) * 24f - 32f,
+                        dirX = cos(a), dirY = sin(a), speed = 640f,
+                        damage = per * 0.42, crit = false, target = target, hostile = false,
+                        element = DamageElement.LIGHTNING, kind = ProjKind.CHARGED_OIL,
+                        life = 1.7f, wobble = 0.3f,
+                    )
+                )
+            }
+            addPopup(player.x, player.y - 98f, "권능 충전 · 집중 유지", false, 0.7f, 0xFFFFE272.toInt(), 0.8f)
+            addFx(FxKind.AURA, player.x, player.y - 32f, radius = 40f, life = 0.3f, color = 0xFFFFE272.toInt())
+        }
+    }
+
+    /** 기름 유탄 — 아래로 굴려 터뜨려 기름 지대를 만든다 */
+    private fun oilGrenade(target: Enemy, damage: Double, angle: Float) {
+        val dist = hypot(target.x - player.x, target.y - player.y)
+        val speed = (dist * 2.1f).coerceIn(190f, 720f)
+        projectiles.add(
+            Projectile(
+                x = player.x + cos(angle) * 18f, y = player.y + sin(angle) * 18f - 26f,
+                dirX = cos(angle), dirY = sin(angle), speed = speed,
+                damage = damage * 0.6, crit = false, target = target, hostile = false,
+                element = DamageElement.FIRE, kind = ProjKind.GRENADE, life = 3.4f,
+                fuse = 0.9f, oilRadius = aoe(76f),
+            )
+        )
+        addFx(
+            FxKind.OIL_SPLASH, player.x + cos(angle) * 20f, player.y + sin(angle) * 16f - 24f,
+            radius = 16f, life = 0.26f, color = 0xFFB99A3D.toInt(),
+        )
+        addBurst(player.x + cos(angle) * 22f, player.y - 26f, 5, 0xFFC7A64B.toInt(), 150f, 0.3f)
+    }
+
+    /** 연발 사격 — 시위를 빠르게 당겼다 놓으며 화살을 몰아 쏜다 */
+    private fun barrageVolley(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val extra = totalExtraProjectiles().coerceIn(0, 4)
+        val shots = 3
+        val per = damage / (shots + extra)
+        repeat(shots) { i ->
+            val a = angle + (i - 0.5f) * 0.10f
+            spawnProjectile(
+                ProjKind.ARROW, target, per, crit && i == 0,
+                stats.fx.element, speed = 900f + i * 180f, angle = a,
+            )
+        }
+        repeat(extra) { i ->
+            spawnProjectile(
+                ProjKind.ARROW, target, per, false, stats.fx.element,
+                speed = 1_050f, angle = angle + (i - (extra - 1) / 2f) * 0.13f,
+            )
+        }
+        barrageShots += shots + extra
+        // 당겼다 놓은 자리마다 남는 시위 자국
+        addFx(
+            FxKind.SLASH, player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 24f,
+            angle = angle, radius = 30f, life = 0.12f, color = 0xFFF2E6C8.toInt(), width = 0.7f,
+        )
+        addBurst(player.x + cos(angle) * 22f, player.y - 26f, 4, 0xFFE8D9B0.toInt(), 150f, 0.24f)
+    }
+
+    /** 주문 토템 — 땅에 세워 두고 토템이 주문을 대신 쏜다 */
+    private fun placeTotem(target: Enemy, damage: Double, angle: Float) {
+        if (totems.size >= 2) totems.removeAt(0)
+        val tx = (player.x - cos(angle) * 24f).coerceIn(40f, W - 40f)
+        val ty = (player.y + 4f).coerceIn(84f, H - 26f)
+        totems.add(Totem(tx, ty, 8f))
+        addFx(FxKind.TOTEM, tx, ty, radius = 26f, life = 0.55f, color = stats.fx.element.color)
+        addFx(FxKind.PILLAR, tx, ty, radius = 16f, life = 0.35f, color = stats.fx.element.color, width = 0.7f)
+        addBurst(tx, ty - 10f, 8, stats.fx.element.color, 150f, 0.5f, gravity = -60f)
+        addPopup(tx, ty - 64f, "주문 토템", false, 0.7f, 0xFFBFE4FF.toInt(), 0.78f)
+    }
+
+    /** 토템이 살아 있는 동안 주변 적에게 주문을 쏜다 */
+    private fun updateTotems(dt: Float) {
+        var i = 0
+        while (i < totems.size) {
+            val t = totems[i]
+            t.age += dt
+            t.life -= dt
+            t.pulse += dt
+            t.cast -= dt
+            if (t.life <= 0f) {
+                addBurst(t.x, t.y - 12f, 6, 0xFFBFD8FF.toInt(), 110f, 0.4f)
+                totems.removeAt(i)
+                continue
+            }
+            if (t.cast <= 0f) {
+                t.cast = 0.55f
+                val victim = enemies.filter { it.alive && hypot(it.x - t.x, it.y - t.y) < 320f }
+                    .minByOrNull { hypot(it.x - t.x, it.y - t.y) }
+                if (victim != null) {
+                    t.shots++
+                    totemCasts++
+                    addFx(
+                        FxKind.BOLT, t.x, t.y - 30f, x2 = victim.x, y2 = victim.y - 20f,
+                        life = 0.18f, color = stats.fx.element.color, seed = rand.nextInt(), width = 1.1f,
+                    )
+                    hitEnemy(victim, baseHitDamage() * 0.34, false, atan2(victim.y - t.y, victim.x - t.x))
+                    addBurst(victim.x, victim.y - 18f, 4, stats.fx.element.color, 150f, 0.3f)
+                }
+            }
+            i++
+        }
+    }
+
+    /** 야수 내리치기 — 앞발을 크게 들어 내려찍고 바닥을 찢는다 */
+    private fun beastMaul(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val reach = aoe(96f)
+        addFx(FxKind.SLASH, player.x + cos(angle) * 22f, player.y - 18f, angle = angle, radius = reach, life = 0.22f, color = stats.fx.element.color, width = 1.8f)
+        addFx(FxKind.IMPACT, target.x, target.y, radius = aoe(62f), life = 0.4f, color = 0xFFD8C3A0.toInt(), width = 1.4f)
+        addFx(FxKind.DUST, target.x, target.y, radius = aoe(70f), life = 0.5f, color = 0xFFB9AFA6.toInt())
+        addBurst(target.x, target.y - 8f, 10, 0xFFC9B38A.toInt(), 230f, 0.55f, gravity = 120f)
+        val victims = enemies.filter { e ->
+            e.alive && hypot(e.x - player.x, e.y - player.y) < reach + 10f &&
+                abs(normalize(atan2(e.y - player.y, e.x - player.x) - angle)) < 1.4f
+        }.take(4)
+        if (victims.isEmpty()) hitEnemy(target, damage, crit, angle) else victims.forEachIndexed { i, e ->
+            hitEnemy(e, if (i == 0) damage else damage * 0.6, crit && i == 0, angle)
+        }
+        shake = max(shake, 4.2f)
+        strikeBells(player.x, player.y, reach, damage)
+    }
+
+    /** 야수 함성 — 고개를 젖혀 포효해 주변을 밀어내고 겁을 준다 */
+    private fun beastHowl(target: Enemy, damage: Double) {
+        val radius = aoe(150f)
+        addFx(FxKind.SHOCKWAVE, player.x, player.y, radius = radius, life = 0.55f, color = stats.fx.element.color, width = 1.8f)
+        addFx(FxKind.RING, player.x, player.y - 16f, radius = radius * 0.7f, life = 0.4f, color = 0xFFFFF3D6.toInt())
+        addBurst(player.x, player.y - 34f, 16, stats.fx.element.color, 280f, 0.7f)
+        enemies.filter { it.alive && hypot(it.x - player.x, it.y - player.y) < radius }.forEach { e ->
+            e.slowT = max(e.slowT, 1.4f)
+            hitEnemy(e, damage * 0.7, false, atan2(e.y - player.y, e.x - player.x), 0.9f)
+        }
+        shake = max(shake, 5f)
+    }
+
+    /** 와이번 숨결 — 목을 내밀어 화염·번개가 섞인 숨결을 부채꼴로 토한다 */
+    private fun wyvernBreath(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val shots = 4
+        repeat(shots) { i ->
+            val a = angle + (i - (shots - 1) / 2f) * 0.14f
+            projectiles.add(
+                Projectile(
+                    x = player.x + cos(a) * 26f,
+                    y = player.y + sin(a) * 26f - 34f,
+                    dirX = cos(a), dirY = sin(a), speed = 620f + i * 30f,
+                    damage = damage / shots, crit = crit && i == 0, target = target,
+                    hostile = false, element = stats.fx.element, kind = ProjKind.FIRE_ORB,
+                    life = 1.8f,
+                )
+            )
+        }
+        val mouthX = player.x + cos(angle) * 30f
+        val mouthY = player.y - 34f
+        addFx(FxKind.OIL_FLAME, mouthX, mouthY, angle = angle, radius = 46f, life = 0.34f, color = stats.fx.element.color)
+        addBurst(mouthX, mouthY, 10, stats.fx.element.color, 200f, 0.4f)
+        igniteOil(target.x, target.y, 90f)
+    }
+
+    /** 기름 지대를 만든다 */
+    private fun spillOil(x: Float, y: Float, radius: Float) {
+        if (oils.size >= 8) oils.removeAt(0)
+        oils.add(OilGround(x, y, radius, 6f))
+        oilSpills++
+        addFx(FxKind.OIL_SPLASH, x, y, radius = radius, life = 0.55f, color = 0xFF8C7433.toInt())
+        addBurst(x, y, 7, 0xFFB99A3D.toInt(), 130f, 0.45f)
+    }
+
+    /** 기름에 불을 붙인다 — 한 번 붙으면 지속 시간 동안 타오른다 */
+    private fun igniteOil(x: Float, y: Float, radius: Float, damage: Double = 0.0) {
+        for (o in oils) {
+            if (hypot(o.x - x, o.y - y) > radius + o.radius) continue
+            if (o.ignited) continue
+            o.ignited = true
+            o.burning = true
+            o.burnLife = 3.2f
+            o.burnDps = max(o.burnDps, damage * 0.25)
+            oilIgnitions++
+            addFx(FxKind.OIL_FLAME, o.x, o.y, radius = o.radius, life = 0.6f, color = 0xFFFF7B3C.toInt())
+            addFx(FxKind.RING, o.x, o.y, radius = o.radius * 1.1f, life = 0.5f, color = 0xFFFFB05A.toInt(), width = 1.4f)
+            addBurst(o.x, o.y, 14, 0xFFFF8A3D.toInt(), 220f, 0.6f, gravity = -90f)
+            shake = max(shake, 3.6f)
+        }
+    }
+
+    /** 기름 지대 유지 — 밟은 적을 늦추고 노출시키며, 불붙은 기름은 계속 태운다 */
+    private fun updateOils(dt: Float) {
+        var i = 0
+        while (i < oils.size) {
+            val o = oils[i]
+            o.age += dt
+            o.life -= dt
+            o.pulse += dt
+            if (o.burning) {
+                o.burnLife -= dt
+                if (o.burnLife <= 0f) o.burning = false
+            }
+            for (e in enemies) {
+                if (!e.alive) continue
+                if (hypot(e.x - o.x, e.y - o.y) > o.radius) continue
+                e.oilT = max(e.oilT, 1.4f)
+                if (o.burning) {
+                    e.igniteT = max(e.igniteT, 0.8f)
+                    e.igniteDps = max(e.igniteDps, baseHitDamage() * 0.08)
+                } else {
+                    e.slowT = max(e.slowT, 0.4f)
+                }
+            }
+            if (o.burning) {
+                // 매 프레임 피해를 주면 피해 숫자가 화면을 덮으므로 0.35초마다 나누어 준다.
+                o.tickTimer -= dt
+                if (o.tickTimer <= 0f) {
+                    o.tickTimer = 0.35f
+                    val tick = baseHitDamage() * 0.05 * 0.35
+                    areaHit(o.x, o.y, o.radius, tick.coerceAtLeast(0.0), DamageElement.FIRE, "기름 화염", ratio = 1.0)
+                    oilDamage += tick
+                }
+            }
+            if (o.life <= 0f) {
+                oils.removeAt(i)
+                continue
+            }
+            i++
+        }
+    }
+
+    /** 기름 위에 점화된 적이 있으면 기름이 옮겨 붙는다 */
+    private fun checkOilIgnition() {
+        if (oils.isEmpty()) return
+        for (e in enemies) {
+            if (!e.alive || e.igniteT <= 0f) continue
+            if (oils.any { !it.ignited && hypot(e.x - it.x, e.y - it.y) < it.radius }) {
+                igniteOil(e.x, e.y, 10f)
+            }
+        }
+    }
+
+    /** 시험용 — 기름 지대를 직접 만들고 불을 붙여 본다 */
+    internal fun spillOilAt(x: Float, y: Float, radius: Float) = spillOil(x, y, radius)
+
+    internal fun igniteOilAt(x: Float, y: Float, radius: Float) = igniteOil(x, y, radius, 1.0)
 
     /** 권능 충전 — 상을 더 만들거나 마무리 타격에 쓴다 (최대 6개) */
     private fun gainPowerCharge() {
@@ -2755,6 +3259,7 @@ class BattleWorld(
             if (e.shockT > 0f) e.shockT = max(0f, e.shockT - dt)
             if (e.freezeT > 0f) e.freezeT = max(0f, e.freezeT - dt)
             if (e.slowT > 0f) e.slowT = max(0f, e.slowT - dt)
+            if (e.oilT > 0f) e.oilT = max(0f, e.oilT - dt)
             if (e.igniteT <= 0f) continue
             e.igniteT = max(0f, e.igniteT - dt)
             val tick = e.igniteDps * dt
@@ -2984,8 +3489,10 @@ class BattleWorld(
         // 감전된 적은 피해를 더 받고, 저주가 걸린 적은 저항이 낮아진 것으로 본다.
         val shockedMul = if (e.shocked) 1.10 + 0.15 * (1.0 + stats.ailmentMagnitudePct.coerceIn(0.0, 200.0) / 100.0) else 1.0
         val curseMul = if (e.curseT > 0f) 1.08 else 1.0
+        // 기름에 젖은 적은 노출되어 총 원소 저항이 20% 낮아진 것으로 본다.
+        val oilMul = if (e.oilT > 0f && stats.fx.element != DamageElement.PHYSICAL) 1.12 else 1.0
         if (stats.unique.curseOnHit) e.curseT = max(e.curseT, 6f)
-        val dealt = applyShield(e, damage * shockedMul * curseMul)
+        val dealt = applyShield(e, damage * shockedMul * curseMul * oilMul)
         e.hp -= dealt
         damageDealt += dealt
         e.hitFlash = 1f
@@ -3312,7 +3819,10 @@ class BattleWorld(
             }
             addFx(FxKind.SHOCKWAVE, strike.x, strike.y, radius = strike.radius, life = 0.5f, color = strike.element.color, width = 1.5f)
             addFx(FxKind.RING, strike.x, strike.y, radius = strike.radius * 0.7f, life = 0.4f, color = 0xFFE8FCFF.toInt())
+            addFx(FxKind.FROST_NOVA, strike.x, strike.y - 4f, radius = strike.radius * 0.95f, life = 0.55f, color = 0xFFBFF4FF.toInt())
+            addFx(FxKind.CRYSTAL, strike.x, strike.y, radius = strike.radius * 0.8f, life = 0.6f, color = 0xFFDFF9FF.toInt(), seed = rand.nextInt())
             addBurst(strike.x, strike.y, 18, 0xFFBFF4FF.toInt(), 300f, 0.75f, gravity = -60f)
+            addBurst(strike.x, strike.y, 10, 0xFFEAF9FF.toInt(), 200f, 0.55f, gravity = 90f)
             val target = enemies.firstOrNull { it.alive && hypot(it.x - strike.x, it.y - strike.y) < 1f }
             if (target != null) {
                 dealAreaDamage(target, strike.damage, strike.radius, strike.element, strike.name, strike.trigger)
@@ -3520,6 +4030,21 @@ class BattleWorld(
             ProjKind.LIGHT_ARROW -> chainBurst(t, p.damage)
             ProjKind.ICE_ARROW -> iceShards(t)
             ProjKind.FIRE_ORB -> fireballBurst(t, p.damage)
+            ProjKind.OIL -> {
+                spillOil(p.x, p.y, if (p.oilRadius > 0f) p.oilRadius else aoe(62f))
+                addFx(FxKind.OIL_SPLASH, p.x, p.y, radius = 30f, life = 0.4f, color = 0xFF8C7433.toInt())
+            }
+            ProjKind.CHARGED_OIL -> {
+                // 전기를 띤 기름은 기름 지대를 만들지 않고 주변에 번개가 튄다.
+                val arc = atan2(t.y - p.y, t.x - p.x)
+                addFx(FxKind.BOLT, p.x, p.y, x2 = t.x, y2 = t.y - 18f, life = 0.18f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1f)
+                addFx(FxKind.ARC_WEB, t.x, t.y - 14f, angle = arc, radius = 54f, life = 0.26f, color = 0xFFFFE272.toInt())
+                nearbyEnemies(t, 120f, 2).forEach { other ->
+                    addFx(FxKind.BOLT, t.x, t.y - 20f, x2 = other.x, y2 = other.y - 16f, life = 0.16f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 0.8f)
+                    hitEnemy(other, p.damage * 0.4, false, angle, 0.8f)
+                }
+                addBurst(t.x, t.y - 18f, 6, 0xFFFFE272.toInt(), 190f, 0.34f)
+            }
             else -> Unit
         }
     }
@@ -3527,47 +4052,62 @@ class BattleWorld(
     /** 번개 화살 착탄 — 주변 적에게 연쇄 번개가 뻗는다 */
     private fun chainBurst(from: Enemy, damage: Double) {
         var prev = from
-        nearbyEnemies(from, 165f, 3).forEachIndexed { index, other ->
-            addFx(FxKind.BOLT, prev.x, prev.y - 28f, x2 = other.x, y2 = other.y - 22f, life = 0.2f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1.1f)
-            val arc = damage * (0.55 - index * 0.12)
+        val victims = nearbyEnemies(from, 175f, 4)
+        victims.forEachIndexed { index, other ->
+            // 갈래가 갈라지는 번개 그물 + 굵은 줄기
+            addFx(
+                FxKind.BOLT, prev.x, prev.y - 28f, x2 = other.x, y2 = other.y - 22f,
+                life = 0.22f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1.15f,
+            )
+            addFx(
+                FxKind.ARC_WEB, other.x, other.y - 16f, angle = atan2(other.y - prev.y, other.x - prev.x),
+                radius = 44f, life = 0.24f, color = 0xFFFFE272.toInt(),
+            )
+            val arc = damage * (0.6 - index * 0.11)
             if (arc > 0.0) hitEnemy(other, arc, false, 0f, 0.8f)
-            addBurst(other.x, other.y - 18f, 5, 0xFFFFE272.toInt(), 170f, 0.35f)
+            addFx(FxKind.PILLAR, other.x, other.y, radius = 18f, life = 0.26f, color = 0xFFFFF6C8.toInt(), width = 0.7f)
+            addBurst(other.x, other.y - 18f, 6, 0xFFFFE272.toInt(), 180f, 0.35f)
             prev = other
         }
-        addFx(FxKind.PILLAR, from.x, from.y, radius = 26f, life = 0.3f, color = 0xFFFFF6C8.toInt())
-        addBurst(from.x, from.y - 16f, 8, 0xFFFFF3A8.toInt(), 200f, 0.4f)
+        addFx(FxKind.PILLAR, from.x, from.y, radius = 28f, life = 0.32f, color = 0xFFFFF6C8.toInt())
+        addFx(FxKind.RING, from.x, from.y, radius = 74f, life = 0.34f, color = 0xFFFFE272.toInt(), width = 1.2f)
+        addBurst(from.x, from.y - 16f, 10, 0xFFFFF3A8.toInt(), 220f, 0.42f)
     }
 
     /** 얼음 화살 착탄 — 부채골로 얼음 파편이 날아간다 */
     private fun iceShards(from: Enemy) {
         val base = atan2(player.y - from.y, player.x - from.x) + PI_F
-        addFx(FxKind.ICE_CONE, from.x, from.y, angle = base, radius = 78f, life = 0.5f, color = DamageElement.COLD.color)
+        addFx(FxKind.ICE_CONE, from.x, from.y, angle = base, radius = 88f, life = 0.55f, color = DamageElement.COLD.color)
+        addFx(FxKind.FROST_NOVA, from.x, from.y - 6f, radius = 82f, life = 0.5f, color = 0xFFBFF4FF.toInt())
+        addFx(FxKind.CRYSTAL, from.x, from.y, angle = base, radius = 72f, life = 0.6f, color = 0xFFDFF9FF.toInt(), seed = rand.nextInt())
         val fan = nearbyEnemies(from, 150f, 4)
-        repeat(5) { i ->
-            val a = base + (i - 2) * 0.28f
+        repeat(6) { i ->
+            val a = base + (i - 2.5f) * 0.24f
             val victim = fan.getOrNull(i % (fan.size.coerceAtLeast(1)))
             projectiles.add(
                 Projectile(
                     x = from.x, y = from.y - 16f,
-                    dirX = cos(a), dirY = sin(a), speed = 520f,
+                    dirX = cos(a), dirY = sin(a), speed = 520f + i * 20f,
                     damage = 0.0, crit = false, target = victim, hostile = false,
-                    element = DamageElement.COLD, kind = ProjKind.ICE_SHARD, life = 0.5f,
+                    element = DamageElement.COLD, kind = ProjKind.ICE_SHARD, life = 0.55f,
                 )
             )
         }
-        addBurst(from.x, from.y - 16f, 10, 0xFFBFF4FF.toInt(), 210f, 0.5f)
+        addBurst(from.x, from.y - 16f, 12, 0xFFBFF4FF.toInt(), 220f, 0.55f)
     }
 
     /** 화염구 폭발 — 불티 고리가 사방으로 퍼진다 */
     private fun fireballBurst(at: Enemy, damage: Double) {
-        addFx(FxKind.RING, at.x, at.y, radius = 78f, life = 0.5f, color = 0xFFFF8A3D.toInt(), width = 1.3f)
+        addFx(FxKind.RING, at.x, at.y, radius = 82f, life = 0.5f, color = 0xFFFF8A3D.toInt(), width = 1.3f)
         addFx(FxKind.RING, at.x, at.y, radius = 46f, life = 0.34f, color = 0xFFFFD27A.toInt(), width = 0.8f)
-        repeat(10) {
-            val a = it * 0.628f
-            addBurst(at.x + cos(a) * 12f, at.y + sin(a) * 12f, 1, 0xFFFFA64D.toInt(), 210f, 0.5f, gravity = -70f)
+        addFx(FxKind.OIL_FLAME, at.x, at.y - 8f, radius = 40f, life = 0.3f, color = 0xFFFF8A3D.toInt())
+        repeat(12) {
+            val a = it * 0.524f
+            addBurst(at.x + cos(a) * 12f, at.y + sin(a) * 12f, 1, 0xFFFFA64D.toInt(), 220f, 0.5f, gravity = -70f)
         }
-        areaHit(at.x, at.y, aoe(74f), damage * 0.45, DamageElement.FIRE, "화염구 폭발")
-        shake = max(shake, 3.2f)
+        areaHit(at.x, at.y, aoe(78f), damage * 0.45, DamageElement.FIRE, "화염구 폭발")
+        igniteOil(at.x, at.y, 60f, damage)
+        shake = max(shake, 3.4f)
     }
 
     /** 유탄 폭발 */
@@ -3575,8 +4115,16 @@ class BattleWorld(
         val radius = aoe(92f)
         addFx(FxKind.IMPACT, p.x, p.y, radius = radius, life = 0.45f, color = 0xFFFF8A3D.toInt(), width = 1.5f)
         addFx(FxKind.RING, p.x, p.y, radius = radius, life = 0.5f, color = 0xFFFFC24D.toInt(), width = 1.3f)
-        addBurst(p.x, p.y - 10f, 18, 0xFFFFA64D.toInt(), 300f, 0.75f, gravity = -60f)
+        addFx(FxKind.OIL_FLAME, p.x, p.y - 6f, radius = radius * 0.7f, life = 0.4f, color = 0xFFFF8A3D.toInt())
+        addBurst(p.x, p.y - 10f, 20, 0xFFFFA64D.toInt(), 310f, 0.75f, gravity = -60f)
         areaHit(p.x, p.y, radius, p.damage, DamageElement.FIRE, "폭발 유탄")
+        if (p.oilRadius > 0f) {
+            spillOil(p.x, p.y, p.oilRadius)
+            addFx(FxKind.OIL_SPLASH, p.x, p.y, radius = p.oilRadius * 1.2f, life = 0.7f, color = 0xFF8C7433.toInt())
+            addPopup(p.x, p.y - 70f, "기름 지대", false, 0.7f, 0xFFC7A64B.toInt(), 0.8f)
+        } else {
+            igniteOil(p.x, p.y, radius * 0.8f, p.damage)
+        }
         shake = max(shake, 4.4f)
     }
 
@@ -3586,6 +4134,8 @@ class BattleWorld(
             val p = projectiles[i]
             p.life -= dt
             if (p.life <= 0f) {
+                // 기름 덩이는 날아간 자리에 그대로 떨어져 기름 지대가 된다.
+                if (p.kind == ProjKind.OIL && p.oilRadius > 0f) spillOil(p.x, p.y, p.oilRadius)
                 projectiles.removeAt(i)
                 continue
             }
@@ -3653,6 +4203,32 @@ class BattleWorld(
                 p.trail.add(p.x)
                 p.trail.add(p.y)
                 if (p.trail.size > 14) p.trail.subList(0, p.trail.size - 14).clear()
+
+                // 전기불꽃은 벽에 부딪히면 튕기며 다른 갈래로 갈라진다.
+                if (p.kind == ProjKind.SPARK && p.bounces > 0) {
+                    var bounced = false
+                    if (p.x < 26f || p.x > W - 26f) {
+                        p.dirX = -p.dirX
+                        p.x = p.x.coerceIn(26f, W - 26f)
+                        bounced = true
+                    }
+                    if (p.y < 70f || p.y > H - 26f) {
+                        p.dirY = -p.dirY
+                        p.y = p.y.coerceIn(70f, H - 26f)
+                        bounced = true
+                    }
+                    if (bounced) {
+                        p.bounces--
+                        p.speed *= 0.88f
+                        addFx(
+                            FxKind.BOLT, p.x, p.y,
+                            x2 = p.x + p.dirX * 54f + (rand.nextFloat() - 0.5f) * 40f,
+                            y2 = p.y + p.dirY * 54f + (rand.nextFloat() - 0.5f) * 30f,
+                            life = 0.16f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 0.9f,
+                        )
+                        addBurst(p.x, p.y, 3, 0xFFFFE272.toInt(), 140f, 0.24f)
+                    }
+                }
 
                 val t = p.target
                 val near = if (t != null && t.alive) {
@@ -4144,7 +4720,37 @@ class BattleWorld(
             toadExplosions = toadExplosions,
             darkConsequencesDamage = darkConsequencesDamage,
             minionText = stats.minions.summary,
+            beast = stats.beast,
+            beastText = stats.beastProfile.summary,
+            oilSpills = oilSpills,
+            oilIgnitions = oilIgnitions,
+            oilDamage = oilDamage,
+            oilShots = barrageShots,
         )
+    }
+
+    /** 부적 변신 상태를 HUD에 한 줄로 */
+    fun beastHud(): String {
+        if (!stats.beast.isBeast) return ""
+        val parts = ArrayList<String>()
+        parts.add(stats.beast.label)
+        if (stats.beastProfile.talisman.isNotBlank()) parts.add(stats.beastProfile.talisman)
+        if (player.shiftAnim < 1f) parts.add("변신 중") else parts.add("변신")
+        if (powerCharges > 0) parts.add("권능 $powerCharges")
+        return parts.joinToString(" · ")
+    }
+
+    /** 기름 지대·불붙은 기름 상태 */
+    fun oilHud(): String {
+        if (oils.isEmpty() && oilSpills == 0) return ""
+        val burning = oils.count { it.burning }
+        val parts = ArrayList<String>()
+        parts.add("기름 ${oils.size}")
+        if (burning > 0) parts.add("불붙음 $burning")
+        if (barrageShots > 0) parts.add("포화 ${barrageShots}발")
+        if (chargedOilShots > 0) parts.add("전기 기름 $chargedOilShots")
+        if (totems.isNotEmpty()) parts.add("토템 ${totems.size}")
+        return parts.joinToString(" · ")
     }
 
     /** 전장 HUD에 보여줄 소환수 줄 — 살아 있는 소환수 수와 두꺼비 폭발 횟수 */

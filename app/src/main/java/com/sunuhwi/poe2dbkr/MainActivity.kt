@@ -98,6 +98,9 @@ class MainActivity : AppCompatActivity() {
     /** 불러온 빌드의 노드로 만든 poe2db 트리 주소 (없으면 기본 트리를 연다) */
     private var buildTreeUrl = ""
     private val pobOverrides = HashMap<String, PobItem>()
+    /** 전투 탭 콤보 설정 (빌드 스킬 순서) */
+    private lateinit var comboStore: ComboStore
+    private var comboPicks: List<ComboPick> = emptyList()
     private val pobFlasks = mutableSetOf<String>()
     private val pobConfig = PobCalculator.Config()
     private var pobMainGroup = 0
@@ -130,6 +133,9 @@ class MainActivity : AppCompatActivity() {
         applyWindowInsets()
         bookmarks = BookmarkStore(this)
         pobStore = PobStore(this)
+        comboStore = ComboStore(this)
+        // 지난번에 짜 둔 콤보를 그대로 불러온다 (빌드에 없는 스킬은 갱신하면서 걸러진다).
+        comboPicks = comboStore.load(emptyList())
 
         listPane = PaneListBinding.inflate(layoutInflater, binding.paneList, true)
         detailPane = PaneDetailBinding.inflate(layoutInflater, binding.paneDetail, true)
@@ -1296,6 +1302,8 @@ class MainActivity : AppCompatActivity() {
         buildBattleSkillChips()
         buildBattleTriggerChips()
 
+        pobPane.btnBattleCombo.setOnClickListener { showComboDialog() }
+
         pobPane.btnBattleStart.setOnClickListener { startBattle() }
         pobPane.btnBattlePause.setOnClickListener { toggleBattlePause() }
         pobPane.btnBattleReset.setOnClickListener { resetBattle() }
@@ -1429,6 +1437,218 @@ class MainActivity : AppCompatActivity() {
         if (battleStarted) startBattle()
     }
 
+    /** 전투 화면의 콤보 요약 — 직접 짠 콤보가 있으면 그것을, 없으면 자동 콤보를 적는다 */
+    private fun refreshComboLabel(current: BattlePlayerStats? = null) {
+        val stats = current ?: runCatching { battleStats() }.getOrNull()
+        if (stats != null) {
+            // 빌드를 바꿔 지금 빌드에 없는 스킬이 남아 있으면 콤보에서 조용히 뺀다.
+            val known = (stats.kit.map { it.motion } + stats.motion).toSet()
+            val filtered = comboPicks.filter { it.motion in known }
+            if (filtered.size != comboPicks.size) {
+                comboPicks = filtered
+                comboStore.save(filtered)
+            }
+        }
+        if (comboPicks.isEmpty()) {
+            val auto = stats?.let { ComboPlanner.summary(ComboPlanner.plan(it.motion, it.kit)) }.orEmpty()
+            pobPane.tvBattleCombo.isVisible = auto.isNotBlank()
+            pobPane.tvBattleCombo.text = if (auto.isBlank()) "" else getString(R.string.battle_combo_plan, auto)
+        } else {
+            pobPane.tvBattleCombo.isVisible = true
+            pobPane.tvBattleCombo.text = getString(R.string.battle_combo_line, BattleCombos.summary(comboPicks))
+        }
+    }
+
+    /**
+     * 콤보 설정 시트.
+     *
+     * 빌드에 장착된 스킬을 눌러 순서를 쌓고, 같은 스킬을 여러 번 넣을 수 있다.
+     * 바뀔 때마다 저장하고 전투 중이면 그 자리에서 다시 시작해 바로 확인할 수 있게 한다.
+     */
+    private fun showComboDialog() {
+        val stats = battleStats()
+        if (stats == null) {
+            Snackbar.make(binding.root, R.string.battle_need_build, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val density = resources.displayMetrics.density
+        val options = BattleCombos.options(pobBuild, krDict, battleSkillDps())
+        if (options.isEmpty()) {
+            Snackbar.make(binding.root, R.string.battle_need_build, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val work = ArrayList(comboPicks)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((18 * density).toInt(), (4 * density).toInt(), (18 * density).toInt(), (6 * density).toInt())
+        }
+        root.addView(TextView(this).apply {
+            text = getString(R.string.battle_combo_hint)
+            setTextColor(ContextCompat.getColor(context, R.color.text_muted))
+            textSize = 11f
+            setLineSpacing(0f, 1.15f)
+        })
+        root.addView(TextView(this).apply {
+            text = getString(R.string.battle_combo_sequence)
+            setTextColor(ContextCompat.getColor(context, R.color.gold))
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, (10 * density).toInt(), 0, (4 * density).toInt())
+        })
+        val seqColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(seqColumn)
+
+        root.addView(TextView(this).apply {
+            text = getString(R.string.battle_combo_add)
+            setTextColor(ContextCompat.getColor(context, R.color.gold))
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, (12 * density).toInt(), 0, (2 * density).toInt())
+        })
+        val chipRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        root.addView(chipRow)
+
+        val scroll = android.widget.ScrollView(this).apply {
+            addView(root)
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.battle_combo_title)
+            .setView(scroll)
+            .setPositiveButton(R.string.battle_combo_close, null)
+            .create()
+
+        fun apply() {
+            comboPicks = work.toList()
+            if (comboPicks.isEmpty()) comboStore.clear() else comboStore.save(comboPicks)
+            refreshComboLabel(stats)
+            refreshBattleHeader()
+            restartBattleIfRunning()
+        }
+
+        lateinit var render: () -> Unit
+        render = {
+            seqColumn.removeAllViews()
+            if (work.isEmpty()) {
+                seqColumn.addView(TextView(this).apply {
+                    text = getString(R.string.battle_combo_empty)
+                    setTextColor(ContextCompat.getColor(context, R.color.text_muted))
+                    textSize = 11f
+                    setPadding(0, (4 * density).toInt(), 0, (4 * density).toInt())
+                })
+            }
+            work.forEachIndexed { index, pick ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, (3 * density).toInt(), 0, (3 * density).toInt())
+                }
+                row.addView(TextView(this).apply {
+                    text = "${index + 1}"
+                    setTextColor(ContextCompat.getColor(context, R.color.gold_soft))
+                    textSize = 11f
+                    gravity = Gravity.CENTER
+                    width = (22 * density).toInt()
+                })
+                row.addView(TextView(this).apply {
+                    text = pick.label + if (pick.repeats > 1) "  x${pick.repeats}" else ""
+                    setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                    textSize = 12.5f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                fun smallButton(label: String, description: String, action: () -> Unit) {
+                    row.addView(TextView(this).apply {
+                        text = label
+                        contentDescription = description
+                        setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                        textSize = 13f
+                        gravity = Gravity.CENTER
+                        setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
+                        setOnClickListener {
+                            action()
+                            render()
+                            apply()
+                        }
+                    })
+                }
+                smallButton("▲", getString(R.string.battle_combo_up)) {
+                    if (index > 0) {
+                        val item = work.removeAt(index)
+                        work.add(index - 1, item)
+                    }
+                }
+                smallButton("▼", getString(R.string.battle_combo_down)) {
+                    if (index < work.size - 1) {
+                        val item = work.removeAt(index)
+                        work.add(index + 1, item)
+                    }
+                }
+                smallButton("✕", getString(R.string.battle_combo_remove)) {
+                    if (index in work.indices) work.removeAt(index)
+                }
+                seqColumn.addView(row)
+            }
+
+            chipRow.removeAllViews()
+            options.forEach { option ->
+                val chip = Chip(this)
+                chip.id = View.generateViewId()
+                chip.text = option.label + (if (option.dps > 0) "  ${dpsText(option.dps)}" else "")
+                chip.isCheckable = false
+                chip.setOnClickListener {
+                    work.add(option)
+                    render()
+                    apply()
+                }
+                chipRow.addView(chip)
+            }
+
+        }
+
+        if (comboPicks.isEmpty()) {
+            // 처음 열면 자동 추천으로 시작해 손으로 고칠 수 있게 한다.
+            work.addAll(BattleCombos.autoPicks(stats, options))
+        }
+        render()
+
+        val tools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, (10 * density).toInt(), 0, 0)
+        }
+        fun toolButton(label: String, action: () -> Unit) {
+            tools.addView(TextView(this).apply {
+                text = label
+                setTextColor(ContextCompat.getColor(context, R.color.gold))
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+                setBackgroundResource(R.drawable.bg_search)
+                setOnClickListener {
+                    action()
+                    render()
+                    apply()
+                }
+            })
+        }
+        toolButton(getString(R.string.battle_combo_auto)) {
+            val picks = BattleCombos.autoPicks(stats, options)
+            work.clear()
+            work.addAll(picks)
+            Snackbar.make(binding.root, getString(R.string.battle_combo_auto_done, picks.size), Snackbar.LENGTH_SHORT).show()
+        }
+        toolButton(getString(R.string.battle_combo_clear)) {
+            work.clear()
+        }
+        root.addView(tools)
+        dialog.show()
+    }
+
+
     private fun buildBattleTriggerChips() {
         val group = pobPane.battleTriggerChips
         group.removeAllViews()
@@ -1461,6 +1681,7 @@ class MainActivity : AppCompatActivity() {
         triggerMode = battleTriggerMode,
         dict = krDict,
         tree = Poe2Tree.of(this),
+        combo = BattleCombos.toSteps(comboPicks),
     )
 
     /** PoB가 비운 스킬별 DPS를 보충하기 위해 계산기 값만 따로 받아 둔다 (스킬 칩에 쓴다) */
@@ -1512,12 +1733,30 @@ class MainActivity : AppCompatActivity() {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
                 getString(R.string.pob_dps_infinite)
         }
-        // 빌드에 준비 단계가 필요한 콤보가 엮여 있으면 순서를 미리 보여 준다.
+        // 빌드에 준비 단계가 필요한 콤보가 엮여 있거나 직접 짜 둔 콤보가 있으면 순서를 미리 보여 준다.
         val plan = ComboPlanner.plan(stats.motion, stats.kit)
-        if (plan.size > 1) {
+        val comboText = if (comboPicks.isNotEmpty()) BattleCombos.summary(comboPicks)
+        else if (plan.size > 1) ComboPlanner.summary(plan) else ""
+        if (comboText.isNotBlank()) {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(R.string.battle_combo_plan, ComboPlanner.summary(plan))
+                getString(
+                    if (comboPicks.isNotEmpty()) R.string.battle_combo_custom else R.string.battle_combo_plan,
+                    comboText,
+                )
         }
+        // 부적(Talisman) 변신 — 어떤 형상으로 싸우고 무슨 형태 변환 스킬을 쓰는지 적는다.
+        if (stats.beast.isBeast) {
+            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
+                getString(
+                    R.string.battle_beast_line,
+                    listOfNotNull(
+                        stats.beastProfile.summary.ifBlank { stats.beast.label },
+                        stats.beast.bonus.ifBlank { null },
+                        stats.beastProfile.reason.ifBlank { null },
+                    ).joinToString(" · "),
+                )
+        }
+        refreshComboLabel()
         // 빌드에 찍힌 전직 노드 효과 — 전투에 얼마나 반영됐는지 같이 적는다.
         if (stats.ascendSummary.isNotBlank()) {
             val suffix = if (stats.ascendApplied > 0) {
@@ -1698,6 +1937,16 @@ class MainActivity : AppCompatActivity() {
                 result.bellCasts,
             )
         } else ""
+        // 부적으로 변신해 싸웠거나 기름을 뿌렸으면 그 결과도 적는다.
+        val beastLine = if (result.beast.isBeast || result.oilSpills > 0) {
+            "\n" + getString(
+                R.string.battle_result_beast,
+                result.beastText.ifBlank { result.beast.label },
+                result.oilSpills,
+                result.oilIgnitions,
+                BattleWorld.formatShort(result.oilDamage),
+            )
+        } else ""
         // 소환수·두꺼비가 낸 피해도 따로 적는다.
         val minionLine = if (result.minionText.isNotBlank() || result.toadExplosions > 0) {
             "\n" + getString(
@@ -1710,7 +1959,7 @@ class MainActivity : AppCompatActivity() {
                 BattleWorld.formatShort(result.darkConsequencesDamage),
             )
         } else ""
-        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine + comboLine + minionLine
+        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine + comboLine + minionLine + beastLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false

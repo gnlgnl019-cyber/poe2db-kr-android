@@ -209,6 +209,25 @@
     <string name="battle_spirit_line">정신력 %1$d / %2$d 점유</string>
     <string name="battle_result_minion">소환수 %1$s · 피해 %2$s · 처치 %3$d · 소환수 사망 %4$d · 두꺼비 폭발 %5$d회 · 암울한 결과 %6$s</string>
 
+    <string name="battle_combo_button">콤보 설정</string>
+    <string name="battle_combo_title">콤보 설정</string>
+    <string name="battle_combo_hint">빌드에 장착한 스킬을 누르면 순서에 추가됩니다. 같은 스킬을 여러 번 넣을 수 있고, ↑ ↓ 로 순서를 바꾸고 ✕ 로 뺩니다.</string>
+    <string name="battle_combo_sequence">콤보 순서</string>
+    <string name="battle_combo_empty">아직 순서가 없습니다. 아래 스킬을 눌러 추가하세요.</string>
+    <string name="battle_combo_add">스킬 추가</string>
+    <string name="battle_combo_auto">자동 추천</string>
+    <string name="battle_combo_clear">초기화</string>
+    <string name="battle_combo_close">닫기</string>
+    <string name="battle_combo_up">위로</string>
+    <string name="battle_combo_down">아래로</string>
+    <string name="battle_combo_remove">빼기</string>
+    <string name="battle_combo_saved">콤보 %1$d개 저장 · 전투에 바로 적용합니다</string>
+    <string name="battle_combo_auto_done">빌드에 맞춰 %1$d개를 추천했습니다</string>
+    <string name="battle_combo_line">콤보: %1$s</string>
+    <string name="battle_combo_custom">직접 설정한 콤보: %1$s</string>
+    <string name="battle_beast_line">야수 변신: %1$s</string>
+    <string name="battle_result_beast">변신 %1$s · 기름 지대 %2$d · 점화 %3$d · 기름 피해 %4$s</string>
+
     <string name="bookmark_add">즐겨찾기 저장</string>
     <string name="bookmark_remove">즐겨찾기 해제</string>
     <string name="bookmark_added">즐겨찾기에 저장했습니다</string>

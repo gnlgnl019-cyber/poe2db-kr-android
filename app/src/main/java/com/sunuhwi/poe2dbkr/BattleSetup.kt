@@ -212,6 +212,8 @@ object BattleSetup {
         dict: KrDict = KrDict.EMPTY,
         /** 전직 노드 효과를 찾을 패시브 트리 자료 */
         tree: TreeDict = TreeDict.EMPTY,
+        /** 전투 탭에서 짜 둔 콤보 순서 (있으면 이 순서대로 돈다) */
+        combo: List<ComboStep> = emptyList(),
     ): BattlePlayerStats? {
         if (build == null) return null
         // 빌드에 찍힌 전직 노드를 먼저 모아 두고, 그 효과를 수치 계산과 전투 양쪽에 넘긴다.
@@ -228,11 +230,27 @@ object BattleSetup {
         }
         val fx = if (dark) SkillEffectType.CHAOS else SkillEffects.detect(skillName, group?.label.orEmpty())
         val weaponItem = Pob.weaponItem(build, overrides)
-        val weapon = weaponItem?.weapon?.takeIf { it != WeaponVisualType.NONE }
-            ?: WeaponTypes.detect(weaponItem?.itemClass, weaponItem?.baseType, weaponItem?.name)
-                .takeIf { it != WeaponVisualType.NONE }
-            ?: WeaponTypes.fallbackFor(fx)
-        val form = WeaponTypes.attackForm(weapon, fx)
+        // 부적(Talisman) 장착·형태 변환 스킬로 야수 변신을 먼저 판정한다 (무기 형태가 여기에 달려 있다).
+        val shapeNames = build.skills.filter { it.enabled }.flatMap { g ->
+            g.gems.filter { it.enabled }.map { it.name }.toList() + g.label
+        }
+        val beastProfile = Beasts.profile(build, overrides, skillName, shapeNames, dict)
+        val beast = beastProfile.form
+        val weapon = if (beast.isBeast) {
+            // 야수는 무기를 들지 않는다 — 발톱과 이빨로 싸운다.
+            WeaponVisualType.CLAW
+        } else {
+            weaponItem?.weapon?.takeIf { it != WeaponVisualType.NONE }
+                ?: WeaponTypes.detect(weaponItem?.itemClass, weaponItem?.baseType, weaponItem?.name)
+                    .takeIf { it != WeaponVisualType.NONE }
+                ?: WeaponTypes.fallbackFor(fx)
+        }
+        val form = if (beast.isBeast) {
+            // 야수는 사람 무기를 휘두르지 않는다 — 와이번은 숨결을 뿜고 나머지는 달려들어 친다.
+            if (beast == BeastForm.WYVERN) AttackForm.CAST else AttackForm.MELEE
+        } else {
+            WeaponTypes.attackForm(weapon, fx)
+        }
         val skillKo = if (dark) {
             dict.gemName(skillName).ifBlank { Minions.DARK_CONSEQUENCES_KO }
         } else {
@@ -293,6 +311,7 @@ object BattleSetup {
         val ownDps = calc.skillDps
             .filter { TriggerKind.normalizeName(it.name) != TriggerKind.normalizeName(Minions.DARK_CONSEQUENCES_EN) }
             .maxOfOrNull { it.dps } ?: 0.0
+        val kit = kitSkills(build, dict, skillName, scale, dpsByName = skillDpsByName)
         return BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
                 .filter { it.isNotBlank() }.joinToString(" · "),
@@ -343,7 +362,12 @@ object BattleSetup {
             metaEnergyPct = ascend?.sim?.metaEnergyPct ?: 0.0,
             cooldownRatePct = ascend?.sim?.cooldownPct ?: 0.0,
             motion = SkillMotions.detect(skillName, group?.label.orEmpty(), skillKo),
-            kit = kitSkills(build, dict, skillName, scale, dpsByName = skillDpsByName),
+            kit = kit,
+            beast = beast,
+            beastProfile = beastProfile,
+            combo = combo,
+            oilSkill = SkillMotions.detect(skillName, group?.label.orEmpty(), skillKo) == SkillMotion.OIL_BARRAGE ||
+                kit.any { it.motion == SkillMotion.OIL_BARRAGE || it.motion == SkillMotion.OIL_GRENADE },
             hollowSkill = hollowSocketSkill(build, dict, scale, dpsByName = skillDpsByName),
             minions = minions,
             unique = unique.sim,

@@ -52,16 +52,38 @@ enum class SkillMotion(val label: String) {
 
     /** 저주·징표: 몸에서 저주가 퍼져 나간다 */
     CURSE("저주"),
+
+    /** 기름 포화: 와이번으로 변신해 기름을 순차 발사하고 기름 지대를 남긴다 */
+    OIL_BARRAGE("기름 포화"),
+
+    /** 기름 유탄: 기름 단지를 굴려 터뜨려 기름 지대를 만든다 */
+    OIL_GRENADE("기름 유탄"),
+
+    /** 연발 사격: 시위를 빠르게 당겼다 놓아 화살을 몰아 쏜다 */
+    BARRAGE("연발 사격"),
+
+    /** 주문 토템: 땅에 토템을 세워 두고 토템이 주문을 쏜다 */
+    TOTEM("주문 토템"),
+
+    /** 야수 기본 공격: 변신한 앞발·발톱으로 내리친다 */
+    BEAST_MAUL("야수 강타"),
+
+    /** 야수 함성: 고개를 젖혀 포효하고 주변을 밀어낸다 */
+    BEAST_HOWL("야수 포효"),
+
+    /** 와이번 숨결: 날개를 펴고 목을 내밀어 화염·번개를 토한다 */
+    WYVERN_BREATH("와이번 숨결"),
     ;
 
     val isMelee: Boolean
         get() = this == WHIRLING_ASSAULT || this == WHIRLING_SLASH || this == TEMPEST_BELL ||
-            this == KILLING_PALM || this == FLICKER || this == DEFAULT
+            this == KILLING_PALM || this == FLICKER || this == BEAST_MAUL ||
+            this == BEAST_HOWL || this == DEFAULT
 
     /** 준비 단계가 있는 콤보 스킬인지 (봇이 순서를 짜 준다) */
     val isComboPiece: Boolean
         get() = this == WHIRLING_SLASH || this == TWISTER || this == TEMPEST_BELL ||
-            this == KILLING_PALM || this == CURSE
+            this == KILLING_PALM || this == CURSE || this == OIL_BARRAGE || this == BARRAGE
 }
 
 /** 콤보에서 이 스킬이 맡는 자리 */
@@ -97,6 +119,8 @@ data class ComboStep(
     val repeats: Int = 1,
     /** 화면에 같이 적을 짧은 설명 */
     val note: String = "",
+    /** 이 스킬의 DPS — 빌드 콤보 재료에 없을 때(콤보 설정으로 넣은 스킬) 쓴다 */
+    val dps: Double = 0.0,
 )
 
 object SkillMotions {
@@ -110,6 +134,8 @@ object SkillMotions {
     fun detect(vararg names: String): SkillMotion {
         val text = names.joinToString(" ").lowercase()
         if (text.isBlank()) return SkillMotion.DEFAULT
+        // 도이드리의 파멸(암울한 결과)은 두꺼비가 싸우는 스킬이다 — 플레이어는 평타·상으로 돕는다.
+        if (has(text, "doedre", "암울한 결과", "dark consequences")) return SkillMotion.DEFAULT
         return when {
             has(text, "whirling assault", "선회 공격") -> SkillMotion.WHIRLING_ASSAULT
             has(text, "whirling slash", "소용돌이 베기", "회오리 베기") -> SkillMotion.WHIRLING_SLASH
@@ -124,10 +150,21 @@ object SkillMotions {
             has(text, "explosive grenade", "폭발 유탄", "폭발 수류탄") -> SkillMotion.GRENADE
             has(text, "killing palm", "살상 장법") -> SkillMotion.KILLING_PALM
             has(text, "flicker strike", "점멸 타격") -> SkillMotion.FLICKER
+            // 기름 계열은 형태 변환(와이번) 스킬이다 — 기름 유탄보다 기름 포화를 먼저 본다.
+            has(text, "oil barrage", "기름 포화") -> SkillMotion.OIL_BARRAGE
+            has(text, "oil grenade", "기름 유탄", "기름 폭탄") -> SkillMotion.OIL_GRENADE
+            has(text, "barrage", "연발 사격") -> SkillMotion.BARRAGE
             has(
                 text, "curse", "저주", "징표", "mark", "despair", "flammability", "conductivity",
                 "절망", "화염 취약", "전도",
             ) -> SkillMotion.CURSE
+            has(text, "spell totem", "주문 토템", "totem") -> SkillMotion.TOTEM
+            has(text, "ferocious roar", "사나운 포효", "arctic howl", "한기의 울부짖음") -> SkillMotion.BEAST_HOWL
+            has(text, "maul", "사나운 발톱") -> SkillMotion.BEAST_MAUL
+            has(
+                text, "flame breath", "화염 숨결", "rolling magma", "몰려오는 마그마",
+                "wing blast", "날개 돌풍", "devour", "포식", "rend", "분리",
+            ) -> SkillMotion.WYVERN_BREATH
             else -> SkillMotion.DEFAULT
         }
     }
@@ -135,8 +172,9 @@ object SkillMotions {
     /** 이 모션을 빌드 콤보에서 어떤 자리로 쓰는지 */
     fun roleOf(motion: SkillMotion): ComboRole = when (motion) {
         SkillMotion.CURSE -> ComboRole.CURSE
-        SkillMotion.WHIRLING_SLASH, SkillMotion.KILLING_PALM -> ComboRole.BUILD
-        SkillMotion.TWISTER, SkillMotion.TEMPEST_BELL -> ComboRole.BURST
+        SkillMotion.WHIRLING_SLASH, SkillMotion.KILLING_PALM, SkillMotion.OIL_GRENADE -> ComboRole.BUILD
+        SkillMotion.TWISTER, SkillMotion.TEMPEST_BELL, SkillMotion.OIL_BARRAGE, SkillMotion.BARRAGE -> ComboRole.BURST
+        SkillMotion.TOTEM -> ComboRole.BUILD
         else -> ComboRole.MAIN
     }
 
@@ -148,6 +186,8 @@ object SkillMotions {
         SkillMotion.WHIRLING_ASSAULT -> 4
         SkillMotion.WHIRLING_SLASH -> 2
         SkillMotion.TWISTER -> 3
+        SkillMotion.OIL_BARRAGE -> 3
+        SkillMotion.BARRAGE -> 3
         else -> 1
     }
 }
