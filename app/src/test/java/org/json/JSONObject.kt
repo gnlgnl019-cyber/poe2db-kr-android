@@ -250,6 +250,12 @@ class JSONArray {
         else -> Double.NaN
     }
 
+    fun optDouble(index: Int, fallback: Double): Double = when (val value = list.getOrNull(index)) {
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull() ?: fallback
+        else -> fallback
+    }
+
     fun optInt(index: Int, fallback: Int = 0): Int = when (val value = list.getOrNull(index)) {
         is Number -> value.toInt()
         is String -> value.toIntOrNull() ?: fallback

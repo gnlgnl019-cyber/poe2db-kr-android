@@ -238,7 +238,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.nav_tree -> {
                     showPane(PANE_TREE)
-                    if (treePane.treeWebView.url.isNullOrBlank()) loadTree(PASSIVE_TREE_URL)
+                    if (!canvasVisible() && treePane.treeWebView.url.isNullOrBlank()) {
+                        loadTree(PASSIVE_TREE_URL)
+                    }
                 }
                 R.id.nav_pob -> {
                     showPane(PANE_POB)
@@ -878,27 +880,125 @@ class MainActivity : AppCompatActivity() {
                 treePane.treeProgress.isVisible = newProgress < 100
             }
         }
-        treePane.chipPassiveTree.setOnClickListener {
-            openTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+        treePane.treeCanvas.onNodeTap = TreeCanvasView.OnNodeTap { id, allocated ->
+            showTreeNode(id, allocated)
         }
-        treePane.chipAtlasTree.setOnClickListener { openTree(ATLAS_TREE_URL) }
-        treePane.btnTreeRefresh.setOnClickListener { treePane.treeWebView.reload() }
+        treePane.btnTreeNodeClose.setOnClickListener { treePane.treeNodeCard.isVisible = false }
+        treePane.btnTreeCanvasSite.setOnClickListener {
+            val url = buildTreeUrl.ifBlank { PASSIVE_TREE_URL }
+            openExternal(Uri.parse(url))
+        }
+        treePane.chipPassiveTree.setOnClickListener { showPassiveTree() }
+        treePane.chipAtlasTree.setOnClickListener { showWebTree(ATLAS_TREE_URL) }
+        treePane.btnTreeRefresh.setOnClickListener {
+            if (canvasVisible()) treePane.treeCanvas.reset() else treePane.treeWebView.reload()
+        }
         treePane.btnTreeOpen.setOnClickListener {
-            val url = treePane.treeWebView.url
+            val url = if (canvasVisible()) buildTreeUrl.ifBlank { PASSIVE_TREE_URL }
+            else treePane.treeWebView.url
             if (!url.isNullOrBlank()) openExternal(Uri.parse(url))
         }
-        treePane.btnTreeZoomIn.setOnClickListener { treeZoom("window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(1)") }
-        treePane.btnTreeZoomOut.setOnClickListener { treeZoom("window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(-1)") }
-        treePane.btnTreeZoomReset.setOnClickListener { treeZoom("window.__poe2dbkrTree && window.__poe2dbkrTree.reset()") }
+        treePane.btnTreeZoomIn.setOnClickListener { treeZoom(1) }
+        treePane.btnTreeZoomOut.setOnClickListener { treeZoom(-1) }
+        treePane.btnTreeZoomReset.setOnClickListener {
+            if (canvasVisible()) treePane.treeCanvas.reset() else treeZoom(0)
+        }
     }
 
-    private fun treeZoom(script: String) {
+    private fun canvasVisible(): Boolean = treePane.treeCanvas.isVisible
+
+    /** 확대·축소·되돌리기. 앱이 직접 그린 트리와 poe2db 웹뷰 둘 다에 쓴다. */
+    private fun treeZoom(mode: Int) {
+        if (canvasVisible()) {
+            when (mode) {
+                1 -> treePane.treeCanvas.zoomIn()
+                -1 -> treePane.treeCanvas.zoomOut()
+                else -> treePane.treeCanvas.reset()
+            }
+            return
+        }
+        val script = when (mode) {
+            1 -> "window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(1)"
+            -1 -> "window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(-1)"
+            else -> "window.__poe2dbkrTree && window.__poe2dbkrTree.reset()"
+        }
         runCatching { treePane.treeWebView.evaluateJavascript(script, null) }
     }
 
+    /** 패시브 칩: 불러온 빌드가 있으면 앱 안의 트리, 없으면 poe2db 트리. */
+    private fun showPassiveTree() {
+        val build = pobBuild
+        if (build == null || build.treeNodeIds.isEmpty()) {
+            showWebTree(PASSIVE_TREE_URL)
+            return
+        }
+        showBuildTree()
+    }
+
+    /** 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다. */
+    private fun showBuildTree() {
+        val build = pobBuild
+        val tree = Poe2Tree.of(this)
+        if (build == null || build.treeNodeIds.isEmpty() || tree.isEmpty()) {
+            showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+            return
+        }
+        treePane.treeWebView.isVisible = false
+        treePane.treeProgress.isVisible = false
+        treePane.treeCanvas.isVisible = true
+        treePane.treeCanvasBar.isVisible = true
+        treePane.treeNodeCard.isVisible = false
+        treePane.treeCanvas.bind(tree, build.treeNodeIds, build.treeMastery.keys.toList())
+        val classIndex = tree.classIndex(build.className, build.treeClassId)
+        val cls = tree.classes.getOrNull(classIndex)
+        val ascendIndex = if (classIndex >= 0) {
+            tree.ascendancyIndex(classIndex, build.ascendClassName, build.treeAscendClassId)
+        } else 0
+        val classKo = cls?.nameKo?.ifBlank { build.className } ?: build.className
+        val ascendKo = cls?.ascendancies?.getOrNull(ascendIndex - 1)?.second.orEmpty()
+        treePane.tvTreeCanvasInfo.text = if (ascendKo.isBlank()) {
+            getString(R.string.tree_canvas_info, classKo, build.treeNodeIds.size)
+        } else {
+            getString(R.string.tree_canvas_info_ascend, classKo, ascendKo, build.treeNodeIds.size)
+        }
+        binding.bottomNav.selectedItemId = R.id.nav_tree
+        treePane.chipPassiveTree.isChecked = true
+    }
+
+    /** poe2db 트리를 웹뷰로 연다. */
+    private fun showWebTree(url: String) {
+        treePane.treeCanvas.isVisible = false
+        treePane.treeCanvasBar.isVisible = false
+        treePane.treeNodeCard.isVisible = false
+        treePane.treeWebView.isVisible = true
+        loadTree(url)
+    }
+
+    /** 트리 탭으로 옮겨 poe2db 페이지를 연다. */
     private fun openTree(url: String) {
         binding.bottomNav.selectedItemId = R.id.nav_tree
-        loadTree(url)
+        showWebTree(url)
+    }
+
+    /** 트리에서 노드를 누르면 한글 설명을 띄운다. */
+    private fun showTreeNode(id: Int, allocated: Boolean) {
+        val tree = Poe2Tree.of(this)
+        val node = tree.node(id)
+        val kind = when {
+            node == null -> getString(R.string.tree_node_generic)
+            node.isKeystone -> getString(R.string.pob_tree_group_keystone)
+            node.isAscendancy -> getString(R.string.pob_tree_group_ascendancy)
+            node.isMastery -> getString(R.string.pob_tree_group_mastery)
+            node.isNotable -> getString(R.string.pob_tree_group_notable)
+            else -> getString(R.string.tree_node_generic)
+        }
+        val state = getString(if (allocated) R.string.tree_node_allocated else R.string.tree_node_free)
+        treePane.tvTreeNodeName.text = node?.displayName.orEmpty().ifBlank { getString(R.string.tree_node_generic) }
+        treePane.tvTreeNodeKind.text = "$kind · $state"
+        val stats = node?.stats.orEmpty().trim()
+        treePane.tvTreeNodeStats.text = stats
+        treePane.tvTreeNodeStats.isVisible = stats.isNotBlank()
+        treePane.treeNodeCard.isVisible = true
     }
 
     private fun loadTree(url: String) {
@@ -992,7 +1092,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         pobPane.btnOpenNinjaBuilds.setOnClickListener { showNinjaBuilds() }
-        pobPane.btnOpenTree.setOnClickListener { openTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL }) }
+        pobPane.btnOpenTree.setOnClickListener { showBuildTree() }
         pobPane.btnOpenAtlas.setOnClickListener { openTree(ATLAS_TREE_URL) }
 
         setupBattle()
@@ -1380,6 +1480,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBattleHeaderBody() {
         val stats = battleStats()
+        val dict = krDict
         if (stats == null) {
             pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
             pobPane.tvBattleTrigger.isVisible = false
@@ -1404,7 +1505,9 @@ class MainActivity : AppCompatActivity() {
             stats.triggers.isNotEmpty() -> {
                 // 켜져 있는 메타젬을 전부 나열한다 (첫 그룹만 쓰지 않는다).
                 val lines = stats.triggers.joinToString("\n") { spec ->
-                    "· ${spec.kind.label} · ${spec.skillNames}" + if (spec.estimated) " (추정)" else ""
+                    "· ${spec.kind.label} · " +
+                        spec.skills.joinToString(" · ") { dict.gemName(it.name).ifBlank { it.name } } +
+                        if (spec.estimated) " (추정)" else ""
                 }
                 pobPane.tvBattleTrigger.isVisible = true
                 pobPane.tvBattleTrigger.text = getString(
@@ -1755,6 +1858,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderSkillsBody() {
         val build = pobBuild ?: return
+        val dict = krDict
         val container = pobPane.skillsContainer
         container.removeAllViews()
         val density = resources.displayMetrics.density
@@ -1774,7 +1878,7 @@ class MainActivity : AppCompatActivity() {
 
             val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val title = TextView(this).apply {
-                text = "${groupIndex + 1}. ${group.title}"
+                text = "${groupIndex + 1}. ${skillGroupTitle(group, dict)}"
                 setTextColor(ContextCompat.getColor(context, R.color.text_primary))
                 textSize = 14f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -1809,15 +1913,60 @@ class MainActivity : AppCompatActivity() {
                     refreshPobCalc()
                 }
                 val isSupport = PobCalculator.SUPPORT_GEMS.containsKey(gem.name.lowercase().trim())
-                row.tvGemName.text = gem.name
-                row.tvGemKind.text = getString(if (isSupport) R.string.pob_support_kind else R.string.pob_skill_kind)
+                val nameKo = dict.gemName(gem.name).ifBlank { gem.name }
+                row.tvGemName.text = nameKo
+                row.tvGemKind.text = getString(
+                    when {
+                        PobTriggers.kindOf(gem) != null -> R.string.pob_meta_kind
+                        isSupport || PobCalculator.isSupport(gem) -> R.string.pob_support_kind
+                        else -> R.string.pob_skill_kind
+                    }
+                )
                 row.tvGemLevel.text = "Lv ${gem.level}"
                 row.btnLevelUp.setOnClickListener { gem.level = (gem.level + 1).coerceAtMost(40); renderSkills(); refreshPobCalc() }
                 row.btnLevelDown.setOnClickListener { gem.level = (gem.level - 1).coerceAtLeast(1); renderSkills(); refreshPobCalc() }
+                row.tvGemName.setOnClickListener { showGemDetail(group, gem, dict) }
+                row.tvGemKind.setOnClickListener { showGemDetail(group, gem, dict) }
                 card.addView(row.root)
             }
             container.addView(card)
         }
+    }
+
+    /** 스킬 그룹 제목. PoB는 label에 첫 젬 이름을 그대로 넣어 두고, 샘플 빌드는 "1 Lightning Arrow"처럼 번호를 붙인다. */
+    private fun skillGroupTitle(group: PobSkillGroup, dict: KrDict): String {
+        val raw = group.label.trim().ifBlank { group.gems.firstOrNull()?.name.orEmpty() }
+        if (raw.isBlank()) return getString(R.string.pob_skill_kind)
+        dict.gemName(raw).takeIf { it.isNotBlank() }?.let { return it }
+        val match = Regex("^(\\d+)\\s+(.*)$").find(raw)
+        if (match != null) {
+            val rest = match.groupValues[2].trim()
+            val ko = dict.gemName(rest)
+            if (ko.isNotBlank()) return "${match.groupValues[1]} $ko"
+        }
+        return raw
+    }
+
+    /** 젬 하나의 설명 창. 이름·종류·레벨은 한글로, 수치는 PoB가 계산한 값을 쓴다. */
+    private fun showGemDetail(group: PobSkillGroup, gem: PobGem, dict: KrDict) {
+        val meta = PobTriggers.kindOf(gem)
+        val kind = when {
+            meta != null -> getString(R.string.pob_meta_kind)
+            PobCalculator.isSupport(gem) -> getString(R.string.pob_support_kind)
+            else -> getString(R.string.pob_skill_kind)
+        }
+        val lines = ArrayList<String>(4)
+        lines.add("$kind · 레벨 ${gem.level}")
+        val dps = BattleSetup.skillDps(pobBuild ?: return, gem.name)
+        if (dps > 0) lines.add("PoB DPS ${NumberFormat.getNumberInstance(Locale.KOREA).format(dps.toLong())}")
+        if (group === Pob.mainGroup(pobBuild ?: return, pobMainGroup)) {
+            lines.add(getString(R.string.pob_main_skill))
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(dict.gemName(gem.name).ifBlank { gem.name })
+            .setMessage(lines.joinToString("\n"))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun refreshPobCalc() {
@@ -1884,8 +2033,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         val skills = build.skills.filter { it.enabled }
+        val dict = krDict
         pobPane.tvSkillSummary.text = skills.joinToString("\n") { group ->
-            "· ${group.label}: " + group.gems.filter { it.enabled }.joinToString(", ") { it.name }
+            "· ${skillGroupTitle(group, dict)}: " +
+                group.gems.filter { it.enabled }.joinToString(", ") { dict.gemName(it.name).ifBlank { it.name } }
         }.ifBlank { getString(R.string.pob_tree_empty) }
 
         // 이 빌드에 맞는 스킬 칩을 다시 만들고 헤더도 새 수치로 갱신한다.
@@ -1903,6 +2054,7 @@ class MainActivity : AppCompatActivity() {
         pobPane.btnOpenTree.setText(
             if (buildTreeUrl.isNotBlank()) R.string.pob_tree_open_character else R.string.pob_open_tree
         )
+        if (canvasVisible()) showBuildTree()
         val summary = Poe2Tree.summarize(build, tree)
         if (summary == null) {
             pobPane.tvTreeInfo.text = getString(R.string.pob_tree_no_nodes)

@@ -94,6 +94,7 @@ android {
 }
 
 tasks.withType<Test>().configureEach {
+    maxParallelForks = 1
     testLogging {
         showStandardStreams = true
         events("passed", "failed", "skipped")

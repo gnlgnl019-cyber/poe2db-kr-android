@@ -19,6 +19,9 @@ data class TreeNode(
     val stats: String,
     val kind: Char,
     val ascendancy: String,
+    /** 트리에서 그려질 자리 (poe2db 자료의 x·y) */
+    val x: Float = 0f,
+    val y: Float = 0f,
 ) {
     val displayName: String get() = nameKo.ifBlank { nameEn }
     val isKeystone: Boolean get() = kind == 'k'
@@ -39,7 +42,26 @@ data class TreeNode(
 class TreeDict(
     val classes: List<TreeClass> = emptyList(),
     val nodes: Map<Int, TreeNode> = emptyMap(),
+    /** 연결선 [가, 나, 가, 나, …] — 노드 번호 쌍 */
+    val edges: List<Int> = emptyList(),
+    /** 직업 번호 → 직업 시작 노드 */
+    val classStarts: Map<Int, Int> = emptyMap(),
+    /** 직업 번호 × 100 + 전직 번호 → 전직 시작 노드 */
+    val ascStarts: Map<Int, Int> = emptyMap(),
+    /** 트리 전체 범위 [minX, minY, maxX, maxY] */
+    val bounds: FloatArray = FloatArray(0),
 ) {
+
+    /** 화면에 그릴 때 쓰는 배열 묶음 (한 번만 만든다) */
+    val geometry: TreeGeometry by lazy { TreeGeometry.of(this) }
+
+    /** 직업·전직의 시작 노드 번호. 시작 지점을 화면 가운데로 잡을 때 쓴다. */
+    fun startNode(classIndex: Int, ascendancyIndex: Int): Int {
+        if (ascendancyIndex > 0) {
+            ascStarts[classIndex * 100 + ascendancyIndex]?.let { return it }
+        }
+        return classStarts[classIndex] ?: -1
+    }
 
     fun isEmpty(): Boolean = classes.isEmpty()
 
@@ -142,9 +164,44 @@ class TreeDict(
                     stats = row.optString(3),
                     kind = row.optString(4).firstOrNull() ?: 's',
                     ascendancy = row.optString(5),
+                    x = row.optDouble(6, 0.0).toFloat(),
+                    y = row.optDouble(7, 0.0).toFloat(),
                 )
             }
-            return TreeDict(classes, nodes)
+            val edges = ArrayList<Int>()
+            root.optJSONArray("edges")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val pair = arr.optJSONArray(i) ?: continue
+                    edges.add(pair.optInt(0, 0))
+                    edges.add(pair.optInt(1, 0))
+                }
+            }
+            val classStarts = HashMap<Int, Int>()
+            root.optJSONArray("classStarts")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val pair = arr.optJSONArray(i) ?: continue
+                    classStarts[pair.optInt(0, -1)] = pair.optInt(1, 0)
+                }
+            }
+            val ascStarts = HashMap<Int, Int>()
+            root.optJSONArray("ascStarts")?.let { arr ->
+                for (i in 0 until arr.length()) {
+                    val row = arr.optJSONArray(i) ?: continue
+                    ascStarts[row.optInt(0, -1) * 100 + row.optInt(1, 0)] = row.optInt(2, 0)
+                }
+            }
+            val boundsRow = root.optJSONArray("bounds")
+            val bounds = if ((boundsRow?.length() ?: 0) >= 4) {
+                floatArrayOf(
+                    boundsRow!!.optDouble(0, 0.0).toFloat(),
+                    boundsRow.optDouble(1, 0.0).toFloat(),
+                    boundsRow.optDouble(2, 0.0).toFloat(),
+                    boundsRow.optDouble(3, 0.0).toFloat(),
+                )
+            } else {
+                FloatArray(0)
+            }
+            return TreeDict(classes, nodes, edges, classStarts, ascStarts, bounds)
         }
 
         /** 고유 이름·노드 이름을 바이트열로 (큰 수 먼저). */

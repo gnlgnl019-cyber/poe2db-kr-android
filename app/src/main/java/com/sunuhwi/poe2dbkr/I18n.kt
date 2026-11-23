@@ -24,6 +24,8 @@ class KrDict(
     val classIcons: Map<String, String> = emptyMap(),
     val props: Map<String, String> = emptyMap(),
     val tags: Map<String, String> = emptyMap(),
+    /** 스킬 젬·보조 젬 이름 (영문 → 한글) */
+    val gems: Map<String, String> = emptyMap(),
     val fetchedAt: String = "",
 ) {
 
@@ -81,6 +83,7 @@ class KrDict(
                 classIcons = pairs(root.optJSONArray("classIcons")),
                 props = pairs(root.optJSONArray("props")),
                 tags = pairs(root.optJSONArray("tags")),
+                gems = pairs(root.optJSONArray("gems")),
                 fetchedAt = root.optString("fetchedAt"),
             )
         }
@@ -142,6 +145,17 @@ class KrDict(
             }
         }
         return ""
+    }
+
+    /**
+     * 젬 이름 한글 표기. 액티브·보조·메타 젬은 아이템 사전이 아니라 젬 사전에서 찾고,
+     * 거기에 없으면 아이템 사전 규칙을 빌려 쓴다. 둘 다 없으면 빈 문자열.
+     */
+    fun gemName(en: String): String {
+        val key = key(en)
+        if (key.isEmpty()) return ""
+        gems[key]?.let { return it }
+        return name(en)
     }
 
     fun icon(en: String): String {
@@ -311,7 +325,7 @@ class KrDict(
 
     /** 사전 커버리지 (보고·테스트용) */
     fun stats(): String =
-        "이름 ${names.size} · 베이스 ${bases.size} · 아이콘 ${icons.size} · 옵션 틀 ${mods.size}"
+        "이름 ${names.size} · 베이스 ${bases.size} · 아이콘 ${icons.size} · 옵션 틀 ${mods.size} · 젬 ${gems.size}"
 
     private fun fillNumbers(template: String, english: String): String {
         val numbers = SIGNED.findAll(english).map {

@@ -61,6 +61,14 @@
     <string name="tree_passive">패시브 트리</string>
     <string name="tree_atlas">아틀라스 트리</string>
     <string name="tree_error">트리를 불러오지 못했습니다</string>
+    <string name="tree_canvas_site">poe2db</string>
+    <string name="tree_canvas_info">%1$s · 찍은 노드 %2$d개</string>
+    <string name="tree_canvas_info_ascend">%1$s · %2$s · 찍은 노드 %3$d개</string>
+    <string name="tree_canvas_hint">두 손가락으로 확대하고, 노드를 누르면 설명이 나옵니다.</string>
+    <string name="tree_node_allocated">찍은 노드</string>
+    <string name="tree_node_free">찍지 않은 노드</string>
+    <string name="tree_node_generic">패시브</string>
+    <string name="tree_node_close">설명 닫기</string>
 
     <string name="pob_empty_title">빌드를 불러오세요</string>
     <string name="pob_empty_hint">Path of Building 공유 코드 또는 pobb.in 링크를 넣거나 샘플 빌드로 바로 시험해 볼 수 있습니다.</string>
@@ -126,7 +134,7 @@
     <string name="pob_tree_group_keystone">키스톤</string>
     <string name="pob_tree_group_notable">주요 패시브</string>
     <string name="pob_tree_group_mastery">마스터리</string>
-    <string name="pob_tree_hint">아래 버튼을 누르면 poe2db 트리가 열리고, 찍은 노드가 황금색으로 표시됩니다.</string>
+    <string name="pob_tree_hint">아래 버튼을 누르면 앱 안에서 캐릭터 트리가 열리고, 찍은 노드가 황금색으로 표시됩니다.</string>
     <string name="pob_tree_open_character">캐릭터 패시브 트리 열기</string>
     <string name="pob_open_tree">패시브 트리 열기</string>
     <string name="pob_open_atlas">아틀라스 트리 열기</string>
@@ -137,6 +145,9 @@
     <string name="minus_sign">−</string>
     <string name="pob_support_kind">보조 젬</string>
     <string name="pob_skill_kind">스킬 젬</string>
+    <string name="pob_meta_kind">메타 젬</string>
+    <string name="pob_gem_level">레벨 %1$d</string>
+    <string name="pob_gem_detail">%1$s\n%2$s · %3$s</string>
     <string name="pob_loaded">빌드를 불러왔습니다</string>
     <string name="pob_load_failed">코드를 해석하지 못했습니다. PoB 공유 코드나 pobb.in 링크인지 확인하세요.</string>
     <string name="pob_copied">PoB 코드를 클립보드에 복사했습니다</string>

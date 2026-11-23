@@ -6,7 +6,7 @@
 
 - **DB** — 전체 4,354건. 무기·방어구·장신구·룬·화폐·유니크·스킬 젬·보조 젬·전직·키워드 칩으로 좁혀 볼 수 있습니다.
 - **시세** — poe.ninja 실시간 시세 (화폐·룬·에센스·영혼 핵 등 9종 교환 품목과 고유 장비)
-- **패시브** — poe2db.tw 패시브·아틀라스 트리 뷰어 (핀치 줌). PoB 빌드를 불러온 뒤에는 그 캐릭터가 찍은 노드가 황금색으로 켜진 트리가 열립니다.
+- **패시브** — poe2db.tw 패시브·아틀라스 트리 뷰어. PoB 빌드를 불러온 뒤에는 그 캐릭터가 찍은 노드가 황금색으로 켜진 트리를 **앱 안에서 직접** 그려 줍니다(핀치 줌·이동, 노드를 누르면 한글 설명). 같은 트리를 poe2db에서도 열 수 있습니다.
 - **PoB** — 개요 / 스킬 / 장비 / 설정 / 패시브 / 전투 / 메타
 - **즐겨찾기** — 별표로 저장한 항목
 
@@ -101,6 +101,7 @@ dist/poe2db-kr-1.0.0-debug.apk            # 기기에 설치해 볼 APK
 ```bash
 python3 scripts/fetch_poe2db.py        # poe2db.tw/kr 파싱 → assets JSON
 python3 scripts/fetch_poe2_i18n.py     # 시세·장비 한글 사전 → assets/poe2_kr_i18n.json
+python3 scripts/fetch_poe2_gems.py     # 스킬·보조 젬 한글 이름 → assets/poe2_kr_i18n.json
 python3 scripts/fetch_poe2_tree.py     # 패시브 트리 노드·직업 이름 → assets/poe2_tree_kr.json
 python3 scripts/make_store_assets.py   # 아이콘, 스토어 그래픽
 python3 scripts/make_store_screenshots.py  # 스토어 스크린샷 5장
@@ -114,9 +115,13 @@ python3 scripts/make_store_screenshots.py  # 스토어 스크린샷 5장
 아이템 머리말과 `(implicit)`·`(crafted)` 꼬리표의 한글 표기입니다.
 패치로 신규 아이템이 늘면 다시 돌려 사전을 갱신하세요 (`.cache/i18n/` 캐시).
 
-`fetch_poe2_tree.py`는 poe2db 패시브 트리 자료(`data_kr.json`/`data_us.json`)에서 직업·전직 이름과
-주요 패시브(키스톤·주목할 패시브·마스터리·전직 노드)의 한글 이름·설명만 추려 190KB 남짓으로 만듭니다.
-앱은 이 파일로 PoB의 `Spec nodes` 목록을 poe2db 트리 주소로 바꾸고, 패시브 탭에 한글 노드 목록을 띄웁니다.
+`fetch_poe2_gems.py`는 poe2db의 스킬 젬·보조 젬·Spirit Gems 목록을 영문판·한국어판으로 짝지어
+젬 이름 사전(1,060여 종)을 `poe2_kr_i18n.json`의 `gems`에 넣습니다. 지금 목록에 없는 예전 이름
+(`Martial Tempo`, `Scattershot` 등 0.1 시절 보조 젬)은 웨이백 머신 사본에서 보탭니다.
+
+`fetch_poe2_tree.py`는 poe2db 패시브 트리 자료(`data_kr.json`/`data_us.json`)에서 직업·전직 이름,
+모든 노드의 한글 이름·설명·좌표, 연결선을 추려 700KB 남짓으로 만듭니다.
+앱은 이 파일로 트리를 직접 그리고, PoB의 `Spec nodes` 목록을 poe2db 트리 주소로도 바꿉니다.
 
 `fetch_poe2db.py`는 lxml만 있으면 됩니다. 내려받은 페이지는 `.cache/poe2db/`에 남아 다음 실행 때는 목록 페이지만 다시 받습니다. 젬 설명은 젬별 툴팁 조각을 한 번씩 더 받아 채웁니다.
 
@@ -140,11 +145,14 @@ app/src/main/java/com/sunuhwi/poe2dbkr/
   I18n.kt             한글 사전 로딩·이름/베이스/아이콘/옵션 변환
   PobLocale.kt        PoB 장비를 한글 이름·옵션으로 표시
   Poe2Tree.kt         패시브 트리 자료 로딩, PoB 노드 → poe2db 트리 주소, 한글 요약
+  TreeGeometry.kt     트리 노드·연결선 배열과 화면 맞춤·확대 계산
+  TreeCanvasView.kt   캐릭터 트리 캔버스 (찍은 노드 금색, 탭하면 한글 설명)
   Meta.kt             전직 점유율·인기 빌드 스냅샷
 scripts/
   fetch_poe2db.py     poe2db.tw 수집 스크립트
   fetch_poe2_i18n.py  poe.ninja·poe2db 대조 한글 사전 생성
   fetch_poe2_tree.py  패시브 트리 한글 자료 생성
+  fetch_poe2_gems.py  스킬·보조 젬 한글 이름 생성
   make_store_assets.py 아이콘·스토어 그래픽 생성
   make_store_screenshots.py 스토어 스크린샷(1080×1920) 생성
 store-assets/         스토어 등록용 아이콘, 그래픽, 문구, 스크린샷, 개인정보 처리방침

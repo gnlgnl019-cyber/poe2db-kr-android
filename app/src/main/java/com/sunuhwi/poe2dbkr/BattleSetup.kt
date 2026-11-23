@@ -49,7 +49,7 @@ object BattleSetup {
                 if (key.isEmpty() || out.containsKey(key)) continue
                 out[key] = BattleSkillOption(
                     gem = gem.name,
-                    name = dict.name(gem.name).ifBlank { gem.name },
+                    name = dict.gemName(gem.name).ifBlank { gem.name },
                     fx = SkillEffects.detect(gem.name, group.label),
                     dps = skillDps(build, gem.name),
                 )
@@ -126,7 +126,7 @@ object BattleSetup {
                 .takeIf { it != WeaponVisualType.NONE }
             ?: WeaponTypes.fallbackFor(fx)
         val form = WeaponTypes.attackForm(weapon, fx)
-        val skillKo = dict.name(skillName).ifBlank { skillName }
+        val skillKo = dict.gemName(skillName).ifBlank { skillName }
         val weaponLabel = listOf(
             weapon.label,
             dict.name(weaponItem?.name.orEmpty()).ifBlank { weaponItem?.name.orEmpty() },
