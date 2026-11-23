@@ -5168,6 +5168,8 @@ class BattleWorld(
         while (i < projectiles.size) {
             val p = projectiles[i]
             p.life -= dt
+            // 화염구·서리 보주처럼 흔들리며 날아가는 연출에 쓰는 나이 (전기불꽃은 따로 센다)
+            if (p.kind != ProjKind.SPARK) p.age += dt
             if (p.life <= 0f) {
                 // 기름 덩이는 날아간 자리에 그대로 떨어져 기름 지대가 된다.
                 if (p.oilRadius > 0f && (p.kind == ProjKind.OIL || p.kind == ProjKind.CHARGED_OIL)) {
