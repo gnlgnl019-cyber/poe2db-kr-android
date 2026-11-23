@@ -120,6 +120,49 @@ class HeraldTest {
         assertEquals(5_000.0, HeraldMath.ashDamage(hit, 5_000.0, spec), 0.001)
     }
 
+    @Test
+    fun poBXmlWithThreeHeraldsReachesBattleStats() {
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <PathOfBuilding2>
+              <Build ascendClassName="Stormweaver" className="Sorceress" level="90" mainSocketGroup="4" targetVersion="0_1">
+                <PlayerStat stat="Spirit" value="100"/>
+                <PlayerStat stat="AverageHit" value="18000"/>
+                <PlayerStat stat="Speed" value="2.4"/>
+                <PlayerStat stat="CritChance" value="24"/>
+                <PlayerStat stat="CritMultiplier" value="260"/>
+                <PlayerStat stat="Life" value="4200"/>
+                <PlayerStat stat="EnergyShield" value="700"/>
+              </Build>
+              <Skills>
+                <Skill enabled="true" label="" mainActiveSkill="1">
+                  <Gem nameSpec="Herald of Ice" level="20" enabled="true" skillId="HeraldOfIcePlayer"/>
+                  <Gem nameSpec="Magnified Area II" level="1" enabled="true" skillId="SupportMagnifiedAreaPlayerTwo"/>
+                </Skill>
+                <Skill enabled="true" label="" mainActiveSkill="1">
+                  <Gem nameSpec="Herald of Thunder" level="20" enabled="true" skillId="HeraldOfThunderPlayer"/>
+                </Skill>
+                <Skill enabled="true" label="" mainActiveSkill="1">
+                  <Gem nameSpec="Herald of Ash" level="18" enabled="true" skillId="HeraldOfAshPlayer"/>
+                </Skill>
+                <Skill enabled="true" label="Ice Strike" mainActiveSkill="1">
+                  <Gem nameSpec="Ice Strike" level="20" enabled="true" skillId="IceStrikePlayer"/>
+                </Skill>
+              </Skills>
+            </PathOfBuilding2>
+        """.trimIndent()
+        val build = Pob.parseXml(xml)
+        val stats = BattleSetup.statsFor(build)
+        assertNotNull("전투 수치를 만들지 못했다", stats)
+        assertEquals(3, stats!!.heralds.active.size)
+        assertTrue(stats.heralds.has(HeraldKind.ICE))
+        assertTrue(stats.heralds.has(HeraldKind.THUNDER))
+        assertTrue(stats.heralds.has(HeraldKind.ASH))
+        assertEquals(90.0, stats.heralds.reserved, 0.001)
+        assertEquals(100.0, stats.heralds.spirit, 0.001)
+        assertEquals(listOf("Magnified Area II"), stats.heralds.spec(HeraldKind.ICE)!!.supports)
+    }
+
     // ------------------------------------------------------------- 전투
 
     private fun stats(

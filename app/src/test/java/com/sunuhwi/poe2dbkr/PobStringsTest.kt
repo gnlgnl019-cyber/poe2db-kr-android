@@ -60,6 +60,16 @@ class PobStringsTest {
     }
 
     @Test
+    fun heraldResultMatchesArgs() {
+        val out = format("battle_result_herald", 12, "1.24M")
+        println("[STR] $out")
+        assertTrue(out.contains("12"))
+        assertTrue(out.contains("1.24M"))
+        assertTrue(format("battle_result_shatter", 7).contains("7"))
+        assertTrue(format("battle_result_clear", "얼음의 전령", "880K").contains("얼음의 전령"))
+    }
+
+    @Test
     fun renderFailedMatchesArgs() {
         assertEquals("빌드를 화면에 그리지 못했습니다 (NullPointerException). 다른 빌드 코드로 다시 시도해 주세요.",
             format("pob_render_failed", "NullPointerException"))
