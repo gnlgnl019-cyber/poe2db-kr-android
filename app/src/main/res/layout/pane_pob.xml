@@ -669,6 +669,18 @@
                         android:textSize="11sp"
                         android:visibility="gone" />
 
+                    <TextView
+                        android:id="@+id/tvAscendancy"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="12dp"
+                        android:paddingTop="2dp"
+                        android:paddingEnd="12dp"
+                        android:lineSpacingExtra="1dp"
+                        android:textColor="@color/gold"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
                     <HorizontalScrollView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

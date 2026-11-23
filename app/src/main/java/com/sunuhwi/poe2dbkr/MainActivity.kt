@@ -1467,6 +1467,7 @@ class MainActivity : AppCompatActivity() {
         skillOverride = battleSkillPick,
         triggerMode = battleTriggerMode,
         dict = krDict,
+        tree = Poe2Tree.of(this),
     )
 
     private fun refreshBattleHeader() {
@@ -1484,6 +1485,7 @@ class MainActivity : AppCompatActivity() {
         if (stats == null) {
             pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
             pobPane.tvBattleTrigger.isVisible = false
+            pobPane.tvAscendancy.isVisible = false
             return
         }
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
@@ -1500,6 +1502,19 @@ class MainActivity : AppCompatActivity() {
         if (stats.dpsEstimated) {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
                 getString(if (stats.dpsInfinite) R.string.pob_dps_infinite else R.string.pob_dps_missing)
+        }
+        // 빌드에 찍힌 전직 노드 효과 — 전투에 얼마나 반영됐는지 같이 적는다.
+        if (stats.ascendSummary.isNotBlank()) {
+            val suffix = if (stats.ascendApplied > 0) {
+                getString(R.string.battle_ascend_applied, stats.ascendApplied)
+            } else {
+                getString(R.string.battle_ascend_pob_only)
+            }
+            pobPane.tvAscendancy.isVisible = true
+            pobPane.tvAscendancy.text = "✦ ${stats.ascendSummary} · $suffix"
+        } else {
+            pobPane.tvAscendancy.isVisible = true
+            pobPane.tvAscendancy.text = getString(R.string.battle_ascend_none)
         }
         when {
             stats.triggers.isNotEmpty() -> {
@@ -1619,7 +1634,15 @@ class MainActivity : AppCompatActivity() {
                 "\n" + fired.joinToString("\n") { "· " + it.line }
             } else ""
         } else ""
-        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine
+        // 전직이 부여한 스킬이 전투 중 돈 횟수도 같이 적는다.
+        val ascendLine = if (result.ascendCasts > 0) {
+            "\n" + getString(
+                R.string.battle_result_ascend,
+                result.ascendCasts,
+                BattleWorld.formatShort(result.ascendDamage),
+            )
+        } else ""
+        pobPane.tvBattleResult.text = head + "\n" + body + triggerLine + ascendLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false

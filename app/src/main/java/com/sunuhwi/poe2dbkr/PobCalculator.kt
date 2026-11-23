@@ -6,6 +6,9 @@ package com.sunuhwi.poe2dbkr
  */
 object PobCalculator {
 
+    /** 전투에서 쓰는 기본 보호막 재충전 지연(초). PoE2 일반 값. */
+    const val ES_RECHARGE_DELAY = 2.6
+
     data class Mods(
         var life: Double = 0.0,
         var mana: Double = 0.0,
@@ -87,6 +90,17 @@ object PobCalculator {
         /** PoB가 DPS를 무한(inf)로 내보냈는지 */
         val dpsInfinite: Boolean = false,
         val factor: Double = 1.0,
+        /** 전직 노드가 주는 효과 범위 증가(%) — 전투 화면 타격 범위에 쓴다 */
+        val ascendAoePct: Double = 0.0,
+        /** 전직 효과를 반영한 뒤의 에너지 보호막 재충전 지연(초) */
+        val esRechargeDelay: Double = ES_RECHARGE_DELAY,
+        /** 전직 효과로 늘어난 흡수·재생 비율(초당 생명력 %) */
+        val ascendLifeRegenPct: Double = 0.0,
+        val ascendLifeLeechPct: Double = 0.0,
+        /** 적용한 전직 노드 수 / 전체 전직 노드 수 */
+        val ascendApplied: Int = 0,
+        val ascendTotal: Int = 0,
+        val ascendSummary: String = "",
     )
 
     /** 옵션 한 줄을 스탯 증감으로 환산한다. 영문/한글 주요 패턴만 인식한다. */
@@ -177,6 +191,8 @@ object PobCalculator {
         overrides: Map<String, PobItem>,
         flasksEnabled: Set<String> = emptySet(),
         config: Config = Config(),
+        /** 불러운 빌드에 찍힌 전직 노드 효과 */
+        ascend: AscendancyEffects.Profile? = null,
     ): Result {
         // 1. 장비 변동: 슬롯별 (새 아이템 - 원본 아이템) 옵션 차이
         var gear = Mods()
@@ -258,7 +274,12 @@ object PobCalculator {
         val speedPct = total.atkSpdPct + total.castSpdPct
         val dmgFactor = (1 + total.dmgPct / 100) * (1 + speedPct / 100) *
             (1 + total.critChancePct / 100) * (1 + total.critMultiFlat / 100)
-        val dpsNow = dpsBase * dmgFactor
+        // 전직 효과 중 PoB 단일 타격 계산에 없는 것만 여기서 보정한다.
+        //  - 추가 투사체: 평균 타격으로 DPS를 어림할 때는 투사체 수가 빠져 있다.
+        //  - 그 밖의 수치는 PoB가 이미 PlayerStat에 합산했으므로 다시 곱하지 않는다.
+        val ascExtraProj = ascend?.sim?.extraProjectiles ?: 0
+        val ascProjectileFactor = if (dpsEstimated && ascExtraProj > 0) 1.0 + ascExtraProj else 1.0
+        val dpsNow = dpsBase * dmgFactor * ascProjectileFactor
         val apsNow = apsBase * (1 + speedPct / 100)
 
         val critNow = (critBase * (1 + total.critChancePct / 100)).coerceAtMost(100.0)
@@ -295,7 +316,10 @@ object PobCalculator {
         val poolBase = (lifeBase + esBase).coerceAtLeast(1.0)
         val poolNow = (lifeNow + esNow).coerceAtLeast(1.0)
         val ehpBase = if (ehpPoB > 0) ehpPoB else ehp(poolBase, armourBase, fireB, coldB, lightB)
+        // PoB의 TotalEHP에는 "받는 피해 감폭"이 이미 들어 있으므로 여기서 또 늘리지 않는다.
+        // 그 효과는 전투에서 실제로 받는 피해를 깎는 쪽(BattleWorld)에서만 쓴다.
         val ehpNow = if (ehpPoB > 0) ehpPoB * (poolNow / poolBase) else ehp(poolNow, armourNow, fireN, coldN, lightN)
+        val rechargeDelay = (ES_RECHARGE_DELAY - (ascend?.sim?.esRechargeDelayCut ?: 0.0)).coerceIn(0.4, ES_RECHARGE_DELAY)
 
         return Result(
             mods = total,
@@ -320,7 +344,14 @@ object PobCalculator {
             ehpNow = ehpNow,
             dpsEstimated = dpsEstimated,
             dpsInfinite = dpsInfinite,
-            factor = dmgFactor,
+            factor = dmgFactor * ascProjectileFactor,
+            ascendAoePct = ascend?.sim?.aoePct ?: 0.0,
+            esRechargeDelay = rechargeDelay,
+            ascendLifeRegenPct = (ascend?.sim?.lifeRegenPct ?: 0.0),
+            ascendLifeLeechPct = (ascend?.sim?.lifeLeechPct ?: 0.0),
+            ascendApplied = ascend?.nodes?.count { it.hasSim } ?: 0,
+            ascendTotal = ascend?.count ?: 0,
+            ascendSummary = ascend?.summary.orEmpty(),
         )
     }
 

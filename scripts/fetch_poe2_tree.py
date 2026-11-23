@@ -108,6 +108,17 @@ def main():
         counts[kind] = counts.get(kind, 0) + 1
         en_node = en_nodes.get(key) or {}
         stats = "\n".join(strip_markup(s) for s in (node.get("stats") or []))
+        # 전직 노드가 부여하는 스킬(예: 공허의 형상)은 이름·설명·세부 수치를 함께 남긴다.
+        granted = node.get("grantedSkill") or {}
+        granted_name = strip_markup(granted.get("typeLine") or "")
+        granted_text = strip_markup(granted.get("secDescrText") or "")
+        granted_stats = []
+        for tab in granted.get("gemTabs") or []:
+            for page in tab.get("pages") or []:
+                for line in page.get("stats") or []:
+                    clean = strip_markup(line)
+                    if clean and clean not in granted_stats:
+                        granted_stats.append(clean)
         nodes.append([
             int(key),
             en_node.get("name") or node.get("name") or "",
@@ -117,6 +128,9 @@ def main():
             node.get("ascendancyId") or "",
             round(node.get("x") or 0, 1),
             round(node.get("y") or 0, 1),
+            granted_name,
+            granted_text,
+            "\n".join(granted_stats),
         ])
         if kind == "m" and node.get("masteryEffects"):
             rows = []

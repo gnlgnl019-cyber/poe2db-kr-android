@@ -128,12 +128,55 @@ data class BattlePlayerStats(
     val dpsEstimated: Boolean = false,
     /** PoB가 DPS를 무한(inf)으로 내보냈는지 */
     val dpsInfinite: Boolean = false,
+    /** 전직 이름 (예: 마셜 아티스트) */
+    val ascendName: String = "",
+    /** 화면에 보여 줄 전직 효과 요약 */
+    val ascendSummary: String = "",
+    /** 전직 주요 노드 이름 */
+    val ascendNodes: List<String> = emptyList(),
+    /** 전투 수치에 반영된 전직 노드 수 */
+    val ascendApplied: Int = 0,
+    /** 전직이 부여한, 전투 중 스스로 터지는 스킬 */
+    val ascendSkills: List<AscendancyEffects.AscSkill> = emptyList(),
+    /** 추가 투사체 수 */
+    val extraProjectiles: Int = 0,
+    /** 효과 범위 증가(%) — 타격·폭발 반경에 적용 */
+    val aoePct: Double = 0.0,
+    /** 상태이상 확률 증가(%) — 기본 확률에 대한 상대값 */
+    val shockChancePct: Double = 0.0,
+    val freezeChancePct: Double = 0.0,
+    val igniteChancePct: Double = 0.0,
+    /** 감전·냉각·중독 강도 증가(%) */
+    val ailmentMagnitudePct: Double = 0.0,
+    /** 받는 피해 감폭(%) */
+    val damageTakenLessPct: Double = 0.0,
+    /** 물리 피해를 다른 속성으로 받는 비율(%) */
+    val physTakenAsFirePct: Double = 0.0,
+    val physTakenAsColdPct: Double = 0.0,
+    val physTakenAsLightningPct: Double = 0.0,
+    val physTakenAsChaosPct: Double = 0.0,
+    /** 회피로 막는 원소 피해 감소(%) */
+    val evasionAsElementalPct: Double = 0.0,
+    /** 에너지 보호막 재충전 지연(초) */
+    val esRechargeDelay: Double = PobCalculator.ES_RECHARGE_DELAY,
+    /** 에너지 보호막 재충전 속도 증가(%) */
+    val esRechargeRatePct: Double = 0.0,
+    /** 1초마다 회복하는 생명력 비율(%) */
+    val lifeRegenPct: Double = 0.0,
+    /** 준 피해 중 흡수하는 비율(%) */
+    val lifeLeechPct: Double = 0.0,
+    /** 메타 스킬 에너지 획득 증가(%) */
+    val metaEnergyPct: Double = 0.0,
 ) {
     val element: DamageElement get() = fx.element
 
     /** 전장 HUD에 같이 보여줄 트리거 설명 */
     val triggerText: String
         get() = triggers.joinToString("  ") { spec -> "${spec.kind.short} · ${spec.skillNames}" }
+
+    /** 전장 HUD에 같이 보여줄 전직 효과 한 줄 */
+    val ascendText: String
+        get() = if (ascendSummary.isBlank()) "" else "✦ $ascendSummary"
 }
 
 enum class BattleMode(val label: String) { MAP("16T 맵핑"), BOSS("우버 보스") }
@@ -382,6 +425,9 @@ data class BattleResult(
     val maxBurst: Int = 0,
     /** 연발로 나간 총 발 수 */
     val burstCasts: Int = 0,
+    /** 전직 부여 스킬 발동 횟수와 그 피해 */
+    val ascendCasts: Int = 0,
+    val ascendDamage: Double = 0.0,
 )
 
 /** 메타젬 하나의 전투 결과 */
@@ -676,6 +722,16 @@ class BattleWorld(
     var triggerDamage = 0.0
         private set
 
+    // ---------------------------------------------------------- 전직 부여 스킬
+    /** 전직이 부여한 스킬(공허의 형상 등)의 남은 대기 시간 */
+    private val ascendTimers = FloatArray(stats.ascendSkills.size) { i ->
+        (stats.ascendSkills[i].interval * 0.6).toFloat()
+    }
+    var ascendCasts = 0
+        private set
+    var ascendDamage = 0.0
+        private set
+
     // ---------------------------------------------------------- 보스 패턴 상태
     val telegraphs = ArrayList<Telegraph>()
     var bossPhase = 1
@@ -841,6 +897,7 @@ class BattleWorld(
         updateDots(dt)
         updateTriggers(dt)
         updateCastQueue(dt)
+        updateAscendancySkills(dt)
         updateStrikes(dt)
         if (player.life <= 0.0) {
             player.life = 0.0
@@ -892,7 +949,9 @@ class BattleWorld(
     private fun updatePlayer(dt: Float) {
         // 재생 · 보호막 충전 · 흡수
         if (player.life > 0) {
-            player.life = min(player.baseLife, player.life + player.baseLife * 0.009 * dt)
+            // 기본 재생 0.9%/초에 전직 효과(갑옷 재생 등)를 더한다.
+            val regen = 0.009 + stats.lifeRegenPct.coerceIn(0.0, 20.0) / 100.0
+            player.life = min(player.baseLife, player.life + player.baseLife * regen * dt)
             if (leechPool > 0.0) {
                 val heal = min(leechPool, player.baseLife * 0.03 * dt)
                 leechPool -= heal
@@ -901,7 +960,8 @@ class BattleWorld(
         }
         player.esDelay = max(0f, player.esDelay - dt)
         if (player.esDelay <= 0f && player.es < player.baseEs) {
-            player.es = min(player.baseEs, player.es + player.baseEs * 0.22 * dt)
+            val rate = 0.22 * (1.0 + stats.esRechargeRatePct.coerceIn(-50.0, 200.0) / 100.0)
+            player.es = min(player.baseEs, player.es + player.baseEs * rate * dt)
         }
         player.attackAnim = max(0f, player.attackAnim - dt / 0.26f)
         player.dodgeCooldown = max(0f, player.dodgeCooldown - dt)
@@ -1108,12 +1168,14 @@ class BattleWorld(
             WeaponVisualType.AXE -> "cleave"
             else -> "slash"
         }
-        val reach: Float = when (style) {
-            "thrust" -> 118f
-            "sweep" -> 108f
-            "slam" -> 92f
-            else -> 96f
-        }
+        val reach: Float = aoe(
+            when (style) {
+                "thrust" -> 118f
+                "sweep" -> 108f
+                "slam" -> 92f
+                else -> 96f
+            }
+        )
         when (style) {
             "slam" -> {
                 addFx(FxKind.IMPACT, target.x, target.y, radius = 74f, life = 0.42f, color = DamageElement.PHYSICAL.color, width = 1.5f)
@@ -1175,10 +1237,15 @@ class BattleWorld(
 
     /** 활: 시위를 당겼다 놓으며 깃털 달린 화살을 날린다. */
     private fun bowShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
-        spawnProjectile(
-            ProjKind.ARROW, target, damage, crit, stats.fx.element,
-            speed = 980f, angle = angle,
-        )
+        // 전직이 투사체를 더해 주면(예: 끝없는 탄약) 부채꼴로 같이 날린다.
+        val extra = stats.extraProjectiles.coerceIn(0, 6)
+        for (i in 0..extra) {
+            val spread = (i - extra / 2f) * 0.075f
+            spawnProjectile(
+                ProjKind.ARROW, target, damage, crit, stats.fx.element,
+                speed = 980f, angle = angle + spread,
+            )
+        }
         addFx(
             FxKind.SLASH, player.x + cos(angle) * 16f, player.y + sin(angle) * 16f - 22f,
             angle = angle, radius = 26f, life = 0.14f, color = 0xFFF2E6C8.toInt(), width = 0.6f,
@@ -1187,10 +1254,14 @@ class BattleWorld(
 
     /** 쇠뇌: 앞세워 조준하고 반동과 함께 볼트를 연사한다. */
     private fun crossbowShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
-        spawnProjectile(
-            ProjKind.BOLT, target, damage, crit, stats.fx.element,
-            speed = 1_520f, angle = angle,
-        )
+        val extra = stats.extraProjectiles.coerceIn(0, 6)
+        for (i in 0..extra) {
+            val spread = (i - extra / 2f) * 0.06f
+            spawnProjectile(
+                ProjKind.BOLT, target, damage, crit, stats.fx.element,
+                speed = 1_520f, angle = angle + spread,
+            )
+        }
         addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 22f, 4, 0xFFFFE8A8.toInt(), 160f, 0.22f)
         addFx(FxKind.RING, player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, radius = 16f, life = 0.16f, color = 0xFFFFD98A.toInt())
     }
@@ -1479,6 +1550,9 @@ class BattleWorld(
 
     // ------------------------------------------------------------ 피해 처리
 
+    /** 준 피해 가운데 생명력으로 흡수하는 비율 (기본 0.6%에 전직 흡수 효과를 더한다) */
+    private fun leechRate(): Double = 0.006 * (1.0 + stats.lifeLeechPct.coerceIn(0.0, 500.0) / 100.0)
+
     /** 룬 보호막이 있으면 피해를 먼저 흡수한다. */
     private fun applyShield(e: Enemy, damage: Double): Double {
         if (e.shield <= 0.0) return damage
@@ -1490,7 +1564,7 @@ class BattleWorld(
     private fun hitEnemy(e: Enemy, damage: Double, crit: Boolean, angle: Float, scale: Float = 1f) {
         if (!e.alive) return
         // 감전된 적은 피해를 더 받는다
-        val dealt = applyShield(e, if (e.shocked) damage * 1.15 else damage)
+        val dealt = applyShield(e, if (e.shocked) damage * (1.10 + 0.15 * (1.0 + stats.ailmentMagnitudePct.coerceIn(0.0, 200.0) / 100.0)) else damage)
         e.hp -= dealt
         damageDealt += dealt
         e.hitFlash = 1f
@@ -1507,7 +1581,7 @@ class BattleWorld(
             if (crit) 0xFFFFC24D.toInt() else 0xFFF5F1E8.toInt(),
             if (crit) 1.32f else 0.92f * scale,
         )
-        leechPool += dealt * 0.006
+        leechPool += dealt * leechRate()
         onSkillHit(e, crit, angle)
         applyAilments(e, crit)
         if (crit) {
@@ -1520,23 +1594,23 @@ class BattleWorld(
     /** 명중한 피해 속성으로 상태이상을 굴린다. 주 속성은 확률이 높고 다른 속성도 낮은 확률로 걸린다. */
     private fun applyAilments(e: Enemy, crit: Boolean) {
         val element = stats.fx.element
-        fun roll(ailment: DamageElement, match: Double, other: Double): Boolean {
+        fun roll(ailment: DamageElement, match: Double, other: Double, bonusPct: Double): Boolean {
             val base = if (element == ailment) match else other
-            val chance = base + if (crit) 0.35 else 0.0
+            val chance = base * (1.0 + bonusPct.coerceIn(0.0, 300.0) / 100.0) + if (crit) 0.35 else 0.0
             return rand.nextDouble() < chance
         }
-        if (roll(DamageElement.LIGHTNING, 0.30, 0.10)) {
+        if (roll(DamageElement.LIGHTNING, 0.30, 0.10, stats.shockChancePct)) {
             e.shockT = max(e.shockT, 4.0f)
             fireEvent(TriggerCondition.SHOCK, e, 0.9)
             addPopup(e.x, e.y - 74f * e.scale, "감전", false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
         }
-        if (roll(DamageElement.COLD, 0.22, 0.07)) {
+        if (roll(DamageElement.COLD, 0.22, 0.07, stats.freezeChancePct)) {
             e.freezeT = max(e.freezeT, 2.4f)
             fireEvent(TriggerCondition.FREEZE, e, 0.8)
             addPopup(e.x + 16f, e.y - 74f * e.scale, "빙결", false, 0.5f, 0xFF9BE8FF.toInt(), 0.72f)
             addFx(FxKind.ICE_CONE, e.x, e.y, radius = 26f, life = 0.3f, color = 0xFFBFF4FF.toInt())
         }
-        if (roll(DamageElement.FIRE, 0.30, 0.09)) {
+        if (roll(DamageElement.FIRE, 0.30, 0.09, stats.igniteChancePct)) {
             val ignite = baseHitDamage() * 0.22
             e.igniteT = max(e.igniteT, 3.2f)
             e.igniteDps = max(e.igniteDps, ignite)
@@ -1568,7 +1642,7 @@ class BattleWorld(
      * 60,000 피해면 100%(1발), 600,000 피해면 1,000%(10발)이 한 번에 쌓인다.
      */
     private fun energyGain(rt: TriggerRuntime, weight: Double): Double {
-        val scaled = weight * TriggerRuntime.CAST_COST
+        val scaled = weight * TriggerRuntime.CAST_COST * (1.0 + stats.metaEnergyPct.coerceIn(0.0, 300.0) / 100.0)
         return scaled.coerceIn(TriggerRuntime.CAST_COST * 0.1, TriggerRuntime.CAST_COST * 12.0)
     }
 
@@ -1666,6 +1740,59 @@ class BattleWorld(
         addFx(FxKind.AURA, player.x, player.y, radius = 54f, life = 0.3f, color = color)
     }
 
+    /** 전직 효과 범위 증가를 반영한 반경 */
+    private fun aoe(radius: Float): Float =
+        (radius * (1f + (stats.aoePct / 100.0).toFloat())).coerceAtLeast(radius * 0.5f)
+
+    /**
+     * 전직이 부여한 스킬을 굴린다.
+     *
+     * 공허의 형상은 집중 유지 중 상을 만들어 장착한 근접 공격을 대신하게 하고,
+     * 공허의 집중은 3초마다 종을 세워 때리면 충격파가 터진다. 둘 다 PoB의 단일 타격
+     * 계산에는 안 들어가는 피해라 시뮬레이터가 직접 한 대씩 만들어 준다.
+     */
+    private fun updateAscendancySkills(dt: Float) {
+        if (stats.ascendSkills.isEmpty()) return
+        stats.ascendSkills.forEachIndexed { index, skill ->
+            ascendTimers[index] -= dt
+            if (ascendTimers[index] > 0f) return@forEachIndexed
+            val target = nearestEnemy() ?: return@forEachIndexed
+            ascendTimers[index] = skill.interval.toFloat()
+            val base = baseHitDamage() * skill.damageSharePct / 100.0
+            val damage = if (skill.alwaysCrit) base * stats.critMulti / 100.0 else base
+            val radius = aoe(skill.radius)
+            if (skill.name.contains("집중")) {
+                addFx(FxKind.SHOCKWAVE, target.x, target.y, radius = radius, life = 0.5f, color = 0xFFE8D9B8.toInt(), width = 1.6f)
+                addFx(FxKind.RING, target.x, target.y, radius = radius * 0.7f, life = 0.42f, color = 0xFFFFE9A8.toInt())
+                addBurst(target.x, target.y - 20f, 16, 0xFFD8C3A0.toInt(), 260f, 0.7f)
+            } else {
+                addFx(FxKind.SLASH, target.x, target.y - 20f, angle = rand.nextFloat() * 6.28f, radius = radius, life = 0.24f, color = 0xFFB9E8FF.toInt(), width = 1.2f)
+                addFx(FxKind.AFTERIMAGE, target.x, target.y - 20f, life = 0.3f, color = 0xFF7FD3FF.toInt(), width = 0.8f)
+            }
+            addPopup(target.x, target.y - 70f * target.scale, skill.name, false, 0.8f, 0xFFCFEFFF.toInt(), 0.8f)
+            ascendCasts++
+            var hits = 0
+            for (other in enemies) {
+                if (!other.alive) continue
+                if (hypot(other.x - target.x, other.y - target.y) > radius) continue
+                val taken = applyShield(other, if (other === target) damage else damage * 0.6)
+                other.hp -= taken
+                other.hitFlash = 1f
+                damageDealt += taken
+                ascendDamage += taken
+                hits++
+                addPopup(
+                    other.x + (rand.nextFloat() - 0.5f) * 18f,
+                    other.y - 50f * other.scale,
+                    formatShort(taken), skill.alwaysCrit, 0.6f, skill.element.color, 0.92f,
+                )
+                if (other.hp <= 0) killEnemy(other)
+            }
+            if (hits > 0) leechPool += damage * leechRate()
+            shake = max(shake, 3.4f)
+        }
+    }
+
     /** 혜성: 하늘에서 얼음 덩어리가 떨어져 착탄 지점에 광역 피해 */
     private fun spawnMeteor(
         target: Enemy,
@@ -1741,7 +1868,8 @@ class BattleWorld(
         }
     }
 
-    private fun dealAreaDamage(center: Enemy, damage: Double, radius: Float, element: DamageElement, label: String, rt: TriggerRuntime? = null) {
+    private fun dealAreaDamage(center: Enemy, damage: Double, radiusRaw: Float, element: DamageElement, label: String, rt: TriggerRuntime? = null) {
+        val radius = aoe(radiusRaw)
         var hits = 0
         for (other in enemies) {
             if (!other.alive) continue
@@ -1763,7 +1891,7 @@ class BattleWorld(
         if (hits > 0) {
             addPopup(center.x, center.y - 72f * center.scale, label, false, 0.8f, 0xFFCFEFFF.toInt(), 0.78f)
         }
-        leechPool += damage * 0.006
+        leechPool += damage * leechRate()
     }
 
     private fun updateStrikes(dt: Float) {
@@ -1890,6 +2018,48 @@ class BattleWorld(
         if (stats.fx == SkillEffectType.MINION) fireEvent(TriggerCondition.MINION_DEATH, null, 0.6)
     }
 
+    /** 받는 피해 계산 결과 (전직 감폭·전환 확인용) */
+    internal fun incomingDamage(raw: Double, element: DamageElement): Double =
+        damageAfterAscendancy(raw, element)
+
+    /** 전직 효과를 반영해 받는 피해를 줄인다 (감폭·물리→원소 전환·회피의 원소 감소) */
+    private fun damageAfterAscendancy(raw: Double, element: DamageElement): Double {
+        val less = stats.damageTakenLessPct.coerceIn(0.0, 80.0) / 100.0
+        var total = raw * (1.0 - less)
+        val elementalReduction = if (element == DamageElement.PHYSICAL) {
+            0.0
+        } else {
+            (stats.evade * stats.evasionAsElementalPct / 200.0).coerceIn(0.0, 30.0) / 100.0
+        }
+        fun res(part: Double, type: DamageElement): Double {
+            val mit = when (type) {
+                DamageElement.PHYSICAL -> stats.physRed
+                DamageElement.FIRE -> stats.fireRes
+                DamageElement.COLD -> stats.coldRes
+                DamageElement.LIGHTNING -> stats.lightRes
+                DamageElement.CHAOS -> stats.chaosRes
+            }
+            val cut = (mit.coerceIn(-60.0, 90.0) / 100.0 + elementalReduction).coerceAtMost(0.9)
+            return part * (1.0 - cut)
+        }
+        if (element == DamageElement.PHYSICAL) {
+            val parts = listOf(
+                DamageElement.FIRE to stats.physTakenAsFirePct,
+                DamageElement.COLD to stats.physTakenAsColdPct,
+                DamageElement.LIGHTNING to stats.physTakenAsLightningPct,
+                DamageElement.CHAOS to stats.physTakenAsChaosPct,
+            ).filter { it.second > 0.0 }
+            if (parts.isEmpty()) return res(total, DamageElement.PHYSICAL)
+            val convertedPct = parts.sumOf { it.second }.coerceIn(0.0, 100.0)
+            var sum = res(total * (1.0 - convertedPct / 100.0), DamageElement.PHYSICAL)
+            parts.forEach { (type, pct) ->
+                sum += res(total * pct / 100.0, type)
+            }
+            return sum
+        }
+        return res(total, element)
+    }
+
     private fun hitPlayer(raw: Double, element: DamageElement, canEvade: Boolean, fromX: Float, fromY: Float, heavy: Boolean = false) {
         if (state != State.RUNNING) return
         if (canEvade && rand.nextDouble() * 100.0 < stats.evade) {
@@ -1898,15 +2068,7 @@ class BattleWorld(
             fireEvent(TriggerCondition.DODGE, null, 1.0)
             return
         }
-        val mit = when (element) {
-            DamageElement.PHYSICAL -> stats.physRed
-            DamageElement.FIRE -> stats.fireRes
-            DamageElement.COLD -> stats.coldRes
-            DamageElement.LIGHTNING -> stats.lightRes
-            DamageElement.CHAOS -> stats.chaosRes
-        }
-        val reduction = (1.0 - mit.coerceIn(-60.0, 90.0) / 100.0)
-        val dmg = raw * reduction
+        val dmg = damageAfterAscendancy(raw, element)
         var rest = dmg
         if (player.es > 0) {
             val absorbed = min(player.es, rest)
@@ -1914,7 +2076,7 @@ class BattleWorld(
             rest -= absorbed
         }
         player.life -= rest
-        player.esDelay = 2.6f
+        player.esDelay = stats.esRechargeDelay.toFloat()
         player.hurtFlash = 1f
         hitsTaken++
         damageTaken += dmg
@@ -2047,6 +2209,15 @@ class BattleWorld(
             val queued = if (rt.queued > 0) " x${rt.queued}" else ""
             "${rt.spec.kind.short} ${rt.casts}$queued"
         }
+
+    /** HUD에 보여줄 전직 효과 — 부여 스킬이 돌면 발동 횟수를 붙인다. */
+    fun ascendHud(): String {
+        val base = stats.ascendText
+        if (base.isBlank()) return ""
+        if (stats.ascendSkills.isEmpty()) return base
+        val cast = if (ascendCasts > 0) " · 부여 스킬 ${ascendCasts}회" else ""
+        return base + cast
+    }
 
     /** 현재 메타 에너지 %와 남은 연발 — 전투 화면 위쪽에 크게 띄운다. */
     fun metaHud(): String {
@@ -2435,6 +2606,8 @@ class BattleWorld(
             triggers = triggers.map { it.report() },
             maxBurst = maxBurst,
             burstCasts = burstCasts,
+            ascendCasts = ascendCasts,
+            ascendDamage = ascendDamage,
         )
     }
 

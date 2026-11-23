@@ -22,6 +22,12 @@ data class TreeNode(
     /** 트리에서 그려질 자리 (poe2db 자료의 x·y) */
     val x: Float = 0f,
     val y: Float = 0f,
+    /** 이 노드가 부여하는 스킬 이름 (전직 주요 노드) */
+    val grantedName: String = "",
+    /** 부여 스킬 설명 */
+    val grantedText: String = "",
+    /** 부여 스킬의 세부 수치 (poe2db 스킬 창 기준) */
+    val grantedStats: String = "",
 ) {
     val displayName: String get() = nameKo.ifBlank { nameEn }
     val isKeystone: Boolean get() = kind == 'k'
@@ -166,6 +172,9 @@ class TreeDict(
                     ascendancy = row.optString(5),
                     x = row.optDouble(6, 0.0).toFloat(),
                     y = row.optDouble(7, 0.0).toFloat(),
+                    grantedName = row.optString(8),
+                    grantedText = row.optString(9),
+                    grantedStats = row.optString(10),
                 )
             }
             val edges = ArrayList<Int>()

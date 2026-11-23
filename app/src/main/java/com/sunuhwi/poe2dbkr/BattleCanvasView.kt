@@ -1937,7 +1937,11 @@ class BattleCanvasView @JvmOverloads constructor(
         // 메타젬이 여럿이면 배지를 두 줄까지 늘려 이름과 발동 횟수를 최대한 보여 준다.
         val triggerLines = if (!hasTrigger) emptyList()
         else wrapText("⟳ $triggerText", max(80f * dp, badgeW - 20f * dp), 2)
-        val badgeH = (27f + triggerLines.size * 11f) * dp
+        // 전직 효과는 메타젬 줄 아래에 금색으로 적는다.
+        val ascend = w.ascendHud()
+        val ascendLines = if (ascend.isBlank()) emptyList()
+        else wrapText(ascend, max(80f * dp, badgeW - 20f * dp), 2)
+        val badgeH = (27f + (triggerLines.size + ascendLines.size) * 11f) * dp
 
         rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
@@ -1964,6 +1968,15 @@ class BattleCanvasView @JvmOverloads constructor(
             textLight.textSize = 9.5f * dp
             triggerLines.forEachIndexed { index, line ->
                 c.drawText(line, pad + 10f * dp, pad + (33f + index * 11f) * dp, textLight)
+            }
+            textLight.textSize = 10f * dp
+        }
+        if (ascendLines.isNotEmpty()) {
+            textLight.color = 0xFFFFD98A.toInt()
+            textLight.textSize = 9.5f * dp
+            ascendLines.forEachIndexed { index, line ->
+                val y = pad + (33f + (triggerLines.size + index) * 11f) * dp
+                c.drawText(line, pad + 10f * dp, y, textLight)
             }
             textLight.textSize = 10f * dp
         }

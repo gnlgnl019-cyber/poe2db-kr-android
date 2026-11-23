@@ -52,6 +52,15 @@ PoB 2 빌드에 들어 있는 메타젬을 **전부** 인식해 전투에서 동
 - 적중할 때마다 치명타·감전·빙결·점화·처치·피격·회피 사건을 실제로 판정해 각 메타젬의 에너지를 채우고, 가득 차면 연결된 스킬(Comet·Arc·Fireball·Frost Bomb 등)이 이펙트와 피해로 발동합니다
 - 전장 HUD와 결과 요약에 메타젬별 발동 횟수·피해량을 표시합니다
 
+### 전직 패시브
+
+PoB 빌드에 찍힌 전직 노드를 poe2db 트리 자료에서 찾아, 옵션을 두 갈래로 나눠 씁니다.
+
+- **전투에 직접 반영** — 부여 스킬(공허의 형상·공허의 집중 등), 추가 투사체, 상태이상 확률·강도, 받는 피해 감폭과 물리 피해의 원소 전환, 보호막 재충전 지연·속도, 생명력 재생·흡수, 효과 범위, 메타 에너지
+- **PoB 수치에 이미 포함** — 생명력·에너지 보호막·방어도·회피·저항·치명타처럼 PoB가 계산해 넘긴 값은 다시 더하지 않고 목록에만 적습니다
+- 전투 탭 머리말에 `전직 효과 N개 적용 · 주요 노드…`와 `전투 반영 N개`가 뜨고, 전장 HUD에도 금색 줄로 표시됩니다
+- 전직별 노드 분석표는 `docs/ascendancy-effects.md`에 있습니다(전직 36종·노드 669개, 2026-11-23 자료)
+
 수치는 PoB 기준값에 재생·보호막 충전·회피를 일반적인 값으로 가정한 간이 시각 시뮬레이션이며 실제 게임 판정과 다릅니다.
 
 검색창은 이름, 영문 이름, 태그, 설명을 한 번에 훑습니다. 카드를 누르면 상세 웹뷰가 열리고, 웹뷰에는 모바일용 CSS를 넣어 상단 메뉴와 배너를 걷어 내고 넓은 표를 가로 스크롤로 감쌉니다.
@@ -102,7 +111,8 @@ dist/poe2db-kr-1.0.0-debug.apk            # 기기에 설치해 볼 APK
 python3 scripts/fetch_poe2db.py        # poe2db.tw/kr 파싱 → assets JSON
 python3 scripts/fetch_poe2_i18n.py     # 시세·장비 한글 사전 → assets/poe2_kr_i18n.json
 python3 scripts/fetch_poe2_gems.py     # 스킬·보조 젬 한글 이름 → assets/poe2_kr_i18n.json
-python3 scripts/fetch_poe2_tree.py     # 패시브 트리 노드·직업 이름 → assets/poe2_tree_kr.json
+python3 scripts/fetch_poe2_tree.py     # 패시브 트리 노드·직업 이름·전직 부여 스킬 → assets/poe2_tree_kr.json
+python3 scripts/make_ascendancy_doc.py # 전직 노드 분석표 → docs/ascendancy-effects.md
 python3 scripts/make_store_assets.py   # 아이콘, 스토어 그래픽
 python3 scripts/make_store_screenshots.py  # 스토어 스크린샷 5장
 ```

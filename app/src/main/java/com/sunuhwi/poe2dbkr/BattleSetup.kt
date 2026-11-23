@@ -112,9 +112,13 @@ object BattleSetup {
         skillOverride: String? = null,
         triggerMode: TriggerMode = TriggerMode.AUTO,
         dict: KrDict = KrDict.EMPTY,
+        /** 전직 노드 효과를 찾을 패시브 트리 자료 */
+        tree: TreeDict = TreeDict.EMPTY,
     ): BattlePlayerStats? {
         if (build == null) return null
-        val calc = PobCalculator.compute(build, overrides, flasks, config)
+        // 빌드에 찍힌 전직 노드를 먼저 모아 두고, 그 효과를 수치 계산과 전투 양쪽에 넘긴다.
+        val ascend = AscendancyEffects.profile(build, tree)
+        val calc = PobCalculator.compute(build, overrides, flasks, config, ascend)
         val picked = activeSkill(build, skillOverride)
         val group = picked?.second ?: Pob.mainGroup(build, mainGroupPreference)
         val mainGem = picked?.first ?: mainGemOf(group)
@@ -173,6 +177,28 @@ object BattleSetup {
             triggers = triggers,
             dpsEstimated = pickedDps == null && calc.dpsEstimated,
             dpsInfinite = pickedDps == null && calc.dpsInfinite,
+            ascendName = ascend?.ascendKo.orEmpty(),
+            ascendSummary = ascend?.summary.orEmpty(),
+            ascendNodes = ascend?.keyNames.orEmpty(),
+            ascendApplied = calc.ascendApplied,
+            ascendSkills = ascend?.skills.orEmpty(),
+            extraProjectiles = ascend?.sim?.extraProjectiles ?: 0,
+            aoePct = calc.ascendAoePct,
+            shockChancePct = ascend?.sim?.shockChancePct ?: 0.0,
+            freezeChancePct = ascend?.sim?.freezeChancePct ?: 0.0,
+            igniteChancePct = ascend?.sim?.igniteChancePct ?: 0.0,
+            ailmentMagnitudePct = ascend?.sim?.ailmentMagnitudePct ?: 0.0,
+            damageTakenLessPct = ascend?.sim?.damageTakenLessPct ?: 0.0,
+            physTakenAsFirePct = ascend?.sim?.physTakenAsFire ?: 0.0,
+            physTakenAsColdPct = ascend?.sim?.physTakenAsCold ?: 0.0,
+            physTakenAsLightningPct = ascend?.sim?.physTakenAsLightning ?: 0.0,
+            physTakenAsChaosPct = ascend?.sim?.physTakenAsChaos ?: 0.0,
+            evasionAsElementalPct = ascend?.sim?.evasionAsElementalPct ?: 0.0,
+            esRechargeDelay = calc.esRechargeDelay,
+            esRechargeRatePct = ascend?.sim?.esRechargeRatePct ?: 0.0,
+            lifeRegenPct = calc.ascendLifeRegenPct,
+            lifeLeechPct = calc.ascendLifeLeechPct,
+            metaEnergyPct = ascend?.sim?.metaEnergyPct ?: 0.0,
         )
     }
 }
