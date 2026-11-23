@@ -191,6 +191,9 @@ data class BattlePlayerStats(
     val skillDpsList: List<PobCalculator.SkillDps> = emptyList(),
     val totalDps: Double = 0.0,
 
+    /** 장착한 고유 아이템의 특수 효과 (전투에서 직접 굴린다) */
+    val unique: UniqueEffects.Sim = UniqueEffects.Sim(),
+
     /**
      * 플레이어가 직접 때릴 때 쓰는 DPS.
      * 두꺼비처럼 다른 개체가 피해를 내는 빌드에서는 `dps`(총 DPS)와 다르다.
@@ -395,6 +398,8 @@ class Enemy(
     /** 지금 이 적이 노리는 대상 (소환수 어그로) */
     var targetMinion: Minion? = null
     var aggroTimer = 0f
+    /** 명중 시 저주(고유 아이템)가 남은 시간 */
+    var curseT = 0f
 }
 
 /**
@@ -918,6 +923,10 @@ class BattleWorld(
         private set
     var darkConsequencesDamage = 0.0
         private set
+    /** 희귀 몬스터를 잡아 얻은 헤드헌터식 강화 중첩 (최대 5) */
+    var huntStacks = 0
+        private set
+
     /** 반려수가 한 번이라도 전장에 나왔는지 (화면·테스트 확인용) */
     val companionCount: Int get() = minions.count { it.alive && it.type.companion }
 
@@ -1405,6 +1414,7 @@ class BattleWorld(
             e.hitFlash = max(0f, e.hitFlash - dt * 5f)
             e.attackAnim = max(0f, e.attackAnim - dt / 0.3f)
             if (!e.alive) e.deadFade = min(1f, e.deadFade + dt * 2.2f)
+            if (e.curseT > 0f) e.curseT = max(0f, e.curseT - dt)
         }
         // 흐려진 적은 지워 목록이 500마리까지 무한히 길어지지 않게 한다.
         if (enemies.size > activeCap) enemies.removeAll { !it.alive }
@@ -1825,14 +1835,19 @@ class BattleWorld(
         }
     }
 
-    /** PoB DPS를 평균 피해로 환산 (치명타 기대값 포함) */
+    /** 고유 아이템이 주는 추가 투사체까지 더한 값 */
+    private fun totalExtraProjectiles(): Int =
+        stats.extraProjectiles + stats.unique.extraProjectiles
+
+    /** PoB DPS를 평균 피해로 환산 (치명타 기대값·희귀 처치 강화 포함) */
     private fun baseHitDamage(): Double {
         val aps = effectiveAps()
         val dps = stats.hitDps.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val critFactor = 1.0 + (stats.critChance / 100.0) * (stats.critMulti / 100.0 - 1.0)
         val perHit = dps / aps
         val factor = critFactor.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
-        return (perHit / factor).coerceAtLeast(1.0)
+        val hunt = 1.0 + huntStacks * 0.08
+        return (perHit / factor * hunt).coerceAtLeast(1.0)
     }
 
     /** 초당 공격 횟수가 0/NaN으로 들어와도 루프가 멈추지 않게 한다. */
@@ -2151,7 +2166,7 @@ class BattleWorld(
 
     /** 번개 화살 — 화살이 꿉으면 주변으로 연쇄 번개가 뻗는다 */
     private fun lightningArrow(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
-        val extra = stats.extraProjectiles.coerceIn(0, 4)
+        val extra = totalExtraProjectiles().coerceIn(0, 4)
         for (i in 0..extra) {
             spawnProjectile(
                 ProjKind.LIGHT_ARROW, target, damage / (extra + 1), crit, DamageElement.LIGHTNING,
@@ -2606,7 +2621,7 @@ class BattleWorld(
     /** 활: 시위를 당겼다 놓으며 깃털 달린 화살을 날린다. */
     private fun bowShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
         // 전직이 투사체를 더해 주면(예: 끝없는 탄약) 부채꼴로 같이 날린다.
-        val extra = stats.extraProjectiles.coerceIn(0, 6)
+        val extra = totalExtraProjectiles().coerceIn(0, 6)
         for (i in 0..extra) {
             val spread = (i - extra / 2f) * 0.075f
             spawnProjectile(
@@ -2622,7 +2637,7 @@ class BattleWorld(
 
     /** 쇠뇌: 앞세워 조준하고 반동과 함께 볼트를 연사한다. */
     private fun crossbowShot(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
-        val extra = stats.extraProjectiles.coerceIn(0, 6)
+        val extra = totalExtraProjectiles().coerceIn(0, 6)
         for (i in 0..extra) {
             val spread = (i - extra / 2f) * 0.06f
             spawnProjectile(
@@ -2964,8 +2979,11 @@ class BattleWorld(
 
     private fun hitEnemy(e: Enemy, damage: Double, crit: Boolean, angle: Float, scale: Float = 1f) {
         if (!e.alive) return
-        // 감전된 적은 피해를 더 받는다
-        val dealt = applyShield(e, if (e.shocked) damage * (1.10 + 0.15 * (1.0 + stats.ailmentMagnitudePct.coerceIn(0.0, 200.0) / 100.0)) else damage)
+        // 감전된 적은 피해를 더 받고, 저주가 걸린 적은 저항이 낮아진 것으로 본다.
+        val shockedMul = if (e.shocked) 1.10 + 0.15 * (1.0 + stats.ailmentMagnitudePct.coerceIn(0.0, 200.0) / 100.0) else 1.0
+        val curseMul = if (e.curseT > 0f) 1.08 else 1.0
+        if (stats.unique.curseOnHit) e.curseT = max(e.curseT, 6f)
+        val dealt = applyShield(e, damage * shockedMul * curseMul)
         e.hp -= dealt
         damageDealt += dealt
         e.hitFlash = 1f
@@ -2985,6 +3003,12 @@ class BattleWorld(
         leechPool += dealt * leechRate()
         onSkillHit(e, crit, angle)
         applyAilments(e, crit)
+        // 마무리 타격(고유 아이템) — 생명력이 얼마 남지 않은 적을 즉시 처치한다.
+        if (stats.unique.cullingStrike && e.alive && e.hp > 0.0 && e.hp <= e.maxHp * 0.10) {
+            addPopup(e.x, e.y - 60f * e.scale, "마무리", false, 0.55f, 0xFFFFD36A.toInt(), 0.8f)
+            killEnemy(e)
+            return
+        }
         if (crit) {
             // 한 방의 피해가 클수록 메타 에너지가 많이 찬다 (절대 피해 기준).
             fireEvent(TriggerCondition.CRIT, e, dealt / REFERENCE_HIT)
@@ -3002,18 +3026,18 @@ class BattleWorld(
             val chance = base * (1.0 + bonusPct.coerceIn(0.0, 300.0) / 100.0) + if (crit) 0.35 else 0.0
             return rand.nextDouble() < chance
         }
-        if (roll(DamageElement.LIGHTNING, 0.30, 0.10, stats.shockChancePct)) {
+        if (roll(DamageElement.LIGHTNING, 0.30, 0.10, stats.shockChancePct + stats.unique.shockChancePct)) {
             e.shockT = max(e.shockT, 4.0f)
             fireEvent(TriggerCondition.SHOCK, e, 0.9)
             addPopup(e.x, e.y - 74f * e.scale, "감전", false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
         }
-        if (roll(DamageElement.COLD, 0.22, 0.07, stats.freezeChancePct)) {
+        if (roll(DamageElement.COLD, 0.22, 0.07, stats.freezeChancePct + stats.unique.freezeChancePct)) {
             e.freezeT = max(e.freezeT, 2.4f)
             fireEvent(TriggerCondition.FREEZE, e, 0.8)
             addPopup(e.x + 16f, e.y - 74f * e.scale, "빙결", false, 0.5f, 0xFF9BE8FF.toInt(), 0.72f)
             addFx(FxKind.ICE_CONE, e.x, e.y, radius = 26f, life = 0.3f, color = 0xFFBFF4FF.toInt())
         }
-        if (roll(DamageElement.FIRE, 0.30, 0.09, stats.igniteChancePct)) {
+        if (roll(DamageElement.FIRE, 0.30, 0.09, stats.igniteChancePct + stats.unique.igniteChancePct)) {
             val ignite = baseHitDamage() * 0.22
             e.igniteT = max(e.igniteT, 3.2f)
             e.igniteDps = max(e.igniteDps, ignite)
@@ -3394,6 +3418,14 @@ class BattleWorld(
         addBurst(e.x, e.y, if (e.kind == EnemyKind.BOSS) 40 else 12, 0xFFE8D9B8.toInt(), if (e.kind == EnemyKind.BOSS) 420f else 250f, 0.9f)
         addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
         if (e.kind == EnemyKind.BOSS) shake = 10f
+        // 희귀 몬스터를 잡으면 그 힘을 잠시 얻는다 (헤드헌터).
+        if (stats.unique.rareKillBuff && (e.kind == EnemyKind.RARE || e.kind == EnemyKind.BOSS)) {
+            huntStacks = min(5, huntStacks + 1)
+            addPopup(e.x, e.y - 70f * e.scale, "강화 ${huntStacks}중첩", false, 0.9f, 0xFFFFC24D.toInt(), 0.9f)
+        }
+        if (stats.unique.chargeOnKillPct > 0.0 && rand.nextDouble() * 100.0 < stats.unique.chargeOnKillPct) {
+            gainPowerCharge()
+        }
         // 전령류·근접 처치 시 시전은 처치 사건으로 돈다
         fireEvent(TriggerCondition.KILL, null, 0.6)
         // 소환수 빌드에서 적을 잡으면 소환수가 쓰러진 것으로 쳐 준다
@@ -3406,7 +3438,7 @@ class BattleWorld(
 
     /** 전직 효과를 반영해 받는 피해를 줄인다 (감폭·물리→원소 전환·회피의 원소 감소) */
     private fun damageAfterAscendancy(raw: Double, element: DamageElement): Double {
-        val less = stats.damageTakenLessPct.coerceIn(0.0, 80.0) / 100.0
+        val less = (stats.damageTakenLessPct + stats.unique.damageTakenLessPct).coerceIn(0.0, 80.0) / 100.0
         var total = raw * (1.0 - less)
         val elementalReduction = if (element == DamageElement.PHYSICAL) {
             0.0

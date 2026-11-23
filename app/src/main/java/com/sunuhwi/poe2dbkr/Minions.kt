@@ -329,6 +329,8 @@ object Minions {
         cooldownRatePct: Double = 0.0,
         critChance: Double = 7.0,
         critMulti: Double = 150.0,
+        /** 고유 아이템의 소환수 피해 증가(%) */
+        minionDamagePct: Double = 0.0,
     ): MinionPlan {
         val found = LinkedHashMap<String, MutableList<Int>>() // key -> 그룹 안에서 센 마릿수
         var doedreGroup: PobSkillGroup? = null
@@ -424,6 +426,16 @@ object Minions {
             }
             spawns.clear()
             spawns.addAll(scaled)
+        }
+
+        val boost = 1.0 + minionDamagePct.coerceIn(0.0, 400.0) / 100.0
+        if (boost > 1.0 && spawns.isNotEmpty()) {
+            val scaled = spawns.map { spawn ->
+                MinionSpawn(spawn.type.copy(dpsShare = spawn.type.dpsShare * boost), spawn.count)
+            }
+            spawns.clear()
+            spawns.addAll(scaled)
+            notes.add("소환수 피해 ${minionDamagePct.toInt()}% 증가 반영")
         }
 
         return MinionPlan(

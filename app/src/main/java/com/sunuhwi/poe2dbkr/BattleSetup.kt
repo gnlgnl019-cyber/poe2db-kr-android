@@ -265,6 +265,7 @@ object BattleSetup {
             darkHitOverride = build.stats["AverageHit"] ?: 0.0,
             critChance = calc.critNow.takeIf { it > 0 } ?: 7.0,
             critMulti = calc.critMultiNow.takeIf { it > 100 } ?: 150.0,
+            minionDamagePct = unique.sim.minionDamagePct,
         )
         // 두꺼비 빌드에서 플레이어가 직접 때리는 스킬(철퇴·선회 등)의 DPS.
         // 암울한 결과 DPS를 플레이어 평타에 또 쓰면 두 번 세게 되므로 따로 잡는다.
@@ -323,6 +324,7 @@ object BattleSetup {
             kit = kitSkills(build, dict, skillName, scale),
             hollowSkill = hollowSocketSkill(build, dict, scale),
             minions = minions,
+            unique = unique.sim,
             uniqueSummary = unique.summary,
             uniqueEffects = unique.effects,
             uniqueApplied = unique.applied.size,
