@@ -167,6 +167,8 @@ data class BattlePlayerStats(
     val lifeLeechPct: Double = 0.0,
     /** 메타 스킬 에너지 획득 증가(%) */
     val metaEnergyPct: Double = 0.0,
+    /** 재사용 대기시간 회복 속도 증가(%) — 메타젬·부여 스킬 간격을 줄인다 */
+    val cooldownRatePct: Double = 0.0,
 ) {
     val element: DamageElement get() = fx.element
 
@@ -514,7 +516,12 @@ class Telegraph(
 /** 보스 패턴 하나 (이름 + 다음 사용까지의 간격 + 동작) */
 private class BossPattern(val name: String, val cooldown: Float, val action: () -> Unit)
 
-class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
+class TriggerRuntime(
+    val spec: TriggerSpec,
+    private val critRate: Double,
+    /** 전직의 재사용 대기시간 회복 속도 증가(%). 메타젬 재사용 대기시간을 줄인다. */
+    cooldownRatePct: Double = 0.0,
+) {
 
     companion object {
         /** 발동 1회에 드는 에너지. 화면 표시는 이 값을 100%로 본다. */
@@ -548,7 +555,8 @@ class TriggerRuntime(val spec: TriggerSpec, private val critRate: Double) {
     /** 조건을 몇 번 채워야 한 번 터지는지 (한 번의 발동 비용은 항상 100) */
     val threshold: Double = CAST_COST
 
-    val cooldownMax: Float = spec.kind.cooldown
+    val cooldownMax: Float =
+        (spec.kind.cooldown / (1.0 + cooldownRatePct.coerceIn(0.0, 300.0) / 100.0)).toFloat()
 
     /** 트리거가 자연히 터지는 간격(초) — 한 번 발동의 피해를 정할 때 쓴다. */
     val interval: Double = maxOf(cooldownMax.toDouble(), 0.45).coerceAtMost(6.0)
@@ -715,7 +723,7 @@ class BattleWorld(
     val triggers: List<TriggerRuntime> =
         stats.triggers.map { spec ->
             val critRate = stats.aps * (stats.critChance / 100.0)
-            TriggerRuntime(spec, critRate)
+            TriggerRuntime(spec, critRate, stats.cooldownRatePct)
         }
     var triggerCasts = 0
         private set
@@ -725,8 +733,12 @@ class BattleWorld(
     // ---------------------------------------------------------- 전직 부여 스킬
     /** 전직이 부여한 스킬(공허의 형상 등)의 남은 대기 시간 */
     private val ascendTimers = FloatArray(stats.ascendSkills.size) { i ->
-        (stats.ascendSkills[i].interval * 0.6).toFloat()
+        (ascendInterval(stats.ascendSkills[i]) * 0.6).toFloat()
     }
+
+    /** 전직 부여 스킬의 발동 간격 (재사용 대기시간 회복 반영) */
+    private fun ascendInterval(skill: AscendancyEffects.AscSkill): Double =
+        skill.interval / (1.0 + stats.cooldownRatePct.coerceIn(0.0, 300.0) / 100.0)
     var ascendCasts = 0
         private set
     var ascendDamage = 0.0
@@ -1757,7 +1769,7 @@ class BattleWorld(
             ascendTimers[index] -= dt
             if (ascendTimers[index] > 0f) return@forEachIndexed
             val target = nearestEnemy() ?: return@forEachIndexed
-            ascendTimers[index] = skill.interval.toFloat()
+            ascendTimers[index] = ascendInterval(skill).toFloat()
             val base = baseHitDamage() * skill.damageSharePct / 100.0
             val damage = if (skill.alwaysCrit) base * stats.critMulti / 100.0 else base
             val radius = aoe(skill.radius)

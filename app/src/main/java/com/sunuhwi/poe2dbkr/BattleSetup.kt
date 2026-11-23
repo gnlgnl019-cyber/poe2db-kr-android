@@ -199,6 +199,7 @@ object BattleSetup {
             lifeRegenPct = calc.ascendLifeRegenPct,
             lifeLeechPct = calc.ascendLifeLeechPct,
             metaEnergyPct = ascend?.sim?.metaEnergyPct ?: 0.0,
+            cooldownRatePct = ascend?.sim?.cooldownPct ?: 0.0,
         )
     }
 }

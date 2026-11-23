@@ -104,6 +104,7 @@ class AscendancyEffectsTest {
                 "효과 범위 8% 증가",
                 "최대 생명력 3% 증가",
                 "생명력 흡수량 12% 증가",
+                "재사용 대기시간 회복 속도 6% 증가",
                 "스킬 부여: {공허의 형상}",
                 "패시브 스킬 포인트 1포인트 제공",
             ).joinToString("\n"),
@@ -136,6 +137,7 @@ class AscendancyEffectsTest {
         assertEquals(8.0, profile.sim.aoePct, 0.01)
         assertEquals(3.0, profile.pob.lifePct, 0.01)
         assertEquals(12.0, profile.sim.lifeLeechPct, 0.01)
+        assertEquals(6.0, profile.sim.cooldownPct, 0.01)
         val scopes = parsed.lines.map { it.scope }
         assertTrue("스킬 부여는 표시용이어야 한다", parsed.lines.first { it.text.contains("스킬 부여") }.scope == AscendancyEffects.AscScope.NONE)
         assertTrue("패시브 포인트는 전투와 무관하다", parsed.lines.first { it.text.contains("패시브 스킬 포인트") }.scope == AscendancyEffects.AscScope.NONE)
