@@ -1997,7 +1997,21 @@ class MainActivity : AppCompatActivity() {
             "\n" + getString(R.string.battle_result_skills) + "\n" +
                 result.skillDamage.take(6).joinToString("\n") { "· " + it.line }
         } else ""
-        pobPane.tvBattleResult.text = head + deathLine + "\n" + body + chargeLine + skillLine + triggerLine + ascendLine + comboLine + minionLine + beastLine
+        // 전령이 돌았으면 전령별 발동 횟수와 피해도 적는다.
+        val heraldLine = if (result.heraldProcs > 0) {
+            "\n" + getString(R.string.battle_result_herald, result.heraldProcs, BattleWorld.formatShort(result.heraldDamage)) +
+                if (result.heraldReports.isNotEmpty()) {
+                    "\n" + result.heraldReports.joinToString("\n") { "· " + it.line }
+                } else ""
+        } else ""
+        val shatterLine = if (result.shatters > 0) {
+            "\n" + getString(R.string.battle_result_shatter, result.shatters)
+        } else ""
+        val clearLine = result.clear?.topSkill?.let { top ->
+            "\n" + getString(R.string.battle_result_clear, top.name, BattleWorld.formatShort(top.damage))
+        } ?: ""
+        pobPane.tvBattleResult.text = head + deathLine + "\n" + body + chargeLine + clearLine + skillLine +
+            heraldLine + shatterLine + triggerLine + ascendLine + comboLine + minionLine + beastLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false

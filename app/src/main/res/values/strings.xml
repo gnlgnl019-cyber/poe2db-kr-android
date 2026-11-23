@@ -195,6 +195,11 @@
     <string name="battle_result_lose">사망  %1$.1fs</string>
     <string name="battle_result_death">사망 원인  %1$s\n%2$s</string>
     <string name="battle_result_skills">스킬별 DPS 기록</string>
+    <string name="battle_result_herald">전령 발동 %1$d회 · 전령 피해 %2$s</string>
+    <string name="battle_result_shatter">동결 산산조각 %1$d회</string>
+    <string name="battle_result_clear">클리어 요약  가장 센 스킬 %1$s · %2$s</string>
+    <string name="battle_herald_none">전령 없음 · PoB에 얼음의 전령 같은 전령 젬이 없습니다</string>
+    <string name="battle_herald_off">정신력이 모자라 꺼진 전령: %1$s</string>
     <string name="gear_value_loading">장비 가치 산출 중…</string>
     <string name="gear_value_empty">장비 가치 (주얼·젬·플라스크 제외): 값을 매길 장비가 없습니다</string>
     <string name="gear_value_headline">장비 가치 (주얼·젬·플라스크 제외): 약 %1$s 디바인 (≈ %2$s 카옵)\n누르면 부위별 내역과 산출 근거가 열립니다</string>

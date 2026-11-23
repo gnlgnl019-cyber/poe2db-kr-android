@@ -193,6 +193,9 @@ data class BattlePlayerStats(
     /** 소환수·반려수 구성 (두꺼비·암울한 결과 포함) */
     val minions: MinionPlan = MinionPlan.EMPTY,
 
+    /** PoB에서 읽은 전령 구성 (정신력 점유·보조 젬 포함) */
+    val heralds: HeraldPlan = HeraldPlan.EMPTY,
+
     /** 충전 운용 규칙 — 전투 격분·공명·충전 조절 등 (빌드 글에서 읽는다) */
     val charges: ChargeRules = ChargeRules(),
 
@@ -418,6 +421,12 @@ class Enemy(
     var igniteDps = 0.0
     /** 올로스의 룬 보호막처럼 피해를 흡수하는 임시 보호막 */
     var shield = 0.0
+
+    /** 마지막 한 방이 생명력을 넘긴 초과 피해 — 재의 전령이 그만큼 태운다 */
+    var overkill = 0.0
+
+    /** 동결 상태로 처치돼 산산조각 났는지 */
+    var shattered = false
     /** 와류·돌개바람에 휘말린 시간 */
     var slowT = 0f
     /** 늦추는 정도 (0.7 = 이동 속도 30% 감소). 기름 유탄 40%, 기름 지대 20% */
@@ -536,6 +545,18 @@ enum class FxKind {
     DUST,
     /** 돌개바람·날개가 일으키는 돌풍 */
     WING_GUST,
+    /** 번개가 꽂히는 순간 터지는 흰-보라 스파크 섬광 */
+    SPARK_FLASH,
+    /** 여러 겹으로 타오르는 화염 폭발 */
+    FLAME_BURST,
+    /** 불길 위로 올라가는 검붉은 연기 */
+    SMOKE,
+    /** 동결된 적이 부서지는 산산조각 — 얼음 파편이 사방으로 튄다 */
+    SHATTER,
+    /** 전령이 터질 때 퍼지는 원소 물결 */
+    HERALD_WAVE,
+    /** 클리어 순간의 금빛 승리 물결 */
+    VICTORY_WAVE,
 }
 
 class Fx(
@@ -781,6 +802,15 @@ data class BattleResult(
     val chargeText: String = "",
     val frenzyGained: Int = 0,
     val chargesSpent: Int = 0,
+    /** 전령 발동 횟수·피해·전령별 기록 */
+    val heraldProcs: Int = 0,
+    val heraldDamage: Double = 0.0,
+    val heraldReports: List<HeraldReport> = emptyList(),
+    val heraldText: String = "",
+    /** 동결 상태로 부서진(산산조각) 적 수 */
+    val shatters: Int = 0,
+    /** 클리어 요약 (승리했을 때만) */
+    val clear: ClearSummary? = null,
 )
 
 /** 메타젬 하나의 전투 결과 */
@@ -1115,6 +1145,26 @@ class BattleWorld(
     /** 사망 원인 (쓰러지기 전에는 null) */
     var deathCause: DeathCause? = null
         private set
+
+    /** 클리어한 뒤 흐른 시간 — 승리 연출과 페이드인 카드가 이 값을 따라간다 */
+    var victoryAge = 0f
+        private set
+
+    // ---------------------------------------------------------- 전령
+    /** 이 전투에 켜진 전령 (정신력이 남은 것만) */
+    val heralds: List<HeraldSpec> = stats.heralds.active
+    private val heraldProcs = LinkedHashMap<HeraldKind, Int>()
+    private val heraldDamageByName = LinkedHashMap<HeraldKind, Double>()
+    /** 전령 발동 총 횟수와 전령이 낸 피해 */
+    var heraldProcsTotal = 0
+        private set
+    var heraldDamage = 0.0
+        private set
+    /** 동결 상태로 부서진 적 수 (산산조각) */
+    var shatters = 0
+        private set
+    /** 천둥의 전령이 감전에서 낙뢰를 다시 내리는 간격 제한 */
+    private var thunderOnShockCooldown = 0f
 
     // ---------------------------------------------------------- 피해·사망 기록
     /** 이번 전투에서 스킬 하나가 쌓은 피해 (주력·콤보·메타젬·소환수·전직 전부) */
@@ -1601,6 +1651,7 @@ class BattleWorld(
 
     private fun step(dt: Float) {
         elapsed += dt
+        if (thunderOnShockCooldown > 0f) thunderOnShockCooldown = max(0f, thunderOnShockCooldown - dt)
         meleeBudgetTimer -= dt
         if (meleeBudgetTimer <= 0f) {
             meleeBudgetTimer = 0.5f
@@ -1636,6 +1687,8 @@ class BattleWorld(
             playDeathEffect()
         } else if (spawnQueue.isEmpty() && enemies.none { it.alive }) {
             state = State.VICTORY
+            victoryAge = 0f
+            playVictoryEffect()
         }
     }
 
@@ -1674,6 +1727,8 @@ class BattleWorld(
         }
         // 쓰러진 뒤에는 사망 연출 시간이 흐른다 (화면 페이드인이 이 값을 따라간다).
         if (state != State.RUNNING) deathAge += dt
+        // 클리어 연출도 같은 식으로 시간이 흐른다.
+        if (state == State.VICTORY) victoryAge += dt
         // 흐려진 적은 지워 목록이 500마리까지 무한히 길어지지 않게 한다.
         if (enemies.size > activeCap) enemies.removeAll { !it.alive }
         player.hurtFlash = max(0f, player.hurtFlash - dt * 4f)
@@ -3212,6 +3267,35 @@ class BattleWorld(
 
     internal fun igniteOilAt(x: Float, y: Float, radius: Float) = igniteOil(x, y, radius, 1.0)
 
+    /** 시험용 — 전장의 적 하나 (첫 적부터) */
+    internal fun testEnemy(index: Int = 0): Enemy? = enemies.getOrNull(index)
+
+    /** 시험용 — 적을 원하는 상태로 처치해 전령·산산조각 조건을 확인한다 */
+    internal fun testKill(
+        e: Enemy,
+        frozen: Boolean = false,
+        shocked: Boolean = false,
+        overkill: Double = 0.0,
+    ) {
+        if (frozen) e.freezeT = max(e.freezeT, 1.0f)
+        if (shocked) e.shockT = max(e.shockT, 1.0f)
+        e.overkill = overkill
+        killEnemy(e)
+    }
+
+    /** 시험용 — 한 방의 실제 피해 (감전 배율·초과 피해 확인) */
+    internal fun testHit(e: Enemy, damage: Double): Double {
+        val before = damageDealt
+        hitEnemy(e, damage, false, 0f)
+        return damageDealt - before
+    }
+
+    /** 스킬별 기록과 전체 피해가 같은지 (원소 상태이상·전령 피해가 빠짐없이 적립됐는지) */
+    internal fun damageLedgerBalanced(tolerance: Double = 1e-6): Boolean {
+        val sum = skillRows.values.sumOf { it.damage }
+        return abs(sum - damageDealt) <= tolerance * max(1.0, damageDealt)
+    }
+
     /** 지금 들고 있는 충전 수 */
     fun chargeCount(kind: ChargeKind): Int = when (kind) {
         ChargeKind.POWER -> powerCharges
@@ -3791,7 +3875,7 @@ class BattleWorld(
             if (tick <= 0) continue
             e.hp -= tick
             damageDealt += tick
-            creditDamage("점화", tick)
+            creditDamage(Ailments.IGNITE_LABEL, tick)
             if (rand.nextDouble() < 0.12) {
                 addPopup(e.x, e.y - 46f * e.scale, formatShort(tick), false, 0.5f, 0xFFFF8A3D.toInt(), 0.7f)
             }
@@ -3803,6 +3887,15 @@ class BattleWorld(
         for (e in enemies) {
             if (!e.alive) continue
             val frozen = e.freezeT > 0f
+            // 동결된 적은 얼음 감옥 안에서 굳는다 — 걷지도, 차지도, 예고를 펼치지도 못한다.
+            if (frozen) {
+                e.vx = 0f
+                e.vy = 0f
+                e.windup = 0f
+                e.attackAnim = 0f
+                e.attackTimer = max(e.attackTimer, 0.4)
+                continue
+            }
             val walkRate = if (e.kind == EnemyKind.BOSS && e.boss != null) 5f else 8f
             e.walkPhase += dt * walkRate
             // 소환수 어그로 — 가까운 소환수가 있으면 그쪽으로 돌아선다.
@@ -3863,7 +3956,7 @@ class BattleWorld(
                 val ay = aimY - e.y
                 val ad = hypot(ax, ay).coerceAtLeast(0.001f)
                 val sp = e.speed * pull * (if (e.windup > 0f) 0.25f else 1f) *
-                    (if (frozen) 0.35f else 1f) * (if (e.slowT > 0f) e.slowMul else 1f)
+                    (if (e.slowT > 0f) e.slowMul else 1f)
                 e.vx = ax / ad * sp
                 e.vy = ay / ad * sp
                 e.x += e.vx * dt
@@ -3879,10 +3972,6 @@ class BattleWorld(
             e.y = e.y.coerceIn(56f, H - 30f)
 
             if (e.windup > 0f) continue
-            if (frozen) {
-                e.attackTimer = max(e.attackTimer, 0.35)
-                continue
-            }
             e.attackTimer -= dt
             val inRange = if (e.ranged) dist < 300f else dist < stop + 24f
             if (e.attackTimer <= 0f && inRange) {
@@ -4031,14 +4120,17 @@ class BattleWorld(
         energyWeight: Double = -1.0,
     ) {
         if (!e.alive) return
-        // 감전된 적은 피해를 더 받고, 저주가 걸린 적은 저항이 낮아진 것으로 본다.
-        val shockedMul = if (e.shocked) 1.10 + 0.15 * (1.0 + stats.ailmentMagnitudePct.coerceIn(0.0, 200.0) / 100.0) else 1.0
+        // 감전된 적은 피해를 더 받고(20%~감전 수치), 저주가 걸린 적은 저항이 낮아진 것으로 본다.
+        val shockedMul = if (e.shocked) Ailments.shockMultiplier(stats.ailmentMagnitudePct) else 1.0
         val curseMul = if (e.curseT > 0f) 1.08 else 1.0
         // 기름에 젖은 적은 노출되어 총 원소 저항이 20% 낮아진 것으로 본다.
         val oilMul = if (e.oilT > 0f && stats.fx.element != DamageElement.PHYSICAL) 1.12 else 1.0
         if (stats.unique.curseOnHit) e.curseT = max(e.curseT, 6f)
+        val hpBefore = e.hp
         val dealt = applyShield(e, damage * shockedMul * curseMul * oilMul)
         e.hp -= dealt
+        // 생명력을 넘긴 몫은 초과 피해로 남긴다 — 재의 전령이 이 값을 태운다.
+        e.overkill = (dealt - hpBefore).coerceAtLeast(0.0)
         damageDealt += dealt
         creditDamage(skillContext, dealt)
         e.hitFlash = 1f
@@ -4057,8 +4149,7 @@ class BattleWorld(
         )
         leechPool += dealt * leechRate()
         onSkillHit(e, crit, angle)
-        applyAilments(e, crit)
-        // 마무리 타격(고유 아이템) — 생명력이 얼마 남지 않은 적을 즉시 처치한다.
+        applyAilments(e, crit)        // 마무리 타격(고유 아이템) — 생명력이 얼마 남지 않은 적을 즉시 처치한다.
         if (stats.unique.cullingStrike && e.alive && e.hp > 0.0 && e.hp <= e.maxHp * 0.10) {
             addPopup(e.x, e.y - 60f * e.scale, "마무리", false, 0.55f, 0xFFFFD36A.toInt(), 0.8f)
             killEnemy(e)
@@ -4082,24 +4173,28 @@ class BattleWorld(
             return rand.nextDouble() < chance
         }
         if (roll(DamageElement.LIGHTNING, 0.30, 0.10, stats.shockChancePct + stats.unique.shockChancePct)) {
-            e.shockT = max(e.shockT, 4.0f)
+            e.shockT = max(e.shockT, Ailments.SHOCK_TIME)
             fireEvent(TriggerCondition.SHOCK, e, 0.9)
             onControlApplied(e)
-            addPopup(e.x, e.y - 74f * e.scale, "감전", false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
+            addPopup(e.x, e.y - 74f * e.scale, Ailments.SHOCK_LABEL, false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
+            addFx(FxKind.SPARK_FLASH, e.x, e.y - 34f * e.scale, radius = 16f, life = 0.16f, color = 0xFFBDE6FF.toInt(), width = 0.9f)
+            // 천둥의 전령 — 감전이 걸리면 그 자리에 낙뢰가 떨어진다 (0.4초에 한 번).
+            heraldThunderOnShock(e)
         }
         if (roll(DamageElement.COLD, 0.22, 0.07, stats.freezeChancePct + stats.unique.freezeChancePct)) {
-            e.freezeT = max(e.freezeT, 2.4f)
+            e.freezeT = max(e.freezeT, Ailments.FREEZE_TIME)
             fireEvent(TriggerCondition.FREEZE, e, 0.8)
             onControlApplied(e)
-            addPopup(e.x + 16f, e.y - 74f * e.scale, "빙결", false, 0.5f, 0xFF9BE8FF.toInt(), 0.72f)
+            addPopup(e.x + 16f, e.y - 74f * e.scale, Ailments.FREEZE_LABEL, false, 0.5f, 0xFF9BE8FF.toInt(), 0.72f)
             addFx(FxKind.ICE_CONE, e.x, e.y, radius = 26f, life = 0.3f, color = 0xFFBFF4FF.toInt())
+            addFx(FxKind.FROST_NOVA, e.x, e.y, radius = 30f * e.scale, life = 0.32f, color = 0xFF9BE8FF.toInt(), width = 0.8f)
         }
         if (roll(DamageElement.FIRE, 0.30, 0.09, stats.igniteChancePct + stats.unique.igniteChancePct)) {
-            val ignite = baseHitDamage() * 0.22
-            e.igniteT = max(e.igniteT, 3.2f)
+            val ignite = Ailments.igniteDps(baseHitDamage(), stats.ailmentMagnitudePct)
+            e.igniteT = max(e.igniteT, Ailments.IGNITE_TIME)
             e.igniteDps = max(e.igniteDps, ignite)
             fireEvent(TriggerCondition.IGNITE, e, 0.9)
-            addPopup(e.x - 14f, e.y - 74f * e.scale, "점화", false, 0.5f, 0xFFFF8A3D.toInt(), 0.72f)
+            addPopup(e.x - 14f, e.y - 74f * e.scale, Ailments.IGNITE_LABEL, false, 0.5f, 0xFFFF8A3D.toInt(), 0.72f)
         }
     }
 
@@ -4408,6 +4503,8 @@ class BattleWorld(
                 addFx(FxKind.ICE_CONE, e.x, e.y, angle = angle, radius = 58f, life = 0.46f, color = DamageElement.COLD.color)
                 addBurst(e.x, e.y, 8, 0xFFBFF4FF.toInt(), 210f, 0.55f)
                 addFx(FxKind.RING, e.x, e.y, radius = 34f, life = 0.34f, color = 0xFF9BE8FF.toInt())
+                // 착탄점에 육각 결정이 퍼진다
+                addFx(FxKind.CRYSTAL, e.x, e.y, radius = 44f, life = 0.44f, color = 0xFFDFF9FF.toInt(), seed = (angle * 1000f).toInt() + 7)
                 // 얼음 파편이 주변 적에게도 날아간다
                 nearbyEnemies(e, 96f, 2).forEach { other ->
                     val tickDamage = baseHitDamage() * 0.30
@@ -4420,7 +4517,23 @@ class BattleWorld(
                 }
             }
             SkillEffectType.LIGHTNING -> {
-                addFx(FxKind.BOLT, e.x, e.y - 40f, x2 = e.x + (rand.nextFloat() - 0.5f) * 40f, y2 = e.y + 20f, life = 0.18f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 1.2f)
+                // 푸른-보라 갈래 번개 두 줄기가 꽂히고 착탄점에 스파크가 터진다
+                val spread = (rand.nextFloat() - 0.5f) * 26f
+                val boltSeed = rand.nextInt()
+                addFx(
+                    FxKind.BOLT, e.x, e.y - 150f,
+                    x2 = e.x + spread, y2 = e.y + 20f,
+                    life = 0.2f, color = 0xFFDCEBFF.toInt(), seed = boltSeed, width = 1.5f,
+                )
+                addFx(
+                    FxKind.BOLT, e.x - spread * 0.7f, e.y - 120f,
+                    x2 = e.x + spread * 0.5f, y2 = e.y + 16f,
+                    life = 0.16f, color = 0xFFBFE0FF.toInt(), seed = boltSeed + 977, width = 1.1f,
+                )
+                addFx(
+                    FxKind.SPARK_FLASH, e.x, e.y - 18f, radius = 26f, life = 0.2f,
+                    color = 0xFFFFFFFF.toInt(), seed = boltSeed + 31, width = 1.2f,
+                )
                 addBurst(e.x, e.y, 6, 0xFFFFE272.toInt(), 190f, 0.4f)
                 // 연쇄 번개
                 val chain = nearbyEnemies(e, 155f, 2)
@@ -4445,6 +4558,8 @@ class BattleWorld(
             SkillEffectType.FIRE -> {
                 addFx(FxKind.RING, e.x, e.y, radius = 64f, life = 0.5f, color = 0xFFFF8A3D.toInt())
                 addFx(FxKind.RING, e.x, e.y, radius = 36f, life = 0.34f, color = 0xFFFFD27A.toInt(), width = 0.7f)
+                addFx(FxKind.FLAME_BURST, e.x, e.y - 14f, radius = 46f, life = 0.46f, color = 0xFFFF7B3C.toInt(), seed = (angle * 791f).toInt() + 11, width = 1f)
+                addFx(FxKind.SMOKE, e.x, e.y - 26f, radius = 26f, life = 0.85f, color = 0xFF2A1A14.toInt(), seed = (angle * 517f).toInt() + 23)
                 addBurst(e.x, e.y, 12, 0xFFFFA64D.toInt(), 250f, 0.75f, gravity = -90f)
                 nearbyEnemies(e, 86f, 3).forEach { other ->
                     val splash = baseHitDamage() * 0.35
@@ -4482,12 +4597,19 @@ class BattleWorld(
 
     private fun killEnemy(e: Enemy) {
         if (!e.alive) return
+        val frozenDeath = e.freezeT > 0f
         e.alive = false
         e.hp = 0.0
         // 무리 리필은 step 끝에서 한다 (적 목록을 도는 중에 바꾸면 안 된다).
         kills++
-        addBurst(e.x, e.y, if (e.kind == EnemyKind.BOSS) 40 else 12, 0xFFE8D9B8.toInt(), if (e.kind == EnemyKind.BOSS) 420f else 250f, 0.9f)
-        addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
+        if (frozenDeath) {
+            // 동결된 적은 쓰러지는 대신 얼음으로 부서진다.
+            e.shattered = true
+            playShatter(e)
+        } else {
+            addBurst(e.x, e.y, if (e.kind == EnemyKind.BOSS) 40 else 12, 0xFFE8D9B8.toInt(), if (e.kind == EnemyKind.BOSS) 420f else 250f, 0.9f)
+            addFx(FxKind.RING, e.x, e.y, radius = if (e.kind == EnemyKind.BOSS) 130f else 40f, life = 0.5f, color = 0xFFFFC24D.toInt())
+        }
         if (e.kind == EnemyKind.BOSS) shake = 10f
         // 희귀 몬스터를 잡으면 그 힘을 잠시 얻는다 (헤드헌터).
         if (stats.unique.rareKillBuff && (e.kind == EnemyKind.RARE || e.kind == EnemyKind.BOSS)) {
@@ -4502,6 +4624,185 @@ class BattleWorld(
         fireEvent(TriggerCondition.KILL, null, 0.6)
         // 소환수 빌드에서 적을 잡으면 소환수가 쓰러진 것으로 쳐 준다
         if (stats.fx == SkillEffectType.MINION) fireEvent(TriggerCondition.MINION_DEATH, null, 0.6)
+        // 전령 — 처치 직전의 상태(동결·산산조각·감전)로 조건부 발동한다.
+        triggerHeralds(e, frozenDeath)
+    }
+
+    // ------------------------------------------------------------ 전령
+
+    /**
+     * 처치 사건 하나로 전령 3종의 조건을 살핀다.
+     *
+     * 얼음의 전령은 동결·산산조각 난 적에게서, 천둥의 전령은 감전된 적에게서,
+     * 재의 전령은 초과 피해만큼 터진다. 각 전령은 자기 이름으로 피해를 적립하므로
+     * 스킬별 DPS 기록과 전체 피해 합계가 그대로 맞는다.
+     */
+    private fun triggerHeralds(e: Enemy, frozenDeath: Boolean) {
+        if (heralds.isEmpty()) return
+        val hit = baseHitDamage()
+        val ice = stats.heralds.spec(HeraldKind.ICE)
+        if (ice != null && (frozenDeath || e.shattered)) heraldIce(ice, e, hit)
+        val thunder = stats.heralds.spec(HeraldKind.THUNDER)
+        if (thunder != null && e.shockT > 0f) heraldThunder(thunder, e, hit)
+        val ash = stats.heralds.spec(HeraldKind.ASH)
+        if (ash != null) heraldAsh(ash, e, hit, e.overkill)
+    }
+
+    /** 얼음의 전령 — 처치된 자리에 육각 서리 파동과 범위 냉기 피해 */
+    private fun heraldIce(spec: HeraldSpec, e: Enemy, hit: Double) {
+        val radius = HeraldMath.radius(HeraldKind.ICE, spec)
+        addFx(FxKind.HERALD_WAVE, e.x, e.y, radius = radius, life = 0.62f, color = 0xFF8FE6FF.toInt(), width = 1.8f)
+        addFx(FxKind.FROST_NOVA, e.x, e.y, radius = radius * 0.92f, life = 0.58f, color = 0xFFBFF4FF.toInt())
+        addFx(FxKind.CRYSTAL, e.x, e.y, radius = radius * 0.6f, life = 0.6f, color = 0xFFDFF9FF.toInt())
+        addBurst(e.x, e.y - 12f, 18, 0xFFCFEFFF.toInt(), 260f, 0.8f, gravity = 70f)
+        addPopup(e.x, e.y - 78f * e.scale, spec.name, false, 0.9f, 0xFFBFF4FF.toInt(), 0.84f)
+        val dealt = heraldBlast(
+            x = e.x,
+            y = e.y,
+            radius = radius,
+            damage = HeraldMath.iceDamage(hit, spec),
+            element = DamageElement.COLD,
+            label = spec.name,
+            ignite = false,
+        )
+        noteHerald(spec, dealt)
+    }
+
+    /** 천둥의 전령 — 감전된 적이 터지면 주변으로 연쇄 낙뢰 */
+    private fun heraldThunder(spec: HeraldSpec, e: Enemy, hit: Double) {
+        val radius = HeraldMath.radius(HeraldKind.THUNDER, spec)
+        val base = HeraldMath.thunderDamage(hit, spec)
+        addFx(FxKind.HERALD_WAVE, e.x, e.y, radius = radius, life = 0.55f, color = 0xFFFFE272.toInt(), width = 1.6f)
+        addFx(FxKind.PILLAR, e.x, e.y, radius = 26f, life = 0.36f, color = 0xFFFFF3A8.toInt())
+        addFx(FxKind.ARC_WEB, e.x, e.y - 26f, radius = radius * 0.8f, life = 0.4f, color = 0xFFFFE272.toInt())
+        addBurst(e.x, e.y - 30f, 16, 0xFFFFF3A8.toInt(), 280f, 0.55f)
+        addPopup(e.x, e.y - 78f * e.scale, spec.name, false, 0.9f, 0xFFFFF3A8.toInt(), 0.84f)
+        shake = max(shake, 5.5f)
+        var total = 0.0
+        var struck = 0
+        for (other in enemies) {
+            if (!other.alive) continue
+            if (hypot(other.x - e.x, other.y - e.y) > radius) continue
+            val arcAngle = atan2(other.y - e.y, other.x - e.x)
+            addFx(
+                FxKind.BOLT, e.x, e.y - 30f,
+                x2 = other.x, y2 = other.y - 24f,
+                life = 0.2f, color = 0xFFFFF3A8.toInt(), width = 1.3f,
+            )
+            addFx(FxKind.SPARK_FLASH, other.x, other.y - 26f * other.scale, radius = 18f, life = 0.16f, color = 0xFFFFFFFF.toInt(), width = 1.1f)
+            val share = if (struck == 0) 1.0 else HeraldMath.SPLASH_RATIO
+            total += heraldHit(other, base * share, DamageElement.LIGHTNING, spec.name, arcAngle)
+            struck++
+            if (struck >= 4) break
+        }
+        noteHerald(spec, total)
+    }
+
+    /** 재의 전령 — 처치의 초과 피해만큼 화염 폭발, 주변 적 점화 */
+    private fun heraldAsh(spec: HeraldSpec, e: Enemy, hit: Double, overkill: Double) {
+        val radius = HeraldMath.radius(HeraldKind.ASH, spec)
+        addFx(FxKind.HERALD_WAVE, e.x, e.y, radius = radius, life = 0.6f, color = 0xFFFF7B3C.toInt(), width = 1.6f)
+        addFx(FxKind.FLAME_BURST, e.x, e.y - 14f, radius = radius * 0.8f, life = 0.62f, color = 0xFFFF7B3C.toInt(), width = 1.4f)
+        addFx(FxKind.SMOKE, e.x, e.y - 30f, radius = radius * 0.55f, life = 0.9f, color = 0xFF2A1A14.toInt())
+        addBurst(e.x, e.y - 18f, 16, 0xFFFFA64D.toInt(), 250f, 0.8f, gravity = -80f)
+        addPopup(e.x, e.y - 78f * e.scale, spec.name, false, 0.9f, 0xFFFFB066.toInt(), 0.84f)
+        val dealt = heraldBlast(
+            x = e.x,
+            y = e.y,
+            radius = radius,
+            damage = HeraldMath.ashDamage(hit, overkill, spec),
+            element = DamageElement.FIRE,
+            label = spec.name,
+            ignite = spec.appliesAilment,
+        )
+        noteHerald(spec, dealt)
+    }
+
+    /** 전령 폭발 한 번 — 범위 안 적에게 피해를 넣고, 필요하면 불을 붙인다 */
+    private fun heraldBlast(
+        x: Float,
+        y: Float,
+        radius: Float,
+        damage: Double,
+        element: DamageElement,
+        label: String,
+        ignite: Boolean,
+    ): Double {
+        var total = 0.0
+        var hits = 0
+        for (other in enemies) {
+            if (!other.alive) continue
+            if (hypot(other.x - x, other.y - y) > radius) continue
+            val share = if (hits == 0) 1.0 else HeraldMath.SPLASH_RATIO
+            total += heraldHit(other, damage * share, element, label, atan2(other.y - y, other.x - x))
+            if (ignite && other.alive) {
+                other.igniteT = max(other.igniteT, Ailments.IGNITE_TIME)
+                other.igniteDps = max(other.igniteDps, damage * 0.18)
+            }
+            hits++
+        }
+        if (hits == 0) {
+            // 맞은 적이 없어도 발동은 했으므로 이름만 띄운다.
+            addPopup(x, y - 60f, label, false, 0.7f, element.color, 0.7f)
+        }
+        return total
+    }
+
+    /** 전령 피해 한 건 — 적립과 함께 상태이상·연출을 붙인다 */
+    private fun heraldHit(e: Enemy, damage: Double, element: DamageElement, label: String, angle: Float): Double {
+        val taken = applyShield(e, damage)
+        e.hp -= taken
+        damageDealt += taken
+        creditDamage(label, taken)
+        e.hitFlash = 1f
+        addPopup(
+            e.x + (rand.nextFloat() - 0.5f) * 16f,
+            e.y - 48f * e.scale,
+            formatShort(taken), false, 0.55f, element.color, 0.88f,
+        )
+        when (element) {
+            DamageElement.COLD -> addFx(FxKind.ICE_CONE, e.x, e.y, angle = angle, radius = 34f, life = 0.3f, color = 0xFFBFF4FF.toInt())
+            DamageElement.LIGHTNING -> addFx(FxKind.SPARK_FLASH, e.x, e.y - 26f * e.scale, radius = 16f, life = 0.15f, color = 0xFFFFFFFF.toInt(), width = 1.2f)
+            DamageElement.FIRE -> addFx(FxKind.FLAME_BURST, e.x, e.y - 18f, radius = 30f, life = 0.35f, color = 0xFFFF8A3D.toInt(), width = 0.6f)
+            else -> Unit
+        }
+        if (e.hp <= 0) killEnemy(e)
+        return taken
+    }
+
+    /** 천둥의 전령 — 감전이 걸릴 때마다 그 적에게 낙뢰 한 줄기 */
+    private fun heraldThunderOnShock(e: Enemy) {
+        val spec = stats.heralds.spec(HeraldKind.THUNDER) ?: return
+        if (thunderOnShockCooldown > 0f) return
+        thunderOnShockCooldown = 0.4f
+        val base = HeraldMath.thunderDamage(baseHitDamage(), spec) * 0.6
+        addFx(FxKind.BOLT, e.x + 26f, e.y - 210f, x2 = e.x, y2 = e.y - 22f, life = 0.18f, color = 0xFFFFF3A8.toInt(), width = 1.5f)
+        addFx(FxKind.PILLAR, e.x, e.y, radius = 18f, life = 0.3f, color = 0xFFFFF3A8.toInt())
+        addBurst(e.x, e.y - 24f, 8, 0xFFFFF3A8.toInt(), 220f, 0.42f)
+        val dealt = heraldHit(e, base, DamageElement.LIGHTNING, spec.name, 0f)
+        noteHerald(spec, dealt)
+    }
+
+    /** 전령 발동 한 번을 센다 */
+    private fun noteHerald(spec: HeraldSpec, damage: Double) {
+        heraldProcs[spec.kind] = (heraldProcs[spec.kind] ?: 0) + 1
+        heraldDamageByName[spec.kind] = (heraldDamageByName[spec.kind] ?: 0.0) + damage
+        heraldProcsTotal++
+        heraldDamage += damage
+    }
+
+    /** 동결된 적의 산산조각 — 얼음 파편이 사방으로 튀고 시체가 얼음 가루로 흩어진다 */
+    private fun playShatter(e: Enemy) {
+        shatters++
+        val shards = Ailments.shatterShards(e.kind)
+        val seed = ((e.slotAngle * 1000f).toInt() and 0x7FFFFFF) + shatters * 31
+        addFx(FxKind.SHATTER, e.x, e.y - 24f * e.scale, radius = 46f * e.scale, life = 0.7f, color = 0xFFDFF9FF.toInt(), seed = seed)
+        addFx(FxKind.FROST_NOVA, e.x, e.y, radius = 44f * e.scale, life = 0.5f, color = 0xFF9BE8FF.toInt(), seed = seed + 7)
+        addFx(FxKind.RING, e.x, e.y, radius = 52f * e.scale, life = 0.42f, color = 0xFFFFFFFF.toInt(), seed = seed + 11, width = 0.8f)
+        addBurstPattern(e.x, e.y - 30f * e.scale, shards, 0xFFE8FCFF.toInt(), 330f, 0.95f, gravity = 420f, seed = seed)
+        addBurstPattern(e.x, e.y - 20f * e.scale, shards / 2, 0xFF9BE8FF.toInt(), 210f, 0.8f, gravity = -60f, seed = seed + 5)
+        addPopup(e.x, e.y - 70f * e.scale, "산산조각", false, 0.8f, 0xFFCFEFFF.toInt(), 0.86f)
+        shake = max(shake, if (e.kind == EnemyKind.BOSS) 9f else 3.6f)
     }
 
     /** 받는 피해 계산 결과 (전직 감폭·전환 확인용) */
@@ -4630,6 +4931,63 @@ class BattleWorld(
         addPopup(player.x, player.y - 98f, "사망", true, 1.6f, 0xFFFF5A5A.toInt(), 1.2f)
         shake = max(shake, 15f)
         hurtFlash = 1f
+    }
+
+    /**
+     * 클리어 연출 — 플레이어 발밑에서 금빛 충격파가 퍼지고, 청백빛 빛기둥이 솟으며
+     * 불꽃 파편이 사방으로 흩어진다. 사망 연출([playDeathEffect])과 정확히 반대 결이다.
+     */
+    private fun playVictoryEffect() {
+        victoryAge = 0f
+        val gold = 0xFFFFD36A.toInt()
+        val pale = 0xFFDCF4FF.toInt()
+        // 금빛 이중 충격파
+        addFx(FxKind.VICTORY_WAVE, player.x, player.y, radius = 190f, life = 1.0f, color = gold, width = 2.4f)
+        addFx(FxKind.SHOCKWAVE, player.x, player.y, radius = 132f, life = 0.85f, color = gold, width = 1.8f)
+        addFx(FxKind.RING, player.x, player.y - 10f, radius = 88f, life = 0.7f, color = pale, width = 1.4f)
+        addFx(FxKind.RING, player.x, player.y - 10f, radius = 58f, life = 0.55f, color = 0xFFFFFFFF.toInt(), width = 1f)
+        // 솟는 빛기둥과 후광
+        addFx(FxKind.PILLAR, player.x, player.y, radius = 54f, life = 0.95f, color = gold)
+        addFx(FxKind.PILLAR, player.x - 30f, player.y - 6f, radius = 26f, life = 0.7f, color = pale)
+        addFx(FxKind.PILLAR, player.x + 30f, player.y - 6f, radius = 26f, life = 0.7f, color = pale)
+        addFx(FxKind.AURA, player.x, player.y - 24f, radius = 120f, life = 1.2f, color = 0xFF8FD4FF.toInt())
+        // 흩날리는 불꽃 파편 — 무거운 금빛 조각과 가벼운 청백 불티
+        addBurst(player.x, player.y - 12f, 34, gold, 330f, 1.35f, gravity = -120f)
+        addBurst(player.x, player.y - 30f, 22, pale, 230f, 1.5f, gravity = -180f)
+        addBurst(player.x, player.y - 40f, 14, 0xFFFFFFFF.toInt(), 150f, 1.7f, gravity = -240f)
+        addPopup(player.x, player.y - 104f, "클리어", true, 1.8f, gold, 1.25f)
+        shake = max(shake, 9f)
+    }
+
+    /** 클리어 요약 — 총 시간·총 피해·평균 DPS·처치와 스킬별 기록 */
+    fun clearSummary(): ClearSummary {
+        val seconds = max(0.1, elapsed)
+        return ClearSummary(
+            seconds = seconds,
+            damage = damageDealt,
+            dps = damageDealt / seconds,
+            kills = kills,
+            total = totalEnemies,
+            skills = skillTally(),
+        )
+    }
+
+    /** 전령 발동 현황 (HUD 한 줄, 예: "얼음의 전령 12회 · 천둥의 전령 3회") */
+    fun heraldHud(): String {
+        if (stats.heralds.isEmpty) return ""
+        if (heraldProcsTotal == 0) return stats.heralds.summary
+        val parts = stats.heralds.active.map { spec ->
+            val procs = heraldProcs[spec.kind] ?: 0
+            "${spec.name} ${procs}회"
+        }
+        return parts.joinToString(" · ")
+    }
+
+    /** 전령별 결과 기록 (발동한 것만) */
+    fun heraldReports(): List<HeraldReport> = stats.heralds.specs.mapNotNull { spec ->
+        val procs = heraldProcs[spec.kind] ?: 0
+        if (procs <= 0) null
+        else HeraldReport(spec.kind, spec.name, procs, heraldDamageByName[spec.kind] ?: 0.0)
     }
 
     private fun hitPlayer(
@@ -5009,6 +5367,36 @@ class BattleWorld(
     ) {
         if (effects.size >= MAX_FX) effects.removeAt(0)
         effects.add(Fx(kind, x, y, x2, y2, angle, radius, life, color, if (seed == 0) rand.nextInt() else seed, width))
+    }
+
+    /**
+     * 같은 씨앗이면 매번 같은 모양으로 퍼지는 파편.
+     * 처치 연출처럼 자주 터지는 이펙트에 써서 전투 난수 흐름을 건드리지 않는다.
+     */
+    private fun addBurstPattern(
+        x: Float,
+        y: Float,
+        count: Int,
+        color: Int,
+        speed: Float,
+        life: Float,
+        gravity: Float = 0f,
+        seed: Int = 0,
+    ) {
+        for (i in 0 until count) {
+            if (particles.size >= MAX_PARTICLES) particles.removeAt(0)
+            val a = i * 2.399f + seed * 0.137f
+            val s = speed * (0.45f + ((i * 37 + seed) % 60) / 100f)
+            particles.add(
+                Particle(
+                    x, y,
+                    cos(a) * s, sin(a) * s - speed * 0.18f,
+                    life * (0.7f + ((i * 53 + seed) % 50) / 100f), life,
+                    2.4f + ((i * 11 + seed) % 30) / 10f,
+                    color, gravity, i % 3 == 0,
+                )
+            )
+        }
     }
 
     fun addBurst(x: Float, y: Float, count: Int, color: Int, speed: Float, life: Float, gravity: Float = 0f) {
@@ -5488,6 +5876,12 @@ class BattleWorld(
             chargeText = if (chargeRules.usesCharges) chargesHud() else "",
             frenzyGained = frenzyGained,
             chargesSpent = chargesSpent,
+            heraldProcs = heraldProcsTotal,
+            heraldDamage = heraldDamage,
+            heraldReports = heraldReports(),
+            heraldText = stats.heralds.summary,
+            shatters = shatters,
+            clear = if (state == State.VICTORY) clearSummary() else null,
         )
     }
 

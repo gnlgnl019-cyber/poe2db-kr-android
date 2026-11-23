@@ -47,8 +47,14 @@ class BattleCanvasView @JvmOverloads constructor(
 
     /** 사용자가 사망 화면을 닫았는지 */
     private var deathDismissed = false
+    /** 사용자가 클리어 화면을 닫았는지 */
+    private var victoryDismissed = false
     private val retryRect = RectF()
     private val closeRect = RectF()
+    private val victoryRetryRect = RectF()
+    private val victoryCloseRect = RectF()
+    /** 클리어 요약은 전투가 끝난 순간의 기록을 한 번만 뽑아 둔다 */
+    private var victorySummary: ClearSummary? = null
 
     private val dp = resources.displayMetrics.density
     private val chrome = Choreographer.getInstance()
@@ -99,8 +105,12 @@ class BattleCanvasView @JvmOverloads constructor(
                 }
             }
             invalidate()
-            // 사망 화면은 원인이 다 올라올 때까지 조금 더 그린다.
-            val tailMs = if (w?.state == BattleWorld.State.DEFEAT) 6200L else 2600L
+            // 사망·클리어 화면은 카드가 다 올라올 때까지 조금 더 그린다.
+            val tailMs = when (w?.state) {
+                BattleWorld.State.DEFEAT -> 6200L
+                BattleWorld.State.VICTORY -> 4200L
+                else -> 2600L
+            }
             val done = finished && System.currentTimeMillis() - finishedAt > tailMs
             if (running && !paused && !done) schedule() else if (done) running = false
         }
@@ -133,6 +143,8 @@ class BattleCanvasView @JvmOverloads constructor(
     fun attach(world: BattleWorld) {
         this.world = world
         deathDismissed = false
+        victoryDismissed = false
+        victorySummary = null
         finished = false
         paused = false
         lastFrameNanos = 0L
@@ -262,10 +274,20 @@ class BattleCanvasView @JvmOverloads constructor(
         drawHud(canvas, w)
         drawBanner(canvas, w)
         drawDeathScreen(canvas, w)
+        drawVictoryScreen(canvas, w)
         if (paused) drawPaused(canvas)
-        // 사망 화면이 다 올라오기 전에 프레임이 끊겼으면(탭 전환·화면 꺼짐) 여기서 다시 잇는다.
+        // 사망·클리어 화면이 다 올라오기 전에 프레임이 끊겼으면(탭 전환·화면 꺼짐) 여기서 다시 잇는다.
         if (w.state == BattleWorld.State.DEFEAT && !deathDismissed &&
             w.deathAge < DeathFx.TOTAL_TIME && !paused
+        ) {
+            running = true
+            if (!frameScheduled) {
+                lastFrameNanos = 0L
+                schedule()
+            }
+        }
+        if (w.state == BattleWorld.State.VICTORY && !victoryDismissed &&
+            w.victoryAge < VictoryFx.TOTAL_TIME && !paused
         ) {
             running = true
             if (!frameScheduled) {
@@ -1212,7 +1234,26 @@ class BattleCanvasView @JvmOverloads constructor(
             drawMonsterFigure(c, w, e, look, alphaF, facing)
         }
 
-        if (!e.alive) return
+        if (!e.alive) {
+            // 동결 상태로 부서진 시체는 얼음 가루로 흩어진다.
+            if (e.shattered) {
+                val dust = (1f - e.deadFade).coerceIn(0f, 1f)
+                fill.color = alpha(0xFFCFEFFF.toInt(), (150 * dust).toInt().coerceIn(0, 255))
+                c.drawOval(e.x - 24f * scale, e.y - 7f * scale, e.x + 24f * scale, e.y + 7f * scale, fill)
+                fill.color = alpha(0xFFFFFFFF.toInt(), (190 * dust).toInt().coerceIn(0, 255))
+                for (i in 0 until 6) {
+                    val ang = i * 1.05f + e.slotAngle
+                    val d = 10f * scale + ((i * 23) % 16)
+                    c.drawCircle(e.x + cos(ang) * d, e.y - 3f * scale + sin(ang) * d * 0.4f, (2.2f - e.deadFade * 1.6f).coerceAtLeast(0.4f), fill)
+                }
+            }
+            return
+        }
+
+        // 원소 상태이상 — 몸을 감싸는 얼음 감옥·전류·불길
+        if (e.freezeT > 0f) drawIceCage(c, w, e)
+        if (e.shockT > 0f) drawShockArcs(c, w, e)
+        if (e.igniteT > 0f) drawIgniteFlame(c, w, e)
 
         // 상태 표시
         val barW = 40f * scale
@@ -1232,6 +1273,138 @@ class BattleCanvasView @JvmOverloads constructor(
         if (e.dot > 0.0) {
             fill.color = alpha(0xFFC182FF.toInt(), 110)
             c.drawCircle(e.x, top - 8f * scale, 3.2f, fill)
+        }
+    }
+
+    /** 동결된 적의 얼음 감옥 — 반투명 육각 결정이 몸을 감싸고 면마다 서리 빛이 돈다 */
+    private fun drawIceCage(c: Canvas, w: BattleWorld, e: Enemy) {
+        val s = e.scale
+        val cx = e.x
+        val cy = e.y - 30f * s
+        val rw = 22f * s + 6f
+        val rh = 36f * s + 8f
+        val t = w.elapsed.toFloat()
+        val pulse = 0.75f + 0.25f * sin((t * 3.1f + e.slotAngle).toDouble()).toFloat()
+        // 감옥 속의 푸른 기운
+        fill.shader = RadialGradient(
+            cx, cy, rw * 1.5f,
+            intArrayOf(
+                alpha(0x66AEE8FF.toInt(), (70 * pulse).toInt().coerceIn(0, 255)),
+                0x00000000,
+            ),
+            null, Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(cx, cy, rw * 1.5f, fill)
+        fill.shader = null
+        // 육각 결정면
+        path.reset()
+        for (i in 0 until 6) {
+            val ang = -1.5708f + i * 1.0472f
+            val px = cx + cos(ang) * rw
+            val py = cy + sin(ang) * rh
+            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        path.close()
+        fill.color = alpha(0xFFBFEFFF.toInt(), (46 * pulse).toInt().coerceIn(0, 255))
+        c.drawPath(path, fill)
+        stroke.color = alpha(0xFF9BE8FF.toInt(), (205 * pulse).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.7f
+        c.drawPath(path, stroke)
+        // 결정 능선 — 꼭짓점에서 중심으로 뻗는 면 경계
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (120 * pulse).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 0.9f
+        for (i in 0 until 6) {
+            val ang = -1.5708f + i * 1.0472f
+            c.drawLine(cx, cy, cx + cos(ang) * rw, cy + sin(ang) * rh, stroke)
+        }
+        stroke.strokeWidth = 1.1f
+        c.drawLine(cx - rw * 0.55f, cy - rh * 0.35f, cx + rw * 0.55f, cy + rh * 0.35f, stroke)
+        c.drawLine(cx + rw * 0.55f, cy - rh * 0.35f, cx - rw * 0.55f, cy + rh * 0.35f, stroke)
+        // 겉면에 맺힌 서리 알갱이
+        fill.color = alpha(0xFFFFFFFF.toInt(), (190 * pulse).toInt().coerceIn(0, 255))
+        for (i in 0 until 5) {
+            val ang = (i * 2.39f + e.slotAngle) + t * 0.6f
+            val d = 0.55f + ((i * 31) % 40) / 100f
+            c.drawCircle(cx + cos(ang) * rw * d, cy + sin(ang) * rh * d, 1.5f, fill)
+        }
+    }
+
+    /** 감전된 적의 몸을 감고 지직거리는 푸른-흰 전류 */
+    private fun drawShockArcs(c: Canvas, w: BattleWorld, e: Enemy) {
+        val s = e.scale
+        val t = w.elapsed.toFloat()
+        val seed = (e.slotAngle * 1000f).toInt()
+        for (branch in 0 until 4) {
+            val phase = t * 17f + branch * 1.9f + seed * 0.01f
+            val a0 = sin(phase.toDouble()).toFloat() * 3.14f
+            val x0 = e.x + cos(a0) * 8f * s
+            val y0 = e.y - 34f * s + sin(a0) * 12f * s
+            val a1 = a0 + 1.4f + (branch % 2) * 1.1f
+            val x1 = e.x + cos(a1) * 17f * s
+            val y1 = e.y - 34f * s + sin(a1) * 22f * s
+            path.reset()
+            path.moveTo(x0, y0)
+            val steps = 4
+            for (i in 1 until steps) {
+                val p = i / steps.toFloat()
+                val jitter = sin((phase * 3.7f + i * 2.1f).toDouble()).toFloat() * 5f * s
+                val nx = -(y1 - y0)
+                val ny = x1 - x0
+                val len = hypot(nx, ny).coerceAtLeast(0.01f)
+                path.lineTo(x0 + (x1 - x0) * p + nx / len * jitter, y0 + (y1 - y0) * p + ny / len * jitter)
+            }
+            path.lineTo(x1, y1)
+            val fade = 0.55f + 0.45f * sin((phase * 2.3).toDouble()).toFloat()
+            stroke.color = alpha(0xFF7A9BFF.toInt(), (110 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 5.5f * s
+            c.drawPath(path, stroke)
+            stroke.color = alpha(0xFFBDE6FF.toInt(), (215 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 2.2f * s
+            c.drawPath(path, stroke)
+            stroke.color = alpha(0xFFFFFFFF.toInt(), (240 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 0.9f
+            c.drawPath(path, stroke)
+        }
+        // 발치에 튀는 불똥
+        fill.color = alpha(0xFFFFFFFF.toInt(), (180 + 60 * sin(t * 9f)).toInt().coerceIn(0, 255))
+        c.drawCircle(e.x + sin((t * 6.3).toDouble()).toFloat() * 9f * s, e.y - 6f * s, 1.6f * s, fill)
+    }
+
+    /** 점화된 적의 몸에 일렁이는 주황-붉은 불길 */
+    private fun drawIgniteFlame(c: Canvas, w: BattleWorld, e: Enemy) {
+        val s = e.scale
+        val t = w.elapsed.toFloat()
+        val baseY = e.y - 4f * s
+        val height = 30f * s
+        for (layer in 0 until 3) {
+            val speed = 6.5f + layer * 2.3f
+            val sway = sin((t * speed + layer * 1.7f).toDouble()).toFloat() * 6f * s
+            val topX = e.x + sway + (layer - 1) * 5f * s
+            val topY = baseY - height * (0.7f + 0.1f * layer) * (0.9f + 0.1f * sin((t * (speed * 0.7f)).toDouble()).toFloat())
+            path.reset()
+            path.moveTo(e.x - 9f * s + layer * 1.5f, baseY)
+            path.quadTo(e.x - 12f * s + sway * 0.5f, baseY - height * 0.5f, topX, topY)
+            path.quadTo(e.x + 12f * s + sway * 0.5f, baseY - height * 0.45f, e.x + 9f * s - layer * 1.5f, baseY)
+            path.close()
+            val color = when (layer) {
+                0 -> 0xFF8A1B0C.toInt()
+                1 -> 0xFFFF7B2C.toInt()
+                else -> 0xFFFFD86A.toInt()
+            }
+            val alphaV = when (layer) {
+                0 -> 120
+                1 -> 150
+                else -> 185
+            }
+            fill.color = alpha(color, alphaV)
+            c.drawPath(path, fill)
+        }
+        // 위로 흩어지는 불티
+        fill.color = alpha(0xFFFFC46A.toInt(), 210)
+        for (i in 0 until 3) {
+            val ph = (t * (1.1f + 0.25f * i) + i * 1.7f) % 1f
+            val px = e.x + sin((t * 3.1f + i * 2.2f).toDouble()).toFloat() * 9f * s
+            c.drawCircle(px, baseY - height * 0.35f - ph * height, (2.2f - 1.6f * ph) * s + 0.6f, fill)
         }
     }
 
@@ -2728,6 +2901,9 @@ class BattleCanvasView @JvmOverloads constructor(
                     stroke.strokeWidth = 1.8f * fx.width
                     c.drawOval(fx.x - r, fx.y - r * 0.4f, fx.x + r, fx.y + r * 0.4f, stroke)
                 }
+                FxKind.SHATTER -> drawShatter(c, fx, t)
+                FxKind.HERALD_WAVE -> drawHeraldWave(c, fx, t)
+                FxKind.VICTORY_WAVE -> drawVictoryWave(c, fx, t)
                 FxKind.SIGIL -> {
                     val a = (1f - t).coerceIn(0f, 1f)
                     val r = fx.radius * (0.55f + 0.35f * t) * a
@@ -2803,6 +2979,10 @@ class BattleCanvasView @JvmOverloads constructor(
                 FxKind.ARC_WEB -> drawArcWeb(c, fx, t)
                 FxKind.CRYSTAL -> drawCrystal(c, fx, t)
                 FxKind.WING_GUST -> drawWingGust(c, fx, t)
+                FxKind.SPARK_FLASH -> drawSparkFlash(c, fx, t)
+                FxKind.FLAME_BURST -> drawFlameBurst(c, fx, t)
+                FxKind.SMOKE -> drawSmoke(c, fx, t)
+                FxKind.SHATTER -> Unit
                 FxKind.CYCLONE -> Unit
                 else -> Unit
             }
@@ -2897,33 +3077,210 @@ class BattleCanvasView @JvmOverloads constructor(
         c.drawCircle(fx.x, fx.y, 4f * (1f - t) + 1f, fill)
     }
 
+    /**
+     * 번개 줄기.
+     *
+     * 코어는 흰빛, 그 둘레는 푸른 전기, 가장 바깥은 보랏빛 글로우로 겹쳐 그린다.
+     * 줄기 중간에서 두세 갈래가 날카롭게 갈라져 나가고, 착탄점에서는 스파크가 튄다.
+     */
     private fun drawBolt(c: Canvas, fx: Fx, t: Float) {
-        val segments = 7
+        val fade = (1f - t).coerceIn(0f, 1f)
+        if (fade <= 0.02f) return
         val dx = fx.x2 - fx.x
         val dy = fx.y2 - fx.y
         val len = hypot(dx, dy).coerceAtLeast(1f)
-        val nx = -dy / len
-        val ny = dx / len
-        path.reset()
-        path.moveTo(fx.x, fx.y)
-        for (i in 1 until segments) {
-            val p = i / segments.toFloat()
-            val jitter = (((fx.seed shr (i * 3)) and 0xFF) / 255f - 0.5f) * 34f * (1f - abs(p - 0.5f))
-            path.lineTo(fx.x + dx * p + nx * jitter, fx.y + dy * p + ny * jitter)
-        }
-        path.lineTo(fx.x2, fx.y2)
 
-        val alphaFade = (1f - t).coerceIn(0f, 1f)
-        stroke.color = alpha(fx.color, (60 * alphaFade).toInt().coerceIn(0, 255))
-        stroke.strokeWidth = 14f * fx.width * alphaFade.coerceAtLeast(0.2f)
+        /** 두 점 사이를 날카로운 지그재그로 잇는다 (씨앗으로 모양 고정) */
+        fun jagged(ax: Float, ay: Float, bx: Float, by: Float, segments: Int, amp: Float, salt: Int) {
+            val sx = bx - ax
+            val sy = by - ay
+            val sxLen = hypot(sx, sy).coerceAtLeast(1f)
+            val nx = -sy / sxLen
+            val ny = sx / sxLen
+            path.reset()
+            path.moveTo(ax, ay)
+            for (i in 1 until segments) {
+                val p = i / segments.toFloat()
+                val noise = ((fx.seed shr ((i * 3 + salt) % 24)) and 0xFF) / 255f - 0.5f
+                val pinch = (1f - abs(p - 0.5f) * 1.6f).coerceAtLeast(0.25f)
+                path.lineTo(ax + sx * p + nx * noise * amp * pinch, ay + sy * p + ny * noise * amp * pinch)
+            }
+            path.lineTo(bx, by)
+        }
+
+        jagged(fx.x, fx.y, fx.x2, fx.y2, 9, 34f * fx.width, 0)
+        // 바깥 보랏빛 전기 글로우
+        stroke.color = alpha(0xFF7B5BFF.toInt(), (95 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 18f * fx.width * fade.coerceAtLeast(0.2f)
         c.drawPath(path, stroke)
-        stroke.color = alpha(fx.color, (170 * alphaFade).toInt().coerceIn(0, 255))
-        stroke.strokeWidth = 5.6f * fx.width
+        // 푸른 전기 몸통
+        stroke.color = alpha(0xFF59B8FF.toInt(), (165 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 7.4f * fx.width * fade.coerceAtLeast(0.3f)
         c.drawPath(path, stroke)
-        stroke.color = alpha(0xFFFFFFFF.toInt(), (230 * alphaFade).toInt().coerceIn(0, 255))
-        stroke.strokeWidth = 2f * fx.width
+        // 흰 코어
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (240 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 2.2f * fx.width
         c.drawPath(path, stroke)
+
+        // 중간에서 갈라지는 가지 — 같은 결로 세 겹
+        val branches = 3
+        for (b in 0 until branches) {
+            val at = 0.3f + b * 0.21f
+            val startX = fx.x + dx * at + (-dy / len) * (((fx.seed shr (b * 5)) and 0x1F) / 31f - 0.5f) * 18f
+            val startY = fx.y + dy * at + (dx / len) * (((fx.seed shr (b * 5)) and 0x1F) / 31f - 0.5f) * 18f
+            val side = if (b % 2 == 0) 1f else -1f
+            val blen = (26f + ((fx.seed shr (b * 7 + 3)) and 0x3F)) * (0.7f + 0.5f * fx.width)
+            val ba = kotlin.math.atan2(dy, dx) + side * (0.55f + 0.2f * b)
+            val ex = startX + cos(ba) * blen
+            val ey = startY + sin(ba) * blen
+            jagged(startX, startY, ex, ey, 4, 12f * fx.width, b + 2)
+            stroke.color = alpha(0xFF7B5BFF.toInt(), (80 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 9f * fx.width * fade.coerceAtLeast(0.2f)
+            c.drawPath(path, stroke)
+            stroke.color = alpha(0xFF83C8FF.toInt(), (150 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 3.4f * fx.width
+            c.drawPath(path, stroke)
+            stroke.color = alpha(0xFFFFFFFF.toInt(), (215 * fade).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.1f * fx.width
+            c.drawPath(path, stroke)
+        }
+
+        // 착탄 스파크
+        glowAt(c, fx.x2, fx.y2, 26f * fade + 6f, 0xFF9BD8FF.toInt(), (200 * fade).toInt().coerceIn(0, 255))
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (220 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.2f
+        for (i in 0 until 6) {
+            val ang = i * 1.047f + (fx.seed % 9) * 0.13f
+            val sl = (10f + ((fx.seed shr i) and 0x0F)) * fade
+            c.drawLine(fx.x2, fx.y2, fx.x2 + cos(ang) * sl, fx.y2 + sin(ang) * sl, stroke)
+        }
     }
+
+    /** 화염구 — 겹겹으로 타오르는 불덩이와 뒤로 흩날리는 불티 */
+    private fun drawFireOrb(c: Canvas, p: Projectile) {
+        drawTrail(c, p, 0xFFB23A12.toInt(), 19f)
+        val flick = sin((p.age * 24.0).toDouble()).toFloat()
+        // 바깥 열기
+        fill.shader = RadialGradient(
+            p.x, p.y, 30f,
+            intArrayOf(alpha(0xFFFF5A1E.toInt(), 90), 0x00000000),
+            null, Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(p.x, p.y, 30f, fill)
+        fill.shader = null
+        // 뒤로 날리는 불혀 3겹
+        val ang = kotlin.math.atan2(p.dirY, p.dirX)
+        for (layer in 0 until 3) {
+            val back = 10f + layer * 7f
+            val sway = flick * (2.5f - layer * 0.6f)
+            val bx = p.x - cos(ang) * back + (-sin(ang)) * sway
+            val by = p.y - sin(ang) * back + cos(ang) * sway
+            val rr = 15f - layer * 3.4f
+            fill.color = alpha(if (layer == 2) 0xFFFFE9A8.toInt() else 0xFFFF7B2C.toInt(), 150 - layer * 30)
+            c.drawCircle(bx, by, rr, fill)
+        }
+        // 몸통 — 흰 심에서 주황으로 퍼지는 불덩이
+        fill.shader = RadialGradient(
+            p.x - p.dirX * 2f, p.y - p.dirY * 2f, 23f,
+            intArrayOf(0xFFFFF7D6.toInt(), 0xFFFFC154.toInt(), 0xFFFF7B2C.toInt(), 0x33FF3A0E, 0x00000000),
+            floatArrayOf(0f, 0.28f, 0.58f, 0.82f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(p.x, p.y, 23f, fill)
+        fill.shader = null
+        // 위로 일렁이는 불꽃 끝
+        val tipX = p.x + (-sin(ang)) * (4f + 2f * flick)
+        val tipY = p.y + cos(ang) * (4f + 2f * flick) - 16f
+        path.reset()
+        path.moveTo(p.x - 7f, p.y - 6f)
+        path.quadTo(p.x - 2f, p.y - 20f, tipX, tipY - 6f)
+        path.quadTo(p.x + 7f, p.y - 16f, p.x + 7f, p.y - 4f)
+        path.close()
+        fill.color = alpha(0xFFFFC154.toInt(), 170)
+        c.drawPath(path, fill)
+        // 흩날리는 불티
+        fill.color = alpha(0xFFFFD98A.toInt(), 220)
+        for (i in 0 until 3) {
+            val ph = ((p.age * (2.2f + i * 0.6f) + i * 0.7f) % 1f)
+            c.drawCircle(
+                p.x - p.dirX * (18f + ph * 26f) + (-p.dirY) * (i - 1) * 6f,
+                p.y - p.dirY * (18f + ph * 26f) + p.dirX * (i - 1) * 6f - ph * 10f,
+                (2.4f - 1.6f * ph).coerceAtLeast(0.5f), fill,
+            )
+        }
+    }
+
+    /** 얼음 화살 — 날카로운 육각 결정 몸통에 고드름 촉, 뒤로 서리 궤적 */
+    private fun drawIceArrow(c: Canvas, p: Projectile) {
+        drawTrail(c, p, 0xFF8FE6FF.toInt(), 14f)
+        val ang = Math.toDegrees(kotlin.math.atan2(p.dirY, p.dirX).toDouble()).toFloat()
+        c.save()
+        c.rotate(ang, p.x, p.y)
+        // 몸통 — 고드름 모양 육각 결정
+        path.reset()
+        path.moveTo(20f, 0f)
+        path.lineTo(4f, -6f)
+        path.lineTo(-13f, -4.2f)
+        path.lineTo(-18f, 0f)
+        path.lineTo(-13f, 4.2f)
+        path.lineTo(4f, 6f)
+        path.close()
+        fill.color = 0xFFCFF6FF.toInt()
+        c.drawPath(path, fill)
+        stroke.color = 0xFFFFFFFF.toInt()
+        stroke.strokeWidth = 1.1f
+        c.drawPath(path, stroke)
+        // 결정 면 — 길게 뻗은 능선 두 줄
+        stroke.color = alpha(0xFFFFFFFF.toInt(), 200)
+        stroke.strokeWidth = 0.8f
+        c.drawLine(19f, 0f, -17f, 0f, stroke)
+        c.drawLine(4f, -6f, -10f, 0f, stroke)
+        c.drawLine(4f, 6f, -10f, 0f, stroke)
+        // 몸에서 떨어져 나가는 서리 알갱이
+        fill.color = alpha(0xFFFFFFFF.toInt(), 210)
+        c.drawCircle(-20f, -5f, 1.6f, fill)
+        c.drawCircle(-24f, 4f, 1.2f, fill)
+        c.restore()
+        // 결정 주위의 차가운 기운
+        fill.shader = RadialGradient(
+            p.x, p.y, 20f,
+            intArrayOf(alpha(0xFFE8FCFF.toInt(), 150), 0x00000000),
+            null, Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(p.x, p.y, 20f, fill)
+        fill.shader = null
+    }
+
+    /** 서리 보주 — 육각 결정들이 뭉친 얼음 덩어리 */
+    private fun drawFrostOrb(c: Canvas, p: Projectile) {
+        drawTrail(c, p, 0xFF8FE6FF.toInt(), 16f)
+        fill.shader = RadialGradient(
+            p.x, p.y, 24f,
+            intArrayOf(0xFFF2FDFF.toInt(), 0xFF9BE8FF.toInt(), 0x338FE6FF, 0x00000000),
+            floatArrayOf(0f, 0.4f, 0.72f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(p.x, p.y, 24f, fill)
+        fill.shader = null
+        val spin = p.age * 2.4f
+        for (i in 0 until 3) {
+            val ang = spin + i * 2.094f
+            val cx = p.x + cos(ang) * 9f
+            val cy = p.y + sin(ang) * 9f
+            path.reset()
+            for (k in 0 until 6) {
+                val ha = k * 1.047f + spin * 0.5f
+                val hx = cx + cos(ha) * 5.4f
+                val hy = cy + sin(ha) * 5.4f
+                if (k == 0) path.moveTo(hx, hy) else path.lineTo(hx, hy)
+            }
+            path.close()
+            fill.color = alpha(0xFFDFF9FF.toInt(), 205)
+            c.drawPath(path, fill)
+            stroke.color = alpha(0xFFFFFFFF.toInt(), 180)
+            stroke.strokeWidth = 0.8f
+            c.drawPath(path, stroke)
+        }
+    }
+
 
     /** 창·단검 찌르기: 손에서 표적까지 곧게 뻗는 잔상 */
     private fun drawThrust(c: Canvas, fx: Fx, t: Float) {
@@ -3086,6 +3443,201 @@ class BattleCanvasView @JvmOverloads constructor(
         }
     }
 
+    /** 산산조각 — 얼음 파편이 솟았다가 부서지며 사방으로 흩어지는 자리 */
+    private fun drawShatter(c: Canvas, fx: Fx, t: Float) {
+        val a = (1f - t).coerceIn(0f, 1f)
+        if (a <= 0.02f) return
+        val spread = fx.radius * (0.25f + t * 0.95f)
+        // 바닥에 남는 서리 자국
+        fill.color = alpha(0xFFDFF9FF.toInt(), (85 * a).toInt().coerceIn(0, 255))
+        c.drawOval(fx.x - spread, fx.y - spread * 0.4f, fx.x + spread, fx.y + spread * 0.4f, fill)
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (120 * a).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.1f
+        c.drawOval(fx.x - spread * 0.85f, fx.y - spread * 0.34f, fx.x + spread * 0.85f, fx.y + spread * 0.34f, stroke)
+        // 솟아오른 결정 조각 — 위로 갈수록 부서져 사라진다
+        for (i in 0 until 12) {
+            val ang = i * 0.524f + (fx.seed % 17) * 0.1f
+            val d = spread * (0.3f + ((i * 37 + fx.seed) % 60) / 100f)
+            val px = fx.x + cos(ang) * d
+            val py = fx.y + sin(ang) * d * 0.4f
+            val h = (16f + ((i * 13 + fx.seed) % 20)) * (1f - t * 0.3f) * a
+            path.reset()
+            path.moveTo(px, py)
+            path.lineTo(px - 4.5f, py - h)
+            path.lineTo(px + 1.5f, py - h * 0.72f)
+            path.lineTo(px + 5f, py - h * 0.88f)
+            path.close()
+            fill.color = alpha(0xFFE8FCFF.toInt(), (205 * a).toInt().coerceIn(0, 255))
+            c.drawPath(path, fill)
+            stroke.color = alpha(0xFF8FE6FF.toInt(), (170 * a).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 0.8f
+            c.drawPath(path, stroke)
+        }
+        // 가운데 결정핵이 터지는 순간
+        if (t < 0.35f) {
+            val core = (1f - t / 0.35f)
+            glowAt(c, fx.x, fx.y - 16f, 26f * core + 6f, 0xFFFFFFFF.toInt(), (200 * core).toInt().coerceIn(0, 255))
+        }
+    }
+
+    /** 전령의 원소 물결 — 육각 표식이 달린 고리가 퍼진다 */
+    private fun drawHeraldWave(c: Canvas, fx: Fx, t: Float) {
+        val a = (1f - t).coerceIn(0f, 1f)
+        if (a <= 0.02f) return
+        val r = fx.radius * (0.12f + t * 1.02f)
+        stroke.color = alpha(fx.color, (205 * a).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 3.4f * fx.width * a.coerceAtLeast(0.22f)
+        c.drawOval(fx.x - r, fx.y - r * 0.42f, fx.x + r, fx.y + r * 0.42f, stroke)
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (140 * a).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.1f
+        c.drawOval(fx.x - r * 0.8f, fx.y - r * 0.34f, fx.x + r * 0.8f, fx.y + r * 0.34f, stroke)
+        // 고리 위에 박히는 여섯 갈래 육각 표식
+        for (i in 0 until 6) {
+            val ang = i * 1.047f + (fx.seed % 11) * 0.05f
+            val px = fx.x + cos(ang) * r
+            val py = fx.y + sin(ang) * r * 0.42f
+            path.reset()
+            for (k in 0 until 6) {
+                val ha = k * 1.047f
+                val hx = px + cos(ha) * 5f * a
+                val hy = py + sin(ha) * 5f * a
+                if (k == 0) path.moveTo(hx, hy) else path.lineTo(hx, hy)
+            }
+            path.close()
+            stroke.color = alpha(fx.color, (215 * a).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.2f
+            c.drawPath(path, stroke)
+        }
+        // 중심에서 솟는 빛
+        if (t < 0.5f) {
+            val core = 1f - t / 0.5f
+            glowAt(c, fx.x, fx.y - 18f, 34f * core + 10f, fx.color, (170 * core).toInt().coerceIn(0, 255))
+        }
+    }
+
+    /** 승리의 금빛 물결 — 세 겹 고리와 사방으로 뻗는 빛줄기 */
+    private fun drawVictoryWave(c: Canvas, fx: Fx, t: Float) {
+        val a = (1f - t).coerceIn(0f, 1f)
+        if (a <= 0.02f) return
+        val r = fx.radius * (0.1f + t * 1.05f)
+        fill.shader = RadialGradient(
+            fx.x, fx.y, r,
+            intArrayOf(alpha(fx.color, (70 * a).toInt().coerceIn(0, 255)), 0x00000000),
+            null, Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(fx.x, fx.y, r, fill)
+        fill.shader = null
+        stroke.color = alpha(fx.color, (225 * a).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 3.6f * fx.width * a.coerceAtLeast(0.22f)
+        c.drawOval(fx.x - r, fx.y - r * 0.42f, fx.x + r, fx.y + r * 0.42f, stroke)
+        stroke.strokeWidth = 1.5f
+        stroke.color = alpha(0xFFFFFFFF.toInt(), (200 * a).toInt().coerceIn(0, 255))
+        c.drawOval(fx.x - r * 0.72f, fx.y - r * 0.3f, fx.x + r * 0.72f, fx.y + r * 0.3f, stroke)
+        // 사방으로 뻗는 빛줄기
+        stroke.color = alpha(fx.color, (170 * a).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1.6f
+        for (i in 0 until 12) {
+            val ang = i * 0.524f + (fx.seed % 9) * 0.04f
+            c.drawLine(
+                fx.x + cos(ang) * r * 0.5f, fx.y + sin(ang) * r * 0.5f * 0.42f,
+                fx.x + cos(ang) * r * (1.05f + 0.15f * a), fx.y + sin(ang) * r * (1.05f + 0.15f * a) * 0.42f,
+                stroke,
+            )
+        }
+    }
+
+    /** 번개 착탄의 스파크 섬광 — 흰 심에서 보랏빛 갈래가 튄다 */
+    private fun drawSparkFlash(c: Canvas, fx: Fx, t: Float) {
+        val a = (1f - t).coerceIn(0f, 1f)
+        if (a <= 0.02f) return
+        val r = fx.radius * (0.5f + t * 1.1f)
+        glowAt(c, fx.x, fx.y, r, fx.color, (180 * a).toInt().coerceIn(0, 255))
+        for (i in 0 until 7) {
+            val ang = i * 0.897f + (fx.seed % 13) * 0.11f
+            val len = r * (0.7f + ((i * 29 + fx.seed) % 50) / 100f)
+            val nx = -sin(ang)
+            val ny = cos(ang)
+            path.reset()
+            path.moveTo(fx.x, fx.y)
+            val steps = 3
+            for (s in 1 until steps) {
+                val p = s / steps.toFloat()
+                val jitter = (((fx.seed shr (s * 4)) and 0x3F) / 63f - 0.5f) * 7f * a
+                path.lineTo(fx.x + cos(ang) * len * p + nx * jitter, fx.y + sin(ang) * len * p + ny * jitter)
+            }
+            path.lineTo(fx.x + cos(ang) * len, fx.y + sin(ang) * len)
+            stroke.color = alpha(0xFF7A5BFF.toInt(), (120 * a).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 4f * fx.width
+            c.drawPath(path, stroke)
+            stroke.color = alpha(0xFFFFFFFF.toInt(), (235 * a).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.3f * fx.width
+            c.drawPath(path, stroke)
+        }
+        fill.color = alpha(0xFFFFFFFF.toInt(), (225 * a).toInt().coerceIn(0, 255))
+        c.drawCircle(fx.x, fx.y, (3.4f + 4f * (1f - t)) * fx.width, fill)
+    }
+
+    /** 화염 폭발 — 검붉은 외곽, 주황 몸통, 노란 심이 겹겹으로 타오른다 */
+    private fun drawFlameBurst(c: Canvas, fx: Fx, t: Float) {
+        val a = (1f - t).coerceIn(0f, 1f)
+        if (a <= 0.02f) return
+        val r = fx.radius * (0.35f + t * 0.95f)
+        fill.shader = RadialGradient(
+            fx.x, fx.y - r * 0.15f, r,
+            intArrayOf(
+                alpha(0xFFFFE9A8.toInt(), (230 * a).toInt().coerceIn(0, 255)),
+                alpha(0xFFFF8A2C.toInt(), (185 * a).toInt().coerceIn(0, 255)),
+                alpha(0xFF8A1B0C.toInt(), (110 * a).toInt().coerceIn(0, 255)),
+                0x00000000,
+            ),
+            floatArrayOf(0f, 0.32f, 0.66f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(fx.x, fx.y - r * 0.15f, r, fill)
+        fill.shader = null
+        // 흔들리는 불혀
+        val tongues = 6
+        for (i in 0 until tongues) {
+            val ang = i * (6.283f / tongues) + (fx.seed % 7) * 0.12f
+            val wobble = sin((t * 14f + i * 1.7f).toDouble()).toFloat()
+            val tipX = fx.x + cos(ang) * r * (0.55f + 0.1f * wobble)
+            val tipY = fx.y - r * 0.15f + sin(ang) * r * (0.55f + 0.1f * wobble) - r * 0.25f
+            path.reset()
+            path.moveTo(fx.x + cos(ang + 0.35f) * r * 0.42f, fx.y - r * 0.1f + sin(ang + 0.35f) * r * 0.42f)
+            path.quadTo(fx.x + cos(ang) * r * 0.75f, fx.y - r * 0.35f, tipX, tipY)
+            path.quadTo(fx.x + cos(ang - 0.35f) * r * 0.75f, fx.y - r * 0.2f, fx.x + cos(ang - 0.35f) * r * 0.42f, fx.y - r * 0.1f + sin(ang - 0.35f) * r * 0.42f)
+            path.close()
+            fill.color = alpha(0xFFFFA13D.toInt(), (170 * a).toInt().coerceIn(0, 255))
+            c.drawPath(path, fill)
+        }
+        // 튀는 불티
+        fill.color = alpha(0xFFFFD27A.toInt(), (210 * a).toInt().coerceIn(0, 255))
+        for (i in 0 until 8) {
+            val ang = i * 0.785f + (fx.seed % 5) * 0.3f
+            val d = r * (0.6f + ((i * 19 + fx.seed) % 55) / 100f)
+            c.drawCircle(fx.x + cos(ang) * d, fx.y + sin(ang) * d - r * 0.3f * t, (2.6f - 1.8f * t).coerceAtLeast(0.5f), fill)
+        }
+    }
+
+    /** 불길 위로 올라가는 검붉은 연기 */
+    private fun drawSmoke(c: Canvas, fx: Fx, t: Float) {
+        val a = (1f - t).coerceIn(0f, 1f)
+        if (a <= 0.02f) return
+        val rise = fx.radius * 1.1f * t
+        for (i in 0 until 5) {
+            val drift = sin((t * 3.4f + i * 1.3f).toDouble()).toFloat() * fx.radius * 0.22f
+            val px = fx.x + drift + (i - 2) * fx.radius * 0.18f
+            val py = fx.y - rise * (0.6f + 0.12f * i)
+            val rr = fx.radius * (0.22f + 0.16f * t) * (1f - i * 0.08f)
+            fill.shader = RadialGradient(
+                px, py, rr,
+                intArrayOf(alpha(fx.color, (95 * a).toInt().coerceIn(0, 255)), alpha(0xFF3A2018.toInt(), (40 * a).toInt().coerceIn(0, 255)), 0x00000000),
+                floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP,
+            )
+            c.drawCircle(px, py, rr, fill)
+            fill.shader = null
+        }
+    }
+
     private fun drawStarBurst(c: Canvas, fx: Fx, t: Float) {
         val a = (1f - t).coerceIn(0f, 1f)
         stroke.color = alpha(fx.color, (200 * a).toInt().coerceIn(0, 255))
@@ -3102,18 +3654,7 @@ class BattleCanvasView @JvmOverloads constructor(
     private fun drawProjectiles(c: Canvas, w: BattleWorld) {
         for (p in w.projectiles) {
             when (p.kind) {
-                ProjKind.ICE_ARROW -> {
-                    drawTrail(c, p, 0xFF8FE6FF.toInt(), 13f)
-                    stroke.color = 0xFFBFF4FF.toInt()
-                    stroke.strokeWidth = 3f
-                    c.drawLine(p.x - p.dirX * 16f, p.y - p.dirY * 16f, p.x, p.y, stroke)
-                    fill.shader = RadialGradient(
-                        p.x, p.y, 18f,
-                        intArrayOf(0xFFE8FCFF.toInt(), 0x338FE6FF, 0x00000000), null, Shader.TileMode.CLAMP,
-                    )
-                    c.drawCircle(p.x, p.y, 18f, fill)
-                    fill.shader = null
-                }
+                ProjKind.ICE_ARROW -> drawIceArrow(c, p)
                 ProjKind.LIGHT_ARROW -> {
                     drawTrail(c, p, 0xFFFFE272.toInt(), 10f)
                     stroke.color = 0xFFFFF8CC.toInt()
@@ -3126,16 +3667,7 @@ class BattleCanvasView @JvmOverloads constructor(
                     c.drawCircle(p.x, p.y, 19f, fill)
                     fill.shader = null
                 }
-                ProjKind.FIRE_ORB -> {
-                    drawTrail(c, p, 0xFFFF7B3C.toInt(), 17f)
-                    fill.shader = RadialGradient(
-                        p.x, p.y, 23f,
-                        intArrayOf(0xFFFFF2C4.toInt(), 0xFFFF9A3D.toInt(), 0x33FF5A1E.toInt(), 0x00000000),
-                        floatArrayOf(0f, 0.35f, 0.7f, 1f), Shader.TileMode.CLAMP,
-                    )
-                    c.drawCircle(p.x, p.y, 23f, fill)
-                    fill.shader = null
-                }
+                ProjKind.FIRE_ORB -> drawFireOrb(c, p)
                 ProjKind.CHAOS_ORB -> {
                     drawTrail(c, p, 0xFFC182FF.toInt(), 14f)
                     fill.shader = RadialGradient(
@@ -3212,16 +3744,7 @@ class BattleCanvasView @JvmOverloads constructor(
                     // 전기불꽃: 지나온 자리를 지그재그 번개 줄기로 잇는다
                     drawSparkBolt(c, p)
                 }
-                ProjKind.FROST_ORB -> {
-                    drawTrail(c, p, 0xFF8FE6FF.toInt(), 15f)
-                    fill.shader = RadialGradient(
-                        p.x, p.y, 21f,
-                        intArrayOf(0xFFF2FDFF.toInt(), 0xFF8FE6FF.toInt(), 0x338FE6FF, 0x00000000),
-                        floatArrayOf(0f, 0.35f, 0.7f, 1f), Shader.TileMode.CLAMP,
-                    )
-                    c.drawCircle(p.x, p.y, 21f, fill)
-                    fill.shader = null
-                }
+                ProjKind.FROST_ORB -> drawFrostOrb(c, p)
                 ProjKind.GRENADE -> {
                     // 통통 튀는 유탄: 포물선 높이를 그대로 화면에 올린다
                     val hop = sin(min(1f, p.lift * 1.6f) * 3.1416f) * 22f
@@ -3549,8 +4072,12 @@ class BattleCanvasView @JvmOverloads constructor(
         val oil = w.oilHud()
         val oilLines = if (oil.isBlank()) emptyList()
         else wrapText("\u25CF $oil", max(80f * dp, badgeW - 20f * dp), 1)
+        // 전령 젬이 켜져 있으면 발동 횟수까지 한 줄
+        val herald = w.heraldHud()
+        val heraldLines = if (herald.isBlank()) emptyList()
+        else wrapText("\u2744 $herald", max(80f * dp, badgeW - 20f * dp), 1)
         val badgeH = (27f + (triggerLines.size + ascendLines.size + comboLines.size + minionLines.size +
-            beastLines.size + oilLines.size) * 11f) * dp
+            beastLines.size + oilLines.size + heraldLines.size) * 11f) * dp
 
         rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
@@ -3623,6 +4150,16 @@ class BattleCanvasView @JvmOverloads constructor(
             oilLines.forEachIndexed { index, line ->
                 val y = pad + (33f + (triggerLines.size + ascendLines.size + comboLines.size +
                     minionLines.size + beastLines.size + index) * 11f) * dp
+                c.drawText(line, pad + 10f * dp, y, textLight)
+            }
+            textLight.textSize = 10f * dp
+        }
+        if (heraldLines.isNotEmpty()) {
+            textLight.color = 0xFFA8E4FF.toInt()
+            textLight.textSize = 9.5f * dp
+            heraldLines.forEachIndexed { index, line ->
+                val y = pad + (33f + (triggerLines.size + ascendLines.size + comboLines.size +
+                    minionLines.size + beastLines.size + oilLines.size + index) * 11f) * dp
                 c.drawText(line, pad + 10f * dp, y, textLight)
             }
             textLight.textSize = 10f * dp
@@ -4059,8 +4596,290 @@ class BattleCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * 클리어 화면.
+     *
+     * 사망 화면([drawDeathScreen])과 같은 틀을 금빛으로 뒤집은 것이다.
+     * 금빛 클리어 배너 → 클리어 요약 카드 → 스킬별 DPS 줄(누적 피해·명중·실전 DPS·비율)
+     * → 다시 시작·닫기 순서로 흐리게 올라온다.
+     */
+    private fun drawVictoryScreen(c: Canvas, w: BattleWorld) {
+        if (w.state != BattleWorld.State.VICTORY || victoryDismissed) return
+        val vw = width.toFloat()
+        val vh = height.toFloat()
+        if (vw <= 1f || vh <= 1f) return
+        val age = w.victoryAge
+        val pad = 12f * dp
+        val gold = 0xFFFFD36A.toInt()
+        val pale = 0xFFDCF4FF.toInt()
+        val summary = victorySummary ?: w.clearSummary().also { victorySummary = it }
+
+        // ---- 클리어 순간의 금빛 섬광과 어두운 막
+        val flash = VictoryFx.flash(age)
+        if (flash > 0.002f) {
+            fill.shader = RadialGradient(
+                vw / 2f, vh * 0.42f, max(vw, vh) * 0.75f,
+                intArrayOf(alpha(gold, (90 * flash).toInt().coerceIn(0, 255)), 0x00000000),
+                null, Shader.TileMode.CLAMP,
+            )
+            c.drawRect(0f, 0f, vw, vh, fill)
+            fill.shader = null
+        }
+        val dim = DeathFx.ease(min(1f, age / 0.9f)) * 0.58f
+        fill.color = alpha(0xFF05070B.toInt(), (dim * 185f).toInt().coerceIn(0, 255))
+        c.drawRect(0f, 0f, vw, vh, fill)
+
+        val left = pad
+        val right = vw - pad
+        val cardW = right - left
+        var y = pad
+
+        // ---- 금빛 클리어 배너
+        val ba = VictoryFx.bannerAlpha(age)
+        if (ba > 0.002f) {
+            val rise = (1f - ba) * 12f * dp
+            rect.set(left, y + rise, right, y + rise + 66f * dp)
+            fill.shader = LinearGradient(
+                left, rect.top, right, rect.bottom,
+                intArrayOf(
+                    alpha(0xFF6B4E13.toInt(), (ba * 255).toInt()),
+                    alpha(0xFF22180A.toInt(), (ba * 240).toInt()),
+                ),
+                floatArrayOf(0f, 1f), Shader.TileMode.CLAMP,
+            )
+            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
+            fill.shader = null
+            stroke.color = alpha(gold, (ba * 220f).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.4f * dp
+            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
+
+            text.textAlign = Paint.Align.LEFT
+            text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            text.textSize = 26f * dp
+            text.color = alpha(0xFFFFF7E2.toInt(), (ba * 255).toInt().coerceIn(0, 255))
+            c.drawText("클리어", left + 16f * dp, rect.top + 34f * dp, text)
+
+            textLight.textAlign = Paint.Align.LEFT
+            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            textLight.textSize = 10f * dp
+            textLight.color = alpha(0xFFFFE4A8.toInt(), (ba * 230f).toInt().coerceIn(0, 255))
+            val sub = String.format(
+                Locale.KOREA, "%s · 처치 %d/%d",
+                summary.headline, summary.kills, summary.total,
+            )
+            c.drawText(sub, left + 16f * dp, rect.top + 52f * dp, textLight)
+
+            // 오른쪽 끝의 금빛 표식
+            val cx = right - 28f * dp
+            val cy = rect.top + 33f * dp
+            glowAt(c, cx, cy, 22f * dp, gold, (ba * 110f).toInt().coerceIn(0, 255))
+            val star = 5f * dp
+            path.reset()
+            for (i in 0 until 10) {
+                val ang = -1.5708f + i * 0.6283f
+                val r = if (i % 2 == 0) star else star * 0.42f
+                val px = cx + cos(ang) * r
+                val py = cy + sin(ang) * r
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.close()
+            fill.color = alpha(0xFFFFF0C0.toInt(), (ba * 245f).toInt().coerceIn(0, 255))
+            c.drawPath(path, fill)
+            y += 66f * dp + 8f * dp
+        } else {
+            y += 74f * dp
+        }
+
+        // ---- 클리어 요약 카드 (총 시간 · 총 피해 · 평균 DPS)
+        val sa = VictoryFx.summaryAlpha(age)
+        var summaryH = 0f
+        if (sa > 0.002f) {
+            summaryH = 58f * dp
+            rect.set(left, y, right, y + summaryH)
+            fill.color = alpha(0xFF12100A.toInt(), (sa * 232f).toInt().coerceIn(0, 255))
+            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
+            stroke.color = alpha(0xFFB08A2E.toInt(), (sa * 185f).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1f * dp
+            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
+
+            textLight.textAlign = Paint.Align.LEFT
+            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textLight.textSize = 9f * dp
+            textLight.color = alpha(gold, (sa * 235f).toInt().coerceIn(0, 255))
+            c.drawText("클리어 요약", left + 13f * dp, y + 16f * dp, textLight)
+
+            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textLight.textSize = 13.5f * dp
+            textLight.color = alpha(0xFFFFF6E2.toInt(), (sa * 255).toInt().coerceIn(0, 255))
+            c.drawText(summary.bodyLine, left + 13f * dp, y + 36f * dp, textLight)
+
+            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            textLight.textSize = 9.5f * dp
+            textLight.color = alpha(0xFFCDBE92.toInt(), (sa * 228f).toInt().coerceIn(0, 255))
+            val top = summary.topSkill
+            val tail = if (top == null) {
+                "기록된 피해가 없다"
+            } else {
+                "가장 센 스킬 ${top.name} · ${BattleWorld.formatShort(top.damage)} (${top.share.toInt()}%)"
+            }
+            c.drawText(tail, left + 13f * dp, y + 50f * dp, textLight)
+            y += summaryH + 8f * dp
+        } else {
+            y += 66f * dp
+        }
+
+        // ---- 스킬별 DPS 기록
+        val rows = summary.skills
+        val buttonH = 46f * dp
+        val buttonTop = vh - pad - buttonH
+        val headerH = 22f * dp
+        val rowH = 30f * dp
+        val listTop = y
+        val listBottom = buttonTop - 10f * dp
+        // 남은 자리에 들어가는 만큼만 줄을 놓는다 — 좁은 화면에서 글자가 겹치지 않게.
+        val capacity = VictoryFx.rowCapacity(listTop, listBottom, headerH, rowH, reserve = 14f * dp)
+        val shown = if (capacity >= 1) rows.take(capacity) else emptyList()
+        val rest = summary.rest(capacity)
+        val listH = VictoryFx.listHeight(shown.size, headerH, rowH, if (rest > 0) 14f * dp else 0f) * dp
+        if (listH > 4f * dp) {
+            rect.set(left, listTop, right, listTop + listH + 10f * dp)
+            fill.color = alpha(0xFF0C0E13.toInt(), (sa * 226f).toInt().coerceIn(0, 255))
+            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
+            stroke.color = alpha(0xFF3F464F.toInt(), (sa * 190f).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1f * dp
+            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
+
+            textLight.textAlign = Paint.Align.LEFT
+            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textLight.textSize = 9f * dp
+            textLight.color = alpha(0xFFFFE7B0.toInt(), (sa * 235f).toInt().coerceIn(0, 255))
+            c.drawText("스킬별 DPS 기록", left + 13f * dp, listTop + 15f * dp, textLight)
+            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            textLight.textAlign = Paint.Align.RIGHT
+            textLight.color = alpha(0xFF8C8570.toInt(), (sa * 220f).toInt().coerceIn(0, 255))
+            c.drawText(ClearText.columnHeader(), right - 13f * dp, listTop + 15f * dp, textLight)
+
+            if (shown.isEmpty()) {
+                textLight.textAlign = Paint.Align.LEFT
+                textLight.textSize = 9.5f * dp
+                textLight.color = alpha(0xFF8894A6.toInt(), (sa * 220f).toInt().coerceIn(0, 255))
+                c.drawText("기록된 피해가 없다", left + 13f * dp, listTop + headerH + 12f * dp, textLight)
+            }
+            shown.forEachIndexed { index, row ->
+                val ra = VictoryFx.rowAlpha(age, index)
+                if (ra <= 0.002f) return@forEachIndexed
+                val rowTop = listTop + headerH + index * rowH
+                val slide = (1f - ra) * 8f * dp
+
+                // 순위 점
+                fill.color = alpha(if (index == 0) gold else 0xFF5C6472.toInt(), (ra * 230f).toInt().coerceIn(0, 255))
+                c.drawCircle(left + 15f * dp, rowTop + 11f * dp, 2.2f * dp, fill)
+
+                // 이름
+                textLight.textAlign = Paint.Align.LEFT
+                textLight.typeface = Typeface.create(Typeface.DEFAULT, if (index == 0) Typeface.BOLD else Typeface.NORMAL)
+                textLight.textSize = 10.8f * dp
+                textLight.color = alpha(
+                    if (index == 0) 0xFFFFE6A8.toInt() else 0xFFE2E8F2.toInt(),
+                    (ra * 245f).toInt().coerceIn(0, 255),
+                )
+                val nameRoom = cardW * 0.54f
+                var name = row.name
+                while (name.length > 2 && textLight.measureText(name) > nameRoom) name = name.dropLast(2)
+                if (name != row.name) name = name.trimEnd() + "…"
+                c.drawText(name, left + 22f * dp, rowTop + 12f * dp + slide, textLight)
+
+                // 누적 피해 (오른쪽 큰 글씨)
+                textLight.textAlign = Paint.Align.RIGHT
+                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textLight.textSize = 10f * dp
+                textLight.color = alpha(0xFFF3F7FF.toInt(), (ra * 242f).toInt().coerceIn(0, 255))
+                c.drawText(ClearText.rowValue(row), right - 13f * dp, rowTop + 12f * dp + slide, textLight)
+
+                // 명중 · 실전 DPS · 비율 (아래 줄)
+                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                textLight.textSize = 9f * dp
+                textLight.color = alpha(0xFFA9B8CC.toInt(), (ra * 236f).toInt().coerceIn(0, 255))
+                c.drawText(ClearText.rowDetail(row), right - 13f * dp, rowTop + 24f * dp + slide, textLight)
+
+                // 비율 막대
+                val barY = rowTop + 27f * dp
+                fill.color = alpha(0xFF1B2029.toInt(), (ra * 220f).toInt().coerceIn(0, 255))
+                c.drawRoundRect(left + 22f * dp, barY, right - 13f * dp, barY + 2.2f * dp, 1.1f * dp, 1.1f * dp, fill)
+                val barW = (right - 13f * dp - (left + 22f * dp)) * (row.share / 100.0).toFloat()
+                if (barW > 0.5f) {
+                    fill.color = alpha(if (index == 0) gold else 0xFF5B8FD6.toInt(), (ra * 240f).toInt().coerceIn(0, 255))
+                    c.drawRoundRect(left + 22f * dp, barY, left + 22f * dp + barW, barY + 2.2f * dp, 1.1f * dp, 1.1f * dp, fill)
+                }
+            }
+            if (rest > 0) {
+                textLight.textAlign = Paint.Align.LEFT
+                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                textLight.textSize = 9f * dp
+                textLight.color = alpha(0xFF8C8570.toInt(), (sa * 225f).toInt().coerceIn(0, 255))
+                c.drawText(
+                    "+ ${rest}개 스킬 더",
+                    left + 22f * dp,
+                    listTop + headerH + shown.size * rowH + 12f * dp,
+                    textLight,
+                )
+            }
+        }
+
+        // ---- 다시 시작 · 닫기
+        val bAlpha = VictoryFx.buttonAlpha(age)
+        if (bAlpha > 0.002f) {
+            val gap = 8f * dp
+            val bw = (cardW - gap) / 2f
+            victoryRetryRect.set(left, buttonTop, left + bw, buttonTop + buttonH)
+            victoryCloseRect.set(right - bw, buttonTop, right, buttonTop + buttonH)
+
+            fill.color = alpha(0xFF8A6A14.toInt(), (bAlpha * 242f).toInt().coerceIn(0, 255))
+            c.drawRoundRect(victoryRetryRect, 9f * dp, 9f * dp, fill)
+            stroke.color = alpha(gold, (bAlpha * 225f).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.2f * dp
+            c.drawRoundRect(victoryRetryRect, 9f * dp, 9f * dp, stroke)
+            text.textAlign = Paint.Align.CENTER
+            text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            text.textSize = 12.5f * dp
+            text.color = alpha(0xFFFFF8E4.toInt(), (bAlpha * 255).toInt().coerceIn(0, 255))
+            c.drawText("다시 시작", victoryRetryRect.centerX(), victoryRetryRect.centerY() + 4.4f * dp, text)
+
+            fill.color = alpha(0xFF181C24.toInt(), (bAlpha * 235f).toInt().coerceIn(0, 255))
+            c.drawRoundRect(victoryCloseRect, 9f * dp, 9f * dp, fill)
+            stroke.color = alpha(0xFF4A5160.toInt(), (bAlpha * 220f).toInt().coerceIn(0, 255))
+            c.drawRoundRect(victoryCloseRect, 9f * dp, 9f * dp, stroke)
+            text.color = alpha(0xFFD6DCE8.toInt(), (bAlpha * 245f).toInt().coerceIn(0, 255))
+            c.drawText("닫기", victoryCloseRect.centerX(), victoryCloseRect.centerY() + 4.4f * dp, text)
+        }
+        text.textAlign = Paint.Align.LEFT
+        text.typeface = Typeface.DEFAULT
+    }
+
+    /** 클리어 화면을 닫는다 — 전장과 기록 글은 그대로 두고 카드만 걷는다 */
+    fun dismissVictory() {
+        victoryDismissed = true
+        invalidate()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val w = world ?: return false
+        if (w.state == BattleWorld.State.VICTORY && !victoryDismissed) {
+            if (event.actionMasked != MotionEvent.ACTION_UP) return true
+            // 카드가 다 올라오기 전의 터치는 무시한다.
+            if (VictoryFx.buttonAlpha(w.victoryAge) < 0.9f) return true
+            if (victoryRetryRect.contains(event.x, event.y)) {
+                victoryDismissed = true
+                onRetry?.invoke()
+                return true
+            }
+            if (victoryCloseRect.contains(event.x, event.y)) {
+                dismissVictory()
+                onClose?.invoke()
+                return true
+            }
+            return true
+        }
         if (w.state != BattleWorld.State.DEFEAT || deathDismissed) return false
         if (event.actionMasked != MotionEvent.ACTION_UP) return true
         // 카드가 다 올라오기 전의 터치는 무시한다.

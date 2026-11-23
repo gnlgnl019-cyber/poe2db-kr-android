@@ -332,6 +332,8 @@ object BattleSetup {
             chargeLines.add(node.stats)
         }
         val charges = Charges.read(chargeLines)
+        // 전령은 소환수가 먼저 가져간 정신력을 빼고 남은 예산으로 켜진다.
+        val heralds = Heralds.plan(build, dict, minions.spiritReserved)
         return BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
                 .filter { it.isNotBlank() }.joinToString(" · "),
@@ -393,6 +395,7 @@ object BattleSetup {
                 kit.any { it.motion == SkillMotion.OIL_BARRAGE || it.motion == SkillMotion.OIL_GRENADE },
             hollowSkill = hollowSocketSkill(build, dict, scale, dpsByName = skillDpsByName),
             minions = minions,
+            heralds = heralds,
             unique = unique.sim,
             uniqueSummary = unique.summary,
             uniqueEffects = unique.effects,
