@@ -50,6 +50,15 @@ enum class SkillMotion(val label: String) {
     /** 점멸 타격: 적 옆으로 순간이동해 벤다 */
     FLICKER("점멸 타격"),
 
+    /** 얼음 폭발: 사방으로 냉기 파동이 퍼지고 가까운 적을 밀어낸다 (나비라의 파열도 같은 모션) */
+    ICE_NOVA("얼음 폭발"),
+
+    /** 서리 폭탄: 맥동하는 보주가 4초 뒤 기폭하며 냉기 피해와 원소 노출을 남긴다 */
+    FROST_BOMB("서리 폭탄"),
+
+    /** 켈라리의 기만: 목표 지점에 주문 돌풍을 일으키고 분신을 남긴다. 다시 쓰면 분신이 터진다 */
+    SPIRIT_GUST("켈라리의 기만"),
+
     /** 저주·징표: 몸에서 저주가 퍼져 나간다 */
     CURSE("저주"),
 
@@ -145,6 +154,12 @@ object SkillMotions {
             has(text, "lightning arrow", "번개 화살") -> SkillMotion.LIGHTNING_ARROW
             has(text, "ice shot", "얼음 화살") -> SkillMotion.ICE_SHOT
             has(text, "spark", "전기불꽃", "전기 불꽃") -> SkillMotion.SPARK
+            has(text, "frost bomb", "서리 폭탄") -> SkillMotion.FROST_BOMB
+            has(
+                text, "ice nova", "얼음 폭발", "얼음 신성",
+                "navira's fracturing", "naviras fracturing", "나비라의 파열",
+            ) -> SkillMotion.ICE_NOVA
+            has(text, "kelari's deception", "kelaris deception", "켈라리의 기만") -> SkillMotion.SPIRIT_GUST
             has(text, "comet", "혜성") -> SkillMotion.COMET
             has(text, "fireball", "화염구") -> SkillMotion.FIREBALL
             has(text, "explosive grenade", "폭발 유탄", "폭발 수류탄") -> SkillMotion.GRENADE
@@ -172,7 +187,9 @@ object SkillMotions {
     /** 이 모션을 빌드 콤보에서 어떤 자리로 쓰는지 */
     fun roleOf(motion: SkillMotion): ComboRole = when (motion) {
         SkillMotion.CURSE -> ComboRole.CURSE
-        SkillMotion.WHIRLING_SLASH, SkillMotion.KILLING_PALM, SkillMotion.OIL_GRENADE -> ComboRole.BUILD
+        SkillMotion.WHIRLING_SLASH, SkillMotion.KILLING_PALM, SkillMotion.OIL_GRENADE,
+        SkillMotion.FROST_BOMB,
+        -> ComboRole.BUILD
         SkillMotion.TWISTER, SkillMotion.TEMPEST_BELL, SkillMotion.OIL_BARRAGE, SkillMotion.BARRAGE -> ComboRole.BURST
         SkillMotion.TOTEM -> ComboRole.BUILD
         else -> ComboRole.MAIN
@@ -205,6 +222,9 @@ object ComboPlanner {
 
     /** 연계 4 — 폭풍의 종을 쓸 수 있는 최소 연계 */
     const val BELL_COMBO = 4
+
+    /** 연계를 생성하지 않고 흐르면 연계가 사라지는 시간 (poe2db: 8초) */
+    const val BELL_COMBO_TIMEOUT = 8f
 
     /** 돌개바람이 먹을 와류 단계 목표 */
     const val WHIRLWIND_STAGES = 2

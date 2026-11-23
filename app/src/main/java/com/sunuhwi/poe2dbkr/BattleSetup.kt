@@ -90,7 +90,7 @@ object BattleSetup {
         dict: KrDict = KrDict.EMPTY,
         main: String = "",
         scale: Double = 1.0,
-        limit: Int = 6,
+        limit: Int = 12,
         /** 계산기가 잡은 스킬별 DPS (있으면 PoB Full DPS 대신 쓴다) */
         dpsByName: Map<String, Double> = emptyMap(),
     ): List<KitSkill> {
@@ -344,6 +344,8 @@ object BattleSetup {
             ascendApplied = calc.ascendApplied,
             ascendSkills = ascend?.skills.orEmpty(),
             extraProjectiles = ascend?.sim?.extraProjectiles ?: 0,
+            // 전기불꽃처럼 젬 레벨마다 발사 수가 늘어나는 스킬에 쓴다.
+            skillLevel = mainGem?.level?.takeIf { it in 1..40 } ?: 20,
             aoePct = calc.ascendAoePct,
             shockChancePct = ascend?.sim?.shockChancePct ?: 0.0,
             freezeChancePct = ascend?.sim?.freezeChancePct ?: 0.0,

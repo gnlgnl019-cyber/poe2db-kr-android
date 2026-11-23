@@ -15,12 +15,13 @@ class MetaOverflowTest {
     private fun stats(
         dps: Double = 2_400_000.0,
         crit: Double = 100.0,
-        weapon: WeaponVisualType = WeaponVisualType.BOW,
-        fx: SkillEffectType = SkillEffectType.LIGHTNING,
-        form: AttackForm = AttackForm.BOW,
+        weapon: WeaponVisualType = WeaponVisualType.WAND,
+        fx: SkillEffectType = SkillEffectType.FIRE,
+        form: AttackForm = AttackForm.CAST,
+        skill: String = "화염구",
     ) = BattlePlayerStats(
-        className = "Ranger · Deadeye",
-        skillName = "Spark",
+        className = "Sorceress · Stormweaver",
+        skillName = skill,
         fx = fx,
         weapon = weapon,
         form = form,

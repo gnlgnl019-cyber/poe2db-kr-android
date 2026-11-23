@@ -30,7 +30,17 @@ data class PobSkillGroup(
     var isMain: Boolean = false,
     /** PoB가 이 그룹에서 고른 스킬 번호 (mainActiveSkill, 1부터. 없으면 0) */
     var mainActiveSkill: Int = 0,
+    /** 이 그룹을 준 곳 — "Item:15:Kraken Rosary" / "Tree:1739" (직접 소켓했으면 빈 값) */
+    var source: String = "",
+    /** 부여한 장비 슬롯 (예: Amulet) */
+    var slot: String = "",
 ) {
+    /** 장비가 부여한 스킬인지 (부적·목걸이의 Grants Skill 등) */
+    val grantedByItem: Boolean get() = source.startsWith("Item:")
+
+    /** 패시브 트리 노드가 부여한 스킬인지 */
+    val grantedByTree: Boolean get() = source.startsWith("Tree:")
+
     /** 그룹 이름이 비어 있으면 첫 스킬 이름으로 대신한다 */
     val title: String
         get() = label.ifBlank { gems.firstOrNull()?.name ?: "스킬" }
@@ -279,6 +289,8 @@ object Pob {
                                 enabled = enabled,
                                 isMain = isMain,
                                 mainActiveSkill = main?.toIntOrNull() ?: 0,
+                                source = parser.getAttributeValue(null, "source").orEmpty(),
+                                slot = parser.getAttributeValue(null, "slot").orEmpty(),
                             )
                         )
                     }
@@ -464,6 +476,8 @@ object Pob {
             if (group.mainActiveSkill > 0) {
                 serializer.attribute(null, "mainActiveSkill", group.mainActiveSkill.toString())
             }
+            if (group.source.isNotBlank()) serializer.attribute(null, "source", group.source)
+            if (group.slot.isNotBlank()) serializer.attribute(null, "slot", group.slot)
             group.gems.forEach { gem ->
                 serializer.startTag(null, "Gem")
                 serializer.attribute(null, "name", gem.name)

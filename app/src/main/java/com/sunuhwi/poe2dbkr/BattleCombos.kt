@@ -24,20 +24,59 @@ data class ComboPick(
 
 object BattleCombos {
 
-    /** 콤보에 넣을 수 있는 스킬 후보 — 빌드의 액티브 스킬 전부 */
+    /** 기본값은 제한 없음 — 빌드의 액티브 스킬을 하나도 빠뜨리지 않는다 */
+    const val NO_LIMIT = Int.MAX_VALUE
+
+    /**
+     * 콤보에 넣을 수 있는 스킬 후보 — 빌드의 모든 액티브·발동 스킬.
+     *
+     * PoB는 빌드에 든 스킬 그룹을 전부 내보낸다. 그 안에는 다른 스킬 세트에서 꺼 둔
+     * 그룹(enabled="false")과 아이템·패시브 트리가 부여한 스킬(source="Item:…",
+     * "Tree:…")도 섞여 있고, 아이템 설명에만 적힌 부여 스킬은 목록에 아예 없다.
+     * 예전에는 켜진 그룹만 보고 12개에서 잘라, 그룹이 많은 빌드에서는 주력기(전기불꽃 등)가
+     * 목록 밖으로 밀려 콤보 설정에 안 보였다. 지금은 보조 젬만 빼고 모두 보여 준다.
+     *
+     * 순서: 주력 그룹 → 켜진 그룹 → 꺼 둔 그룹 → 아이템 부여 스킬
+     */
     fun options(
         build: PobBuild?,
         dict: KrDict = KrDict.EMPTY,
         dpsByName: Map<String, Double> = emptyMap(),
-        limit: Int = 12,
+        limit: Int = NO_LIMIT,
     ): List<ComboPick> {
         val list = ArrayList<ComboPick>()
+        val seen = HashSet<String>()
+        if (build == null) return list
+
+        fun label(name: String): String = dict.gemName(name).ifBlank { name }
+
+        fun dpsOf(name: String): Double =
+            dpsByName[TriggerKind.normalizeName(name)]
+                ?: BattleSetup.skillDps(build, name)
+
+        fun add(gem: String, motion: SkillMotion, note: String = ""): Boolean {
+            val key = gem.trim().lowercase()
+            if (key.isEmpty() || !seen.add(key)) return false
+            list.add(
+                ComboPick(
+                    gem = gem,
+                    label = label(gem),
+                    motion = motion,
+                    role = SkillMotions.roleOf(motion),
+                    note = note,
+                    dps = dpsOf(gem),
+                )
+            )
+            return list.size < limit
+        }
+
         // 도이드리의 파멸(암울한 결과)은 젬 목록에 없으니 따로 넣는다.
-        if (build != null && PobCalculator.isDarkConsequences(build)) {
+        if (PobCalculator.isDarkConsequences(build)) {
+            seen.add(Minions.DARK_CONSEQUENCES_EN.lowercase())
             list.add(
                 ComboPick(
                     gem = Minions.DARK_CONSEQUENCES_EN,
-                    label = dict.gemName(Minions.DARK_CONSEQUENCES_EN).ifBlank { Minions.DARK_CONSEQUENCES_KO },
+                    label = label(Minions.DARK_CONSEQUENCES_EN).ifBlank { Minions.DARK_CONSEQUENCES_KO },
                     motion = SkillMotion.CURSE,
                     role = ComboRole.CURSE,
                     note = "저주 · 두꺼비",
@@ -45,30 +84,44 @@ object BattleCombos {
                 )
             )
         }
-        for (group in build?.skills.orEmpty()) {
-            if (!group.enabled) continue
+
+        val main = Pob.mainGroup(build, 0)
+        val groups = build.skills
+            .filter { it.enabled }
+            .sortedBy { if (it === main) 0 else 1 } + build.skills.filter { !it.enabled }
+        for (group in groups) {
+            // 그룹 안에 든 보조 젬만 빼고, 액티브·발동·메타젬은 모두 보여 준다.
             for (gem in group.gems) {
-                if (!gem.enabled) continue
                 if (PobCalculator.isSupport(gem)) continue
-                if (PobTriggers.kindOf(gem) != null) continue
-                val motion = SkillMotions.detect(gem.name, group.label)
-                val label = dict.gemName(gem.name).ifBlank { gem.name }
-                if (list.any { it.label == label && it.motion == motion }) continue
-                list.add(
-                    ComboPick(
-                        gem = gem.name,
-                        label = label,
-                        motion = motion,
-                        role = SkillMotions.roleOf(motion),
-                        dps = dpsByName[TriggerKind.normalizeName(gem.name)]
-                            ?: build?.let { BattleSetup.skillDps(it, gem.name) } ?: 0.0,
-                    )
-                )
-                if (list.size >= limit) return list
+                val name = gem.name.trim()
+                if (name.isEmpty()) continue
+                val motion = SkillMotions.detect(name, group.label)
+                val note = when {
+                    group.grantedByItem -> "아이템 부여"
+                    group.grantedByTree -> "패시브 부여"
+                    !group.enabled -> "꺼 둔 스킬 세트"
+                    PobTriggers.kindOf(gem) != null -> "발동 장치"
+                    else -> ""
+                }
+                if (!add(name, motion, note)) return list
+            }
+        }
+
+        // 아이템 설명에만 적힌 부여 스킬 (예: "Grants Skill: Level 18 Eternal Rage")
+        for (item in build.items.values) {
+            for (line in item.lines) {
+                val match = GRANTED_SKILL.find(line) ?: continue
+                val name = match.groupValues[1].trim()
+                if (name.isEmpty()) continue
+                val motion = SkillMotions.detect(name, item.displayName)
+                if (!add(name, motion, "아이템 부여")) return list
             }
         }
         return list
     }
+
+    /** 아이템 설명에 적힌 "Grants Skill: Level 18 Eternal Rage" */
+    private val GRANTED_SKILL = Regex("grants skill:\\s*(?:level\\s*\\d+\\s*)?(.+)", RegexOption.IGNORE_CASE)
 
     /** 설정한 콤보를 봇이 쓰는 순서로 바꾼다 */
     fun toSteps(picks: List<ComboPick>): List<ComboStep> = picks.map { pick ->

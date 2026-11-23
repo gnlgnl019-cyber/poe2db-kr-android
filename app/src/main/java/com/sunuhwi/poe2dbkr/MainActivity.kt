@@ -1442,11 +1442,21 @@ class MainActivity : AppCompatActivity() {
         val stats = current ?: runCatching { battleStats() }.getOrNull()
         if (stats != null) {
             // 빌드를 바꿔 지금 빌드에 없는 스킬이 남아 있으면 콤보에서 조용히 뺀다.
-            val known = (stats.kit.map { it.motion } + stats.motion).toSet()
-            val filtered = comboPicks.filter { it.motion in known }
-            if (filtered.size != comboPicks.size) {
-                comboPicks = filtered
-                comboStore.save(filtered)
+            // 모션만 보고 지우면 같은 모션의 다른 스킬(전기불꽃·번개 화살 등)이나
+            // 준비 동작이 없는 스킬이 같이 사라지므로, 이 빌드에 실제로 있는 스킬인지로 판단한다.
+            val options = BattleCombos.options(pobBuild, krDict)
+            if (options.isNotEmpty()) {
+                val gems = options.map { it.gem.trim().lowercase() }.toSet()
+                val labels = options.map { it.label }.toSet()
+                val filtered = comboPicks.filter { pick ->
+                    pick.gem.trim().lowercase() in gems ||
+                        pick.label in labels ||
+                        pick.label == stats.skillName
+                }
+                if (filtered.size != comboPicks.size) {
+                    comboPicks = filtered
+                    comboStore.save(filtered)
+                }
             }
         }
         if (comboPicks.isEmpty()) {
@@ -1742,6 +1752,16 @@ class MainActivity : AppCompatActivity() {
                 getString(
                     if (comboPicks.isNotEmpty()) R.string.battle_combo_custom else R.string.battle_combo_plan,
                     comboText,
+                )
+        }
+        // 전기불꽃은 poe2db 수치(나선 발수·지속시간·관통·벽 튕김)를 화면에 같이 적는다.
+        if (stats.motion == SkillMotion.SPARK) {
+            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
+                getString(
+                    R.string.battle_spark_line,
+                    SparkMath.salvo(stats.skillLevel, stats.extraProjectiles + stats.unique.extraProjectiles),
+                    SparkMath.PIERCE,
+                    SparkMath.BOUNCES,
                 )
         }
         // 부적(Talisman) 변신 — 어떤 형상으로 싸우고 무슨 형태 변환 스킬을 쓰는지 적는다.

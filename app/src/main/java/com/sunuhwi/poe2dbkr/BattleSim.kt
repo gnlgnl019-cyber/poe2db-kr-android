@@ -142,6 +142,8 @@ data class BattlePlayerStats(
     val ascendSkills: List<AscendancyEffects.AscSkill> = emptyList(),
     /** 추가 투사체 수 */
     val extraProjectiles: Int = 0,
+    /** 주력 스킬 젬 레벨 — 전기불꽃처럼 레벨마다 발사 수가 늘어나는 스킬에 쓴다 */
+    val skillLevel: Int = 20,
     /** 효과 범위 증가(%) — 타격·폭발 반경에 적용 */
     val aoePct: Double = 0.0,
     /** 상태이상 확률 증가(%) — 기본 확률에 대한 상대값 */
@@ -413,8 +415,10 @@ class Enemy(
     var igniteDps = 0.0
     /** 올로스의 룬 보호막처럼 피해를 흡수하는 임시 보호막 */
     var shield = 0.0
-    /** 와류·돌개바람에 휘말린 시간 (이동 30% 감소) */
+    /** 와류·돌개바람에 휘말린 시간 */
     var slowT = 0f
+    /** 늦추는 정도 (0.7 = 이동 속도 30% 감소). 기름 유탄 40%, 기름 지대 20% */
+    var slowMul = 0.7f
     val shocked: Boolean get() = shockT > 0f
 
     /** 지금 이 적이 노리는 대상 (소환수 어그로) */
@@ -484,6 +488,8 @@ class CursedGround(var x: Float, var y: Float, val radius: Float, val element: D
 class OilGround(var x: Float, var y: Float, var radius: Float, var life: Float) {
     var age = 0f
     var burning = false
+    /** 기름 유탄이 만든 끈적한 기름 — 이동 속도를 더 세게 늦춘다 (poe2db 40%) */
+    var sticky = false
     /** 불이 붙은 뒤 남은 연소 시간 */
     var burnLife = 0f
     var burnDps = 0.0
@@ -605,7 +611,21 @@ class Projectile(
     var bounces: Int = 0,
     /** 기름 투사체가 만드는 기름 지대 지름 */
     var oilRadius: Float = 0f,
-)
+    /** 지나온 적 — 전기불꽃 한 줄기는 같은 적을 두 번 꿰뚫지 않는다 */
+    val pierced: MutableList<Enemy> = ArrayList(),
+    /** 다음으로 방향을 꺾을 때까지 남은 시간 (전기불꽃) */
+    var turnTimer: Float = 0f,
+    /** 살아 있는 시간 (연출용, 전기불꽃) */
+    var age: Float = 0f,
+    /** 궤적을 그릴 때 쓰는 고정 난수 씨앗 */
+    val seed: Int = 0,
+) {
+    /** 남은 궤뚫기 횟수 — 0이면 다음 적을 궤뚫을 수 없다 (전기불꽃) */
+    var pierce: Int = 0
+
+    /** 메타젬에 넘길 명중 무게 (전기불꽃 한 줄기는 발수만큼 되돌려 센다) */
+    var energyWeight: Double = 1.0
+}
 
 /**
  * 공허의 형상이 깨우는 상.
@@ -661,16 +681,31 @@ class Twister(
     var life: Float,
     val amplified: Boolean,
     val element: DamageElement,
+    /** 이 회오리만의 반경 (0이면 기본값) — 회오리 사격의 충격 반경 1미터처럼 스킬마다 다르다 */
+    radiusOverride: Float = 0f,
 ) {
     var age = 0f
     var tick = 0.05f
     var angle = 0f
-    val radius: Float = if (amplified) 62f else 52f
+    val radius: Float = if (radiusOverride > 0f) radiusOverride else if (amplified) 62f else 52f
     val fade: Float get() = (1f - age / life).coerceIn(0f, 1f)
 }
 
-/** 폭풍의 종·공허의 집중이 띄우는 종. 때리면 충격파가 터진다. */
-class Bell(
+/** 서리 폭탄이 띄운 맥동하는 보주 — 맥동마다 노출을 걸고 4초 뒤 기폭한다 (poe2db) */
+class FrostBomb(var x: Float, var y: Float, var fuse: Float) {
+    var age = 0f
+    var pulse = 0f
+    var tickTimer = 0.9f
+    val fade: Float get() = (1f - age / fuse.coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+}
+
+/** 켈라리의 기만이 남긴 분신 — 다시 쓰면 터져 더 큰 피해를 준다 */
+class SpiritDecoy(var x: Float, var y: Float, var life: Float) {
+    var age = 0f
+    val fade: Float get() = (1f - age / life.coerceAtLeast(0.01f)).coerceIn(0f, 1f)
+}
+
+/** 폭풍의 종·공허의 집중이 띄우는 종. 때리면 충격파가 터진다. */class Bell(
     var x: Float,
     var y: Float,
     var life: Float,
@@ -969,6 +1004,9 @@ class BattleWorld(
         /** 메타 에너지 100%(발동 1회)에 해당하는 피해량 */
         const val REFERENCE_HIT = 60_000.0
 
+        /** 서리 폭탄 기폭 시간 — poe2db: 4초 */
+        const val FROST_BOMB_FUSE = 4.0f
+
         fun formatShort(value: Double): String = when {
             // 무한·NaN은 화면에 숫자 대신 대시로 내보낸다.
             !value.isFinite() -> "—"
@@ -1134,8 +1172,30 @@ class BattleWorld(
     /** 토템이 쏜 주문 횟수 */
     var totemCasts = 0
         private set
+    /** 전기불꽃 시전 횟수·한 번에 깔린 최대 발수·꿰뚫린 횟수 (HUD·테스트 확인용) */
+    var sparkCasts = 0
+        private set
+    var sparkSalvo = 0
+        private set
+    var sparkHits = 0
+        private set
     /** 돌개바람 */
     val twisters = ArrayList<Twister>()
+    /** 서리 폭탄이 띄운 보주 */
+    val frostBombs = ArrayList<FrostBomb>()
+    /** 켈라리의 기만이 남긴 분신 (다시 쓰면 터진다) */
+    var spiritDecoy: SpiritDecoy? = null
+        private set
+    /** 서리 폭탄 기폭 횟수 · 분신 폭발 횟수 (HUD·테스트 확인용) */
+    var frostBombBlasts = 0
+        private set
+    var decoyBlasts = 0
+        private set
+    /** 얼음 폭발 시전 횟수 · 화염구가 띄운 화염 화살 고리 수 (테스트 확인용) */
+    var iceNovaCasts = 0
+        private set
+    var fireballRings = 0
+        private set
     /** 폭풍의 종·실촐 없는 종 */
     val bells = ArrayList<Bell>()
     /** 쌓인 권능 충전 (상 추가 생성에 쓰인다) */
@@ -1143,6 +1203,9 @@ class BattleWorld(
         private set
     /** 폭풍의 종에 쓰는 연계 */
     var comboStacks = 0
+        private set
+    /** 마지막으로 연계를 쌓은 뒤 흐른 시간 — 8초가 지나면 연계를 잃는다 */
+    var comboSilence = 0f
         private set
     var phantomCasts = 0
         private set
@@ -1480,6 +1543,7 @@ class BattleWorld(
             meleeBudget = 2
         }
         updatePlayer(dt)
+        updateBellCombo(dt)
         updateMinions(dt)
         updateBossPatterns(dt)
         updateTelegraphs(dt)
@@ -1493,6 +1557,7 @@ class BattleWorld(
         updatePhantoms(dt)
         updateWhirlwinds(dt)
         updateTwisters(dt)
+        updateFrostBombs(dt)
         updateBells(dt)
         updateOils(dt)
         updateTotems(dt)
@@ -2000,6 +2065,8 @@ class BattleWorld(
     }
 
     private fun fireAttack(target: Enemy) {
+        // 폭풍의 종을 쓰는 빌드는 주력기로 연계를 쌓는다 (종 자체는 연계를 만들지 않는다).
+        if (usesBell && stats.motion != SkillMotion.TEMPEST_BELL) gainBellCombo()
         val (damage, crit) = rollDamage()
         val angle = atan2(target.y - player.y, target.x - player.x)
         val blink = stats.flicker &&
@@ -2049,16 +2116,12 @@ class BattleWorld(
             comboWaits++
             comboIndex = (comboIndex - 1 + comboPlan.size) % comboPlan.size
             comboServed = 0
-            comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
-            comboText = "${step.label} · 연계 ${comboStacks}/${ComboPlanner.BELL_COMBO}"
+            comboText = "${step.label} · 연계 ${min(ComboPlanner.BELL_COMBO, comboStacks + 1)}/${ComboPlanner.BELL_COMBO}"
             noteComboCast(stats.skillName.ifBlank { "주력" })
             fireAttack(target)
             return
         }
         if (step.motion == stats.motion) {
-            if (usesBell && step.role == ComboRole.MAIN) {
-                comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
-            }
             noteComboCast(step.label)
             fireAttack(target)
             return
@@ -2128,6 +2191,9 @@ class BattleWorld(
             SkillMotion.TWISTER -> spinTwister(target, damage, angle)
             SkillMotion.TEMPEST_BELL -> ringBell(target, damage, crit)
             SkillMotion.SPARK -> sparkVolley(target, damage, crit, angle)
+            SkillMotion.ICE_NOVA -> iceNova(target, damage, crit, angle)
+            SkillMotion.FROST_BOMB -> frostBomb(target, damage)
+            SkillMotion.SPIRIT_GUST -> spiritGust(target, damage, crit, angle)
             SkillMotion.LIGHTNING_ARROW -> lightningArrow(target, damage, crit, angle)
             SkillMotion.ICE_SHOT -> iceShot(target, damage, crit, angle)
             SkillMotion.COMET -> cometStrike(target, damage)
@@ -2293,14 +2359,33 @@ class BattleWorld(
         addBurst(player.x, player.y - 20f, 8, 0xFFE8F6FF.toInt(), 190f, 0.4f)
     }
 
+    /** 폭풍의 종 연계를 하나 쌓는다 — 남은 연계 시간도 함께 되돌린다 */
+    private fun gainBellCombo() {
+        comboStacks = min(ComboPlanner.BELL_COMBO, comboStacks + 1)
+        comboSilence = 0f
+    }
+
+    /** poe2db: 폭풍의 종이 8초 동안 연계를 생성하지 않으면 연계를 잃는다 */
+    private fun updateBellCombo(dt: Float) {
+        if (comboStacks <= 0) return
+        comboSilence += dt
+        if (comboSilence < ComboPlanner.BELL_COMBO_TIMEOUT) return
+        comboStacks = 0
+        comboSilence = 0f
+        addPopup(player.x, player.y - 92f, "연계 상실", false, 0.6f, 0xFF9FD8FF.toInt(), 0.78f)
+    }
+
+    /** 테스트용 — 전투를 돌리지 않고 연계 시계만 돌린다 */
+    internal fun advanceBellCombo(seconds: Float) = updateBellCombo(seconds)
+
     /** 폭풍의 종 — 연계 4를 채우면 지팡이 종을 키워 지면에 떨어뜨린다. */
-    private fun ringBell(target: Enemy, damage: Double, crit: Boolean) {
-        if (comboStacks < ComboPlanner.BELL_COMBO && bells.none { it.ghost }) {
+    private fun ringBell(target: Enemy, damage: Double, crit: Boolean) {        if (comboStacks < ComboPlanner.BELL_COMBO && bells.none { it.ghost }) {
             addPopup(player.x, player.y - 92f, "연계 ${comboStacks}/${ComboPlanner.BELL_COMBO}", false, 0.6f, 0xFF9FD8FF.toInt(), 0.8f)
             meleeStrike(target, damage, crit, atan2(target.y - player.y, target.x - player.x))
             return
         }
         comboStacks = 0
+        comboSilence = 0f
         val angle = atan2(target.y - player.y, target.x - player.x)
         val bx = (player.x + cos(angle) * 44f).coerceIn(50f, W - 50f)
         val by = (player.y + sin(angle) * 34f).coerceIn(80f, H - 30f)
@@ -2342,40 +2427,186 @@ class BattleWorld(
         }
     }
 
-    /** 전기불꽃 — 지면을 지그재로 기어가는 번개 덩어리를 여러 개 날린다. */
+    /**
+     * 전기불꽃 — poe2db.tw/kr/Spark.
+     *
+     * 20레벨 젬은 투사체를 9개 쏘고, 냉기 주입을 소모하면 같은 수를 나선 한 겹 더
+     * 깔아 원형으로 퍼뜨린다. 그래서 한 번 시전이 18발, 추가 투사체가 있으면 그만큼
+     * 더 나가 화면 전체를 채운다. 줄기는 2초 동안 바닥을 지그재고 기어가며(pierce)
+     * 지나가는 적을 꿰뚫고, 벽에 부딪히면 튕긴다. 피해는 시전 1회 몫을 발수로 나눠
+     * 담으므로, 여러 줄기가 함께 맞아도 DPS가 부풀지 않는다.
+     */
     private fun sparkVolley(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
-        // 인게임은 4~9개를 한 번에 날린다. 다 보이면 시야만 어지러우니 6개로 맞춘다.
-        val count = 6
+        val extra = totalExtraProjectiles().coerceIn(0, 8)
+        val count = SparkMath.salvo(stats.skillLevel, extra)
+        val per = SparkMath.perHitDamage(damage, count)
+        sparkCasts++
+        sparkSalvo = max(sparkSalvo, count)
+        val perRing = (count + SparkMath.RINGS - 1) / SparkMath.RINGS
         repeat(count) { i ->
-            val a = angle + (i - (count - 1) / 2f) * 0.15f + (rand.nextFloat() - 0.5f) * 0.12f
-            projectiles.add(
-                Projectile(
-                    x = player.x + cos(a) * 16f,
-                    y = player.y + sin(a) * 16f - 20f,
-                    dirX = cos(a), dirY = sin(a),
-                    speed = 480f + rand.nextFloat() * 120f,
-                    // 첫 덩어리가 실제 피해를 들고 가고, 나머지는 시야를 채우는 전기불꽃이다.
-                    damage = if (i == 0) damage else 0.0,
-                    crit = crit && i == 0,
-                    target = target,
-                    hostile = false,
-                    element = DamageElement.LIGHTNING,
-                    kind = ProjKind.SPARK,
-                    life = 2.0f,
-                    wobble = 0.62f + rand.nextFloat() * 0.22f,
-                    bounces = 2,
-                )
+            // 두 겹을 반 칸씩 엇갈리게 돌려 나선(원형)으로 퍼뜨린다.
+            val ring = i % SparkMath.RINGS
+            val slot = i / SparkMath.RINGS
+            val a = angle + (slot + ring * 0.5f) * (PI_F * 2f / perRing) +
+                (rand.nextFloat() - 0.5f) * 0.20f
+            val p = Projectile(
+                x = player.x + cos(a) * (14f + ring * 8f),
+                y = player.y + sin(a) * (14f + ring * 8f) - 20f,
+                dirX = cos(a), dirY = sin(a),
+                speed = 210f + rand.nextFloat() * 100f,
+                damage = per,
+                crit = crit,
+                target = target,
+                hostile = false,
+                element = DamageElement.LIGHTNING,
+                kind = ProjKind.SPARK,
+                life = SparkMath.DURATION * (0.88f + rand.nextFloat() * 0.12f),
+                wobble = 0.55f + rand.nextFloat() * 0.35f,
+                bounces = SparkMath.BOUNCES,
+                seed = rand.nextInt(),
             )
-            // 날아가기 전 손끝에서 갈라지는 잔 불꽃
+            p.pierce = SparkMath.PIERCE
+            p.energyWeight = SparkMath.energyWeight(count)
+            p.turnTimer = rand.nextFloat() * 0.12f
+            projectiles.add(p)
+        }
+        // 시전 순간 손끝에서 사방으로 번개가 터진다.
+        addFx(FxKind.AURA, player.x, player.y - 26f, radius = 44f, life = 0.3f, color = 0xFFFFF3A8.toInt())
+        addFx(FxKind.ARC_WEB, player.x, player.y - 24f, angle = angle, radius = 62f, life = 0.24f, color = 0xFFFFE272.toInt())
+        repeat(5) { i ->
+            val a = angle + i * 1.2566f + (rand.nextFloat() - 0.5f) * 0.4f
             addFx(
-                FxKind.BOLT, player.x + cos(a) * 14f, player.y + sin(a) * 14f - 22f,
-                x2 = player.x + cos(a) * (46f + i * 8f), y2 = player.y + sin(a) * 46f - 18f,
-                life = 0.13f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 0.8f,
+                FxKind.BOLT, player.x, player.y - 22f,
+                x2 = player.x + cos(a) * (54f + rand.nextFloat() * 40f),
+                y2 = player.y + sin(a) * (54f + rand.nextFloat() * 30f) - 18f,
+                life = 0.15f, color = 0xFFBFE6FF.toInt(), seed = rand.nextInt(), width = 0.85f,
             )
         }
-        addFx(FxKind.AURA, player.x, player.y - 26f, radius = 30f, life = 0.26f, color = 0xFFFFF3A8.toInt())
-        addFx(FxKind.ARC_WEB, player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, angle = angle, radius = 46f, life = 0.2f, color = 0xFFFFE272.toInt())
-        addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 22f, 8, 0xFFFFE272.toInt(), 180f, 0.3f)
+        addBurst(player.x, player.y - 22f, 10, 0xFFFFE272.toInt(), 210f, 0.32f)
+    }
+
+    /**
+     * 얼음 폭발 — poe2db.tw/kr/Ice_Nova.
+     *
+     * 얼음 파동이 사방으로 퍼지고, 가까이 붙은 적일수록 세게 밀려나며 더 많이 맞는다.
+     * 나비라의 파열(얼음 지대를 파열시켜 높은 냉기 피해)도 같은 모션으로 낸다.
+     */
+    private fun iceNova(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val radius = aoe(92f)
+        addFx(FxKind.FROST_NOVA, player.x, player.y - 8f, radius = radius, life = 0.55f, color = 0xFFBFF4FF.toInt())
+        addFx(FxKind.RING, player.x, player.y, radius = radius, life = 0.5f, color = 0xFF9BE8FF.toInt(), width = 1.6f)
+        addFx(FxKind.ICE_CONE, player.x, player.y, angle = angle, radius = radius * 0.8f, life = 0.4f, color = 0xFFDFF9FF.toInt())
+        addBurst(player.x, player.y - 14f, 14, 0xFFBFF4FF.toInt(), 260f, 0.5f)
+        var hitAny = false
+        var first = true
+        iceNovaCasts++
+        for (e in enemies) {
+            if (!e.alive) continue
+            val dx = e.x - player.x
+            val dy = e.y - player.y
+            val dist = hypot(dx, dy)
+            if (dist > radius) continue
+            hitAny = true
+            val near = (1f - dist / radius).coerceIn(0f, 1f)
+            // 가까울수록 강하게 밀려나고 피해도 크다.
+            val push = 40f + near * 86f
+            val a = if (dist < 1f) angle else atan2(dy, dx)
+            e.x = (e.x + cos(a) * push).coerceIn(30f, W - 30f)
+            e.y = (e.y + sin(a) * push * 0.7f).coerceIn(84f, H - 26f)
+            hitEnemy(e, damage * (0.62 + near * 0.48), crit && first, a, 0.95f)
+            first = false
+        }
+        if (!hitAny) hitEnemy(target, damage, crit, angle, 1f)
+        shake = max(shake, 3.2f)
+    }
+
+    /**
+     * 서리 폭탄 — poe2db.tw/kr/Frost_Bomb.
+     *
+     * 맥동하는 보주가 0.9초마다 주변 적에게 원소 노출(총 원소 저항 -20%)을 걸고,
+     * 4초가 지나면 기폭하며 주변에 냉기 피해를 준다.
+     */
+    private fun frostBomb(target: Enemy, damage: Double) {
+        if (frostBombs.size >= 8) frostBombs.removeAt(0)
+        val x = (target.x + (rand.nextFloat() - 0.5f) * 18f).coerceIn(60f, W - 60f)
+        val y = (target.y + (rand.nextFloat() - 0.5f) * 14f).coerceIn(100f, H - 40f)
+        frostBombs.add(FrostBomb(x, y, FROST_BOMB_FUSE))
+        addFx(FxKind.AURA, x, y - 18f, radius = 34f, life = 0.4f, color = 0xFFBFF4FF.toInt())
+        addFx(FxKind.CRYSTAL, x, y, radius = 22f, life = 0.4f, color = 0xFFDFF9FF.toInt(), seed = rand.nextInt())
+        addBurst(x, y - 16f, 8, 0xFFBFF4FF.toInt(), 150f, 0.4f)
+        lastComboEvent = "서리 폭탄 · 4초 뒤 기폭"
+    }
+
+    /** 서리 보주가 살아 있는 동안 맥동하며 노출을 걸고, 수명이 다하면 기폭한다 */
+    private fun updateFrostBombs(dt: Float) {
+        var i = 0
+        while (i < frostBombs.size) {
+            val b = frostBombs[i]
+            b.age += dt
+            b.fuse -= dt
+            b.pulse += dt
+            b.tickTimer -= dt
+            if (b.tickTimer <= 0f) {
+                b.tickTimer = 0.9f
+                // 맥동할 때마다 주변 적을 노출시킨다 (기름 젖음과 같은 총 원소 저항 -20%).
+                for (e in enemies) {
+                    if (!e.alive) continue
+                    if (hypot(e.x - b.x, e.y - b.y) > 96f) continue
+                    e.oilT = max(e.oilT, 2.2f)
+                }
+                addFx(FxKind.RING, b.x, b.y, radius = 96f, life = 0.4f, color = 0xFF9BE8FF.toInt(), width = 1.1f)
+                addBurst(b.x, b.y - 14f, 5, 0xFFDFF9FF.toInt(), 120f, 0.3f)
+            }
+            if (b.fuse <= 0f) {
+                val radius = aoe(82f)
+                addFx(FxKind.FROST_NOVA, b.x, b.y, radius = radius, life = 0.55f, color = 0xFFBFF4FF.toInt())
+                addFx(FxKind.ICE_CONE, b.x, b.y, angle = rand.nextFloat() * 6.28f, radius = radius, life = 0.5f, color = 0xFFDFF9FF.toInt())
+                addFx(FxKind.CRYSTAL, b.x, b.y, radius = radius * 0.9f, life = 0.6f, color = 0xFFDFF9FF.toInt(), seed = rand.nextInt())
+                addBurst(b.x, b.y, 18, 0xFFBFF4FF.toInt(), 280f, 0.6f)
+                areaHit(b.x, b.y, radius, baseHitDamage() * 2.4, DamageElement.COLD, "서리 폭탄", true)
+                frostBombBlasts++
+                shake = max(shake, 4.0f)
+                frostBombs.removeAt(i)
+                continue
+            }
+            i++
+        }
+        val decoy = spiritDecoy
+        if (decoy != null) {
+            decoy.age += dt
+            if (decoy.age >= decoy.life) spiritDecoy = null
+        }
+    }
+
+    /**
+     * 켈라리의 기만 — poe2db.tw/kr/Kelaris_Deception.
+     *
+     * 목표 지점에 주문 돌풍을 일으키고 3초짜리 분신을 남긴다. 분신이 살아 있는 동안
+     * 다시 쓰면 분신이 폭발하며 더 큰 피해(폭발 반경 2.5미터)를 준다.
+     */
+    private fun spiritGust(target: Enemy, damage: Double, crit: Boolean, angle: Float) {
+        val decoy = spiritDecoy
+        if (decoy != null) {
+            spiritDecoy = null
+            val radius = aoe(105f)
+            addFx(FxKind.IMPACT, decoy.x, decoy.y, radius = radius, life = 0.5f, color = 0xFFD8C3A0.toInt(), width = 1.6f)
+            addFx(FxKind.SHOCKWAVE, decoy.x, decoy.y, radius = radius, life = 0.55f, color = 0xFFE8D9B8.toInt(), width = 1.6f)
+            addFx(FxKind.CYCLONE, decoy.x, decoy.y - 16f, radius = radius, life = 0.45f, color = 0xFFF2E6C8.toInt(), width = 1.3f)
+            addBurst(decoy.x, decoy.y - 16f, 20, 0xFFE8D9B8.toInt(), 300f, 0.7f)
+            areaHit(decoy.x, decoy.y, radius, damage * 2.2, DamageElement.PHYSICAL, "분신 폭발", true)
+            decoyBlasts++
+            lastComboEvent = "분신 폭발"
+            shake = max(shake, 4.6f)
+            return
+        }
+        val x = target.x
+        val y = target.y
+        addFx(FxKind.CYCLONE, x, y - 18f, radius = aoe(64f), life = 0.35f, color = 0xFFF2E6C8.toInt(), width = 1.1f)
+        addBurst(x, y - 18f, 12, 0xFFE8D9B8.toInt(), 240f, 0.5f)
+        areaHit(x, y, aoe(64f), damage * 0.7, DamageElement.PHYSICAL, "켈라리의 돌풍")
+        addFx(FxKind.AURA, x, y - 20f, radius = 26f, life = 0.5f, color = 0xFFD8C3A0.toInt())
+        spiritDecoy = SpiritDecoy(x, y, 3f)
+        lastComboEvent = "분신 소환 · 다시 쓰면 폭발"
     }
 
     /** 번개 화살 — 화살이 꿉으면 주변으로 연쇄 번개가 뻗는다 */
@@ -2423,19 +2654,24 @@ class BattleWorld(
         addFx(FxKind.AURA, player.x + cos(angle) * 20f, player.y + sin(angle) * 20f - 22f, radius = 24f, life = 0.3f, color = 0xFFFF8A3D.toInt())
     }
 
-    /** 폭발 유탄 — 통통 튀어 날아간 뒤 퓨즈가 타면 터진다 */
+    /** 폭발 유탄 — 통통 튀어 날아간 뒤 퓨즈(3초)가 타면 터진다. poe2db: 투사체 +1개 발사 */
     private fun grenade(target: Enemy, damage: Double, angle: Float) {
         // 대상 지점까지 굴러가도록 거리에 맞춰 던진다
         val dist = hypot(target.x - player.x, target.y - player.y)
-        val speed = (dist * 2.3f).coerceIn(180f, 760f)
-        projectiles.add(
-            Projectile(
-                x = player.x + cos(angle) * 16f, y = player.y + sin(angle) * 16f - 24f,
-                dirX = cos(angle), dirY = sin(angle), speed = speed,
-                damage = damage, crit = false, target = target, hostile = false,
-                element = DamageElement.FIRE, kind = ProjKind.GRENADE, life = 3.6f, fuse = 1.0f,
+        val shots = 2
+        repeat(shots) { i ->
+            val a = angle + (i - (shots - 1) / 2f) * 0.12f
+            val speed = (dist * 2.3f).coerceIn(180f, 760f)
+            projectiles.add(
+                Projectile(
+                    x = player.x + cos(a) * 16f, y = player.y + sin(a) * 16f - 24f,
+                    dirX = cos(a), dirY = sin(a), speed = speed,
+                    damage = damage / shots, crit = false, target = target, hostile = false,
+                    element = DamageElement.FIRE, kind = ProjKind.GRENADE,
+                    life = 4.2f, fuse = 3.0f, seed = rand.nextInt(),
+                )
             )
-        )
+        }
         addBurst(player.x + cos(angle) * 18f, player.y + sin(angle) * 18f - 24f, 4, 0xFFFFC24D.toInt(), 140f, 0.24f)
     }
 
@@ -2469,6 +2705,8 @@ class BattleWorld(
                 dirX = cos(angle), dirY = sin(angle),
                 damage = damage * 0.6, life = 2.0f, amplified = false,
                 element = DamageElement.PHYSICAL,
+                // poe2db: 회오리 사격의 충격 반경 1미터 (1m ≈ 42px)
+                radiusOverride = 42f,
             )
         )
         twisters.last().angle = angle
@@ -2559,7 +2797,7 @@ class BattleWorld(
                 dirX = cos(angle), dirY = sin(angle), speed = speed,
                 damage = damage * 0.6, crit = false, target = target, hostile = false,
                 element = DamageElement.FIRE, kind = ProjKind.GRENADE, life = 3.4f,
-                fuse = 0.9f, oilRadius = aoe(76f),
+                fuse = 1.6f, oilRadius = aoe(76f), seed = rand.nextInt(),
             )
         )
         addFx(
@@ -2695,10 +2933,10 @@ class BattleWorld(
         igniteOil(target.x, target.y, 90f)
     }
 
-    /** 기름 지대를 만든다 */
-    private fun spillOil(x: Float, y: Float, radius: Float) {
+    /** 기름 지대를 만든다 (sticky = 기름 유탄의 끈적한 기름) */
+    private fun spillOil(x: Float, y: Float, radius: Float, sticky: Boolean = false) {
         if (oils.size >= 8) oils.removeAt(0)
-        oils.add(OilGround(x, y, radius, 6f))
+        oils.add(OilGround(x, y, radius, 6f).also { it.sticky = sticky })
         oilSpills++
         addFx(FxKind.OIL_SPLASH, x, y, radius = radius, life = 0.55f, color = 0xFF8C7433.toInt())
         addBurst(x, y, 7, 0xFFB99A3D.toInt(), 130f, 0.45f)
@@ -2741,7 +2979,8 @@ class BattleWorld(
                     e.igniteT = max(e.igniteT, 0.8f)
                     e.igniteDps = max(e.igniteDps, baseHitDamage() * 0.08)
                 } else {
-                    e.slowT = max(e.slowT, 0.4f)
+                    // 기름 지대는 이동 속도 20% 감속 (poe2db). 기름 유탄이 만든 지대는 40%.
+                    slowEnemy(e, 0.4f, if (o.sticky) 0.6f else 0.8f)
                 }
             }
             if (o.burning) {
@@ -3334,7 +3573,7 @@ class BattleWorld(
                 val ay = aimY - e.y
                 val ad = hypot(ax, ay).coerceAtLeast(0.001f)
                 val sp = e.speed * pull * (if (e.windup > 0f) 0.25f else 1f) *
-                    (if (frozen) 0.35f else 1f) * (if (e.slowT > 0f) 0.7f else 1f)
+                    (if (frozen) 0.35f else 1f) * (if (e.slowT > 0f) e.slowMul else 1f)
                 e.vx = ax / ad * sp
                 e.vy = ay / ad * sp
                 e.x += e.vx * dt
@@ -3484,7 +3723,15 @@ class BattleWorld(
         return damage - absorbed
     }
 
-    private fun hitEnemy(e: Enemy, damage: Double, crit: Boolean, angle: Float, scale: Float = 1f) {
+    private fun hitEnemy(
+        e: Enemy,
+        damage: Double,
+        crit: Boolean,
+        angle: Float,
+        scale: Float = 1f,
+        /** 메타젬에 넘길 명중 사건의 무게 (음수면 피해량으로 센다) */
+        energyWeight: Double = -1.0,
+    ) {
         if (!e.alive) return
         // 감전된 적은 피해를 더 받고, 저주가 걸린 적은 저항이 낮아진 것으로 본다.
         val shockedMul = if (e.shocked) 1.10 + 0.15 * (1.0 + stats.ailmentMagnitudePct.coerceIn(0.0, 200.0) / 100.0) else 1.0
@@ -3520,7 +3767,7 @@ class BattleWorld(
         }
         if (crit) {
             // 한 방의 피해가 클수록 메타 에너지가 많이 찬다 (절대 피해 기준).
-            fireEvent(TriggerCondition.CRIT, e, dealt / REFERENCE_HIT)
+            fireEvent(TriggerCondition.CRIT, e, if (energyWeight > 0.0) energyWeight else dealt / REFERENCE_HIT)
             // 권능 충전은 치명타에서 가끔 생긴다 — 공허의 상을 더 만들 수 있다.
             if (rand.nextDouble() < 0.12) gainPowerCharge()
         }
@@ -3679,6 +3926,12 @@ class BattleWorld(
     /** 전직 효과 범위 증가를 반영한 반경 */
     private fun aoe(radius: Float): Float =
         (radius * (1f + (stats.aoePct / 100.0).toFloat())).coerceAtLeast(radius * 0.5f)
+
+    /** 적을 늦춘다 — 더 센 감속이 걸려 있으면 그 값을 유지한다 */
+    private fun slowEnemy(e: Enemy, seconds: Float, mul: Float = 0.7f) {
+        if (e.slowT <= 0f || mul < e.slowMul) e.slowMul = mul
+        e.slowT = max(e.slowT, seconds)
+    }
 
     /**
      * 전직이 부여한 스킬을 굴린다.
@@ -4096,7 +4349,7 @@ class BattleWorld(
         addBurst(from.x, from.y - 16f, 12, 0xFFBFF4FF.toInt(), 220f, 0.55f)
     }
 
-    /** 화염구 폭발 — 불티 고리가 사방으로 퍼진다 */
+    /** 화염구 폭발 — 불티 고리가 사방으로 퍼지고, 주입을 소모해 작은 화염 화살이 원형으로 나간다 */
     private fun fireballBurst(at: Enemy, damage: Double) {
         addFx(FxKind.RING, at.x, at.y, radius = 82f, life = 0.5f, color = 0xFFFF8A3D.toInt(), width = 1.3f)
         addFx(FxKind.RING, at.x, at.y, radius = 46f, life = 0.34f, color = 0xFFFFD27A.toInt(), width = 0.8f)
@@ -4107,6 +4360,23 @@ class BattleWorld(
         }
         areaHit(at.x, at.y, aoe(78f), damage * 0.45, DamageElement.FIRE, "화염구 폭발")
         igniteOil(at.x, at.y, 60f, damage)
+        // poe2db: 화염 주입을 소모하면 이 폭발이 작은 화염 화살을 고리 모양으로 발사한다.
+        val around = nearbyEnemies(at, 240f, 8)
+        fireballRings++
+        repeat(8) { i ->
+            val a = i * (PI_F * 2f / 8f)
+            val victim = around.getOrNull(i % around.size.coerceAtLeast(1)) ?: at
+            projectiles.add(
+                Projectile(
+                    x = at.x, y = at.y - 14f,
+                    dirX = cos(a), dirY = sin(a), speed = 430f + i * 14f,
+                    damage = damage * 0.08, crit = false, target = victim, hostile = false,
+                    element = DamageElement.FIRE, kind = ProjKind.ARROW, life = 0.9f,
+                    seed = rand.nextInt(),
+                )
+            )
+        }
+        addFx(FxKind.RING, at.x, at.y, radius = 96f, life = 0.38f, color = 0xFFFFB05A.toInt(), width = 1.1f)
         shake = max(shake, 3.4f)
     }
 
@@ -4119,7 +4389,7 @@ class BattleWorld(
         addBurst(p.x, p.y - 10f, 20, 0xFFFFA64D.toInt(), 310f, 0.75f, gravity = -60f)
         areaHit(p.x, p.y, radius, p.damage, DamageElement.FIRE, "폭발 유탄")
         if (p.oilRadius > 0f) {
-            spillOil(p.x, p.y, p.oilRadius)
+            spillOil(p.x, p.y, p.oilRadius, sticky = true)
             addFx(FxKind.OIL_SPLASH, p.x, p.y, radius = p.oilRadius * 1.2f, life = 0.7f, color = 0xFF8C7433.toInt())
             addPopup(p.x, p.y - 70f, "기름 지대", false, 0.7f, 0xFFC7A64B.toInt(), 0.8f)
         } else {
@@ -4136,6 +4406,8 @@ class BattleWorld(
             if (p.life <= 0f) {
                 // 기름 덩이는 날아간 자리에 그대로 떨어져 기름 지대가 된다.
                 if (p.kind == ProjKind.OIL && p.oilRadius > 0f) spillOil(p.x, p.y, p.oilRadius)
+                // 수명이 다한 전기불꽃은 마지막 불꽃만 남기고 흐트러진다.
+                if (p.kind == ProjKind.SPARK) addBurst(p.x, p.y, 3, 0xFFCFE8FF.toInt(), 120f, 0.2f)
                 projectiles.removeAt(i)
                 continue
             }
@@ -4173,6 +4445,12 @@ class BattleWorld(
                     projectiles.removeAt(i)
                     continue
                 }
+            } else if (p.kind == ProjKind.SPARK) {
+                // 전기불꽃은 대상에게 곧게 날아가지 않고 제멋대로 꺾이며 바닥을 기어간다.
+                if (!updateSpark(p, dt)) {
+                    projectiles.removeAt(i)
+                    continue
+                }
             } else {
                 val target = p.target
                 if (target != null && target.alive) {
@@ -4182,7 +4460,7 @@ class BattleWorld(
                     p.dirX = dx / d
                     p.dirY = dy / d
                 }
-                // 전기불꽃은 지면을 지그재그로 기어간다
+                // 전기를 띤 기름은 좌우로 흔들리며 날아간다
                 if (p.wobble > 0f) {
                     val t = (elapsed * 11.0).toFloat() + p.trail.size * 0.35f
                     val a = atan2(p.dirY, p.dirX) + sin(t) * p.wobble * dt * 14f
@@ -4204,32 +4482,6 @@ class BattleWorld(
                 p.trail.add(p.y)
                 if (p.trail.size > 14) p.trail.subList(0, p.trail.size - 14).clear()
 
-                // 전기불꽃은 벽에 부딪히면 튕기며 다른 갈래로 갈라진다.
-                if (p.kind == ProjKind.SPARK && p.bounces > 0) {
-                    var bounced = false
-                    if (p.x < 26f || p.x > W - 26f) {
-                        p.dirX = -p.dirX
-                        p.x = p.x.coerceIn(26f, W - 26f)
-                        bounced = true
-                    }
-                    if (p.y < 70f || p.y > H - 26f) {
-                        p.dirY = -p.dirY
-                        p.y = p.y.coerceIn(70f, H - 26f)
-                        bounced = true
-                    }
-                    if (bounced) {
-                        p.bounces--
-                        p.speed *= 0.88f
-                        addFx(
-                            FxKind.BOLT, p.x, p.y,
-                            x2 = p.x + p.dirX * 54f + (rand.nextFloat() - 0.5f) * 40f,
-                            y2 = p.y + p.dirY * 54f + (rand.nextFloat() - 0.5f) * 30f,
-                            life = 0.16f, color = 0xFFFFF3A8.toInt(), seed = rand.nextInt(), width = 0.9f,
-                        )
-                        addBurst(p.x, p.y, 3, 0xFFFFE272.toInt(), 140f, 0.24f)
-                    }
-                }
-
                 val t = p.target
                 val near = if (t != null && t.alive) {
                     hypot(t.x - p.x, (t.y - 26f * t.scale) - p.y) < 17f + 8f * t.scale
@@ -4247,6 +4499,87 @@ class BattleWorld(
             }
             i++
         }
+    }
+
+    /**
+     * 전기불꽃 한 줄기를 굴린다.
+     *
+     * 0.06~0.3초마다 방향을 불규칙하게 꺾어 지그재그로 기어가고, 스치는 적을
+     * 꿰뚫어 피해를 준다. 한 줄기가 같은 적을 두 번 때리지 않고, 남은 꿰뚫기나
+     * 튕김이 바닥나거나 수명이 다하면 사라진다. (살아 있으면 true)
+     */
+    private fun updateSpark(p: Projectile, dt: Float): Boolean {
+        p.age += dt
+        val target = p.target
+        // 방향 전환 — 목표 쪽으로는 아주 약하게만 기울고, 거의 제멋대로 꺾인다.
+        p.turnTimer -= dt
+        if (p.turnTimer <= 0f) {
+            p.turnTimer = 0.06f + rand.nextFloat() * 0.24f
+            val current = atan2(p.dirY, p.dirX)
+            val jitter = (rand.nextFloat() - 0.5f) * 2.6f * p.wobble
+            var aim = 0f
+            if (target != null && target.alive) {
+                val want = atan2(target.y - p.y, target.x - p.x) - current
+                aim = Math.IEEEremainder(want.toDouble(), PI_F * 2.0).toFloat() * 0.30f
+            }
+            val a = current + jitter + aim
+            p.dirX = cos(a)
+            p.dirY = sin(a)
+        }
+        p.x += p.dirX * p.speed * dt
+        p.y += p.dirY * p.speed * dt
+        p.trail.add(p.x)
+        p.trail.add(p.y)
+        // 궤적을 길게 남겨야 화면에 지그재그 줄기가 보인다.
+        if (p.trail.size > 72) p.trail.subList(0, p.trail.size - 72).clear()
+
+        // 벽에 부밪히면 튕기며 꺾이다. 남은 튕김이 없으면 거기서 흐트러진다.
+        var wall = false
+        if (p.x < 24f || p.x > W - 24f) {
+            p.dirX = -p.dirX
+            p.x = p.x.coerceIn(24f, W - 24f)
+            wall = true
+        }
+        if (p.y < 70f || p.y > H - 24f) {
+            p.dirY = -p.dirY
+            p.y = p.y.coerceIn(70f, H - 24f)
+            wall = true
+        }
+        if (wall) {
+            if (p.bounces <= 0) return false
+            p.bounces--
+            p.speed = (p.speed * 0.94f).coerceAtLeast(190f)
+            p.turnTimer = 0f
+            addFx(
+                FxKind.BOLT, p.x, p.y,
+                x2 = p.x + p.dirX * 46f + (rand.nextFloat() - 0.5f) * 36f,
+                y2 = p.y + p.dirY * 46f + (rand.nextFloat() - 0.5f) * 28f,
+                life = 0.14f, color = 0xFFBFE6FF.toInt(), seed = rand.nextInt(), width = 0.85f,
+            )
+            addBurst(p.x, p.y, 3, 0xFFE8F4FF.toInt(), 150f, 0.22f)
+        }
+
+        // 지나가는 적을 꿰뚫는다 — 한 줄기는 같은 적을 한 번만 때린다.
+        for (e in enemies) {
+            if (!e.alive) continue
+            if (p.pierced.any { it === e }) continue
+            if (hypot(e.x - p.x, (e.y - 26f * e.scale) - p.y) > 18f + 10f * e.scale) continue
+            p.pierced.add(e)
+            sparkHits++
+            val angle = atan2(p.dirY, p.dirX)
+            // 전기불꽃은 한 줄기가 한 번 스치는 것이 하나의 명중 사건이다 — 피해는 발수로
+            // 나뉘어 작지만, 메타젬 에너지는 명중 한 번의 몫으로 센다 (poe2db 메타젬 설명).
+            hitEnemy(e, p.damage, p.crit && p.pierced.size == 1, angle, 0.92f, energyWeight = p.energyWeight)
+            addFx(
+                FxKind.BOLT, p.x, p.y, x2 = e.x, y2 = e.y - 18f,
+                life = 0.14f, color = 0xFFFFF6C8.toInt(), seed = rand.nextInt(), width = 0.7f,
+            )
+            addFx(FxKind.ARC_WEB, e.x, e.y - 14f, angle = angle, radius = 36f, life = 0.16f, color = 0xFFBFE6FF.toInt())
+            addBurst(e.x, e.y - 16f, 3, 0xFFE8F4FF.toInt(), 160f, 0.22f)
+            if (p.pierce <= 0) return false
+            p.pierce--
+        }
+        return true
     }
 
     // ------------------------------------------------------------ 연출 헬퍼

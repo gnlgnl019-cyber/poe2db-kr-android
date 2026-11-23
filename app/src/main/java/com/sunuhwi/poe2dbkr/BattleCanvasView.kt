@@ -229,6 +229,7 @@ class BattleCanvasView @JvmOverloads constructor(
         drawOils(canvas, w)
         drawCursedGrounds(canvas, w)
         drawWhirlwinds(canvas, w)
+        drawFrostBombs(canvas, w)
         drawEntities(canvas, w)
         drawTwisters(canvas, w)
         drawProjectiles(canvas, w)
@@ -2513,8 +2514,56 @@ class BattleCanvasView @JvmOverloads constructor(
         }
     }
 
-    private fun drawGroundFx(c: Canvas, w: BattleWorld) {
-        for (fx in w.effects) {
+    /** 서리 폭탄의 보주와 켈라리의 분신 — 바닥에 놓이는 것들 */
+    private fun drawFrostBombs(c: Canvas, w: BattleWorld) {
+        for (b in w.frostBombs) {
+            val t = (b.fuse / BattleWorld.FROST_BOMB_FUSE).coerceIn(0f, 1f)
+            val beat = 0.6f + 0.4f * sin(b.pulse * 6.0).toFloat()
+            // 기폭이 가까울수록 밝게 맥동한다.
+            val glow = (0.45f + (1f - t) * 0.55f) * beat
+            glowAt(c, b.x, b.y - 22f, 26f, 0xFF9BE8FF.toInt(), (150 * glow).toInt().coerceIn(0, 255))
+            fill.shader = RadialGradient(
+                b.x, b.y - 22f, 13f,
+                intArrayOf(0xFFF2FDFF.toInt(), alpha(0xFF9BE8FF.toInt(), 220), alpha(0xFF4FA8D8.toInt(), 90), 0x00000000),
+                floatArrayOf(0f, 0.35f, 0.7f, 1f), Shader.TileMode.CLAMP,
+            )
+            c.drawCircle(b.x, b.y - 22f, 13f, fill)
+            fill.shader = null
+            // 보주의 가시 결정
+            stroke.color = alpha(0xFFDFF9FF.toInt(), 210)
+            stroke.strokeWidth = 1.1f
+            for (i in 0 until 6) {
+                val a = i * 1.047f + b.pulse * 0.6f
+                c.drawLine(
+                    b.x + cos(a) * 10f, b.y - 22f + sin(a) * 10f,
+                    b.x + cos(a) * (15f + beat * 3f), b.y - 22f + sin(a) * (15f + beat * 3f), stroke,
+                )
+            }
+            // 남은 시간 고리
+            stroke.color = alpha(0xFF9BE8FF.toInt(), (90 + 90 * glow).toInt().coerceIn(0, 255))
+            stroke.strokeWidth = 1.2f
+            c.drawOval(b.x - 96f * t, b.y - 40f * t, b.x + 96f * t, b.y + 40f * t, stroke)
+        }
+        val decoy = w.spiritDecoy ?: return
+        val fade = decoy.fade
+        if (fade <= 0.03f) return
+        // 모래로 빚은 분신 — 반투명하게 흔들린다
+        val sway = sin(w.elapsed * 5.0).toFloat() * 3f
+        fill.color = alpha(0xFFD8C3A0.toInt(), (110 * fade).toInt().coerceIn(0, 255))
+        c.drawOval(decoy.x - 13f, decoy.y - 5f, decoy.x + 13f, decoy.y + 5f, fill)
+        stroke.color = alpha(0xFFE8D9B8.toInt(), (170 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 3.2f
+        c.drawLine(decoy.x + sway, decoy.y - 46f, decoy.x, decoy.y - 8f, stroke)
+        c.drawCircle(decoy.x + sway, decoy.y - 52f, 6.5f, stroke)
+        fill.color = alpha(0xFFF2E6C8.toInt(), (200 * fade).toInt().coerceIn(0, 255))
+        c.drawCircle(decoy.x + sway, decoy.y - 52f, 3.4f, fill)
+        // 다시 쓰면 터진다는 표시
+        stroke.color = alpha(0xFFE8D9B8.toInt(), (70 * fade).toInt().coerceIn(0, 255))
+        stroke.strokeWidth = 1f
+        c.drawOval(decoy.x - 30f, decoy.y - 12f, decoy.x + 30f, decoy.y + 12f, stroke)
+    }
+
+    private fun drawGroundFx(c: Canvas, w: BattleWorld) {        for (fx in w.effects) {
             val t = 1f - (fx.life / max(0.0001f, fx.maxLife)).coerceIn(0f, 1f)
             when (fx.kind) {
                 FxKind.RING, FxKind.SHOCKWAVE -> {
@@ -3091,26 +3140,8 @@ class BattleCanvasView @JvmOverloads constructor(
                     c.restore()
                 }
                 ProjKind.SPARK -> {
-                    // 전기불꽃: 지그재그로 갈라지는 작은 번개 덩어리
-                    drawTrail(c, p, 0xFFFFE272.toInt(), 9f)
-                    fill.shader = RadialGradient(
-                        p.x, p.y, 15f,
-                        intArrayOf(0xFFFFFFE0.toInt(), alpha(0xFFFFE272.toInt(), 200), 0x00000000),
-                        null, Shader.TileMode.CLAMP,
-                    )
-                    c.drawCircle(p.x, p.y, 15f, fill)
-                    fill.shader = null
-                    stroke.color = 0xFFFFFFFF.toInt()
-                    stroke.strokeWidth = 1.3f
-                    var px = p.x
-                    var py = p.y
-                    for (i in 0 until 3) {
-                        val nx = p.x + cos((p.trail.size + i * 2.1f)) * 7f
-                        val ny = p.y + sin((p.trail.size + i * 2.7f)) * 7f
-                        c.drawLine(px, py, nx, ny, stroke)
-                        px = nx
-                        py = ny
-                    }
+                    // 전기불꽃: 지나온 자리를 지그재그 번개 줄기로 잇는다
+                    drawSparkBolt(c, p)
                 }
                 ProjKind.FROST_ORB -> {
                     drawTrail(c, p, 0xFF8FE6FF.toInt(), 15f)
@@ -3222,8 +3253,97 @@ class BattleCanvasView @JvmOverloads constructor(
         }
     }
 
-    private fun drawTrail(c: Canvas, p: Projectile, color: Int, radius: Float) {
+    /**
+     * 전기불꽃 줄기 — 지나온 자리를 점마다 옆으로 흔들어 지그재그 번개로 잇는다.
+     *
+     * 가장 아래에 보랏빛 번개를 넓게 깔고, 그 위에 청백색 심과 흰 줄기를 올린다.
+     * 꼬리 쪽은 옅게, 머리 쪽은 진하게 그려 방금 터진 불꽃처럼 보이게 하고,
+     * 중간에서 한두 갈래가 옆으로 갈라진다. 머리에는 밝은 전구가 맺힌다.
+     */
+    private fun drawSparkBolt(c: Canvas, p: Projectile) {
         val trail = p.trail
+        val points = trail.size / 2
+        val flicker = 0.72f + 0.28f * sin((p.age * 42.0 + (p.seed % 11)).toDouble()).toFloat()
+        if (points >= 3) {
+            val amp = 3.5f + 7f * p.wobble
+            val half = points / 2
+            stroke.strokeCap = Paint.Cap.ROUND
+            for (part in 0..1) {
+                val from = if (part == 0) 0 else half - 1
+                val to = if (part == 0) half else points - 1
+                val a = if (part == 0) 0.42f else 1f
+                buildSparkPath(trail, from, to, p, amp)
+                if (part == 1) path.lineTo(p.x, p.y)
+                stroke.color = alpha(0xFF7B5BFF.toInt(), (74 * a * flicker).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 8.5f
+                c.drawPath(path, stroke)
+                stroke.color = alpha(0xFF9FD4FF.toInt(), (160 * a * flicker).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 3.2f
+                c.drawPath(path, stroke)
+                stroke.color = alpha(0xFFFFFFFF.toInt(), (218 * a * flicker).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 1.25f
+                c.drawPath(path, stroke)
+            }
+            // 중간에서 옆으로 갈라지는 잔 가지
+            for (k in 0 until 2) {
+                val idx = (points * (if (k == 0) 5 else 8) / 12).coerceIn(1, points - 1)
+                val bx = trail[2 * idx]
+                val by = trail[2 * idx + 1]
+                val baseAng = kotlin.math.atan2(p.dirY, p.dirX) + (if (k == 0) 1.15f else -1.15f)
+                val len = 15f + abs(sparkNoise(p.seed, idx + k * 7)) * 34f
+                path.reset()
+                path.moveTo(bx, by)
+                path.lineTo(
+                    bx + cos(baseAng) * len * 0.55f + sparkNoise(p.seed, idx + 3) * 7f,
+                    by + sin(baseAng) * len * 0.55f,
+                )
+                path.lineTo(bx + cos(baseAng) * len, by + sin(baseAng) * len)
+                stroke.color = alpha(0xFFDBEEFF.toInt(), (150 * flicker).toInt().coerceIn(0, 255))
+                stroke.strokeWidth = 1.1f
+                c.drawPath(path, stroke)
+            }
+        }
+        // 머리에 맺히는 전구 — 보랏빛 테두리 안의 청백색 빛
+        fill.shader = RadialGradient(
+            p.x, p.y, 17f,
+            intArrayOf(
+                0xFFFFFFFF.toInt(),
+                alpha(0xFFBEE6FF.toInt(), 210),
+                alpha(0xFF7B5BFF.toInt(), 90),
+                0x00000000,
+            ),
+            floatArrayOf(0f, 0.32f, 0.62f, 1f), Shader.TileMode.CLAMP,
+        )
+        c.drawCircle(p.x, p.y, 17f, fill)
+        fill.shader = null
+        fill.color = alpha(0xFFFFFFFF.toInt(), (235 * flicker).toInt().coerceIn(0, 255))
+        c.drawCircle(p.x, p.y, 2.6f, fill)
+    }
+
+    /** 전기불꽃 줄기 하나를 점마다 흔들어 그린다 (꼬리→머리) */
+    private fun buildSparkPath(trail: MutableList<Float>, from: Int, to: Int, p: Projectile, amp: Float) {
+        path.reset()
+        if (from >= to) return
+        path.moveTo(trail[2 * from], trail[2 * from + 1])
+        for (i in from + 1..to) {
+            val x = trail[2 * i]
+            val y = trail[2 * i + 1]
+            val dx = x - trail[2 * i - 2]
+            val dy = y - trail[2 * i - 1]
+            val len = hypot(dx, dy).coerceAtLeast(0.001f)
+            val o = sparkNoise(p.seed, i) * amp
+            path.lineTo(x - dy / len * o, y + dx / len * o)
+        }
+    }
+
+    /** 궤적을 흔들 때 쓰는 고정 난수 (-0.5~0.5) */
+    private fun sparkNoise(seed: Int, i: Int): Float {
+        var h = seed * 374761393 + i * 668265263
+        h = (h xor (h shr 13)) * 1274126177
+        return ((h xor (h shr 16)) and 0xFFFF) / 65535f - 0.5f
+    }
+
+    private fun drawTrail(c: Canvas, p: Projectile, color: Int, radius: Float) {        val trail = p.trail
         if (trail.size >= 4) {
             for (i in 2 until trail.size step 2) {
                 val f = i.toFloat() / trail.size
