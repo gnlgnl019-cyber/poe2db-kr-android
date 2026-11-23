@@ -418,7 +418,7 @@ class Projectile(
     var y: Float,
     var dirX: Float,
     var dirY: Float,
-    val speed: Float,
+    var speed: Float,
     val damage: Double,
     val crit: Boolean,
     val target: Enemy?,
@@ -1350,7 +1350,7 @@ class BattleWorld(
             ComboRole.BURST -> if (step.note.isBlank()) step.label else "${step.label} · ${step.note}"
             ComboRole.CURSE -> "${step.label} → ${next.label}"
             ComboRole.MAIN -> {
-                val stack = if (usesBell && step.repeats > 1) {
+                val stack = if (usesBell && step.repeats > 1 && step.note.isNotBlank()) {
                     " ${min(comboStacks, step.repeats)}/${step.repeats}"
                 } else ""
                 "${step.label}$stack → ${next.label}"
@@ -1641,10 +1641,13 @@ class BattleWorld(
 
     /** 폭발 유탄 — 통통 튀어 날아간 뒤 퓨즈가 타면 터진다 */
     private fun grenade(target: Enemy, damage: Double, angle: Float) {
+        // 대상 지점까지 굴러가도록 거리에 맞춰 던진다
+        val dist = hypot(target.x - player.x, target.y - player.y)
+        val speed = (dist * 2.3f).coerceIn(180f, 760f)
         projectiles.add(
             Projectile(
                 x = player.x + cos(angle) * 16f, y = player.y + sin(angle) * 16f - 24f,
-                dirX = cos(angle), dirY = sin(angle), speed = 560f,
+                dirX = cos(angle), dirY = sin(angle), speed = speed,
                 damage = damage, crit = false, target = target, hostile = false,
                 element = DamageElement.FIRE, kind = ProjKind.GRENADE, life = 3.6f, fuse = 1.0f,
             )
@@ -2979,9 +2982,10 @@ class BattleWorld(
                     continue
                 }
             } else if (p.kind == ProjKind.GRENADE) {
-                // 유탄은 적을 쪼지 않고 통통 틴다 — 퓨즈가 다 타면 터진다
+                // 유탄은 적을 쫓지 않고 굴러가다 멈춘다 — 퓨즈가 다 타면 그 자리에서 터진다
                 p.x += p.dirX * p.speed * dt
                 p.y += p.dirY * p.speed * dt
+                p.speed *= (1f - 2.1f * dt)
                 p.lift += dt
                 if (p.x < 30f || p.x > W - 30f) {
                     p.dirX = -p.dirX

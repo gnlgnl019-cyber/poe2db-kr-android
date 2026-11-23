@@ -259,10 +259,10 @@ class SkillMotionTest {
     fun rocketGrenadeExplodesAfterFuse() {
         val world = BattleWorld(
             stats(skill = "폭발 유탄", fx = SkillEffectType.FIRE, weapon = WeaponVisualType.CROSSBOW, form = AttackForm.CROSSBOW),
-            BattleMode.MAP, 25, false, null,
+            BattleMode.MAP, 30, false, null,
         )
         var grenades = 0
-        repeat(60 * 4) {
+        repeat(60 * 6) {
             world.update(1.0 / 60.0)
             grenades = maxOf(grenades, world.projectiles.count { p -> p.kind == ProjKind.GRENADE })
         }
