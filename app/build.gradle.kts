@@ -26,13 +26,13 @@ fun signingValue(env: String, prop: String): String? =
 
 android {
     namespace = "com.sunuhwi.poe2dbkr"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.sunuhwi.poe2dbkr"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
+        targetSdk = 36
+        versionCode = 2
         versionName = "1.0.0"
 
         resourceConfigurations += listOf("ko", "en")
