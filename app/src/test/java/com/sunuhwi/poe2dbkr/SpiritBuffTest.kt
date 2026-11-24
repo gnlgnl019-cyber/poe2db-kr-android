@@ -151,6 +151,33 @@ class SpiritBuffTest {
     }
 
     @Test
+    fun realBuildTurnsItsSpiritGemsOn() {
+        val build = Pob.decode(File("src/test/resources/pob_real_build.txt").readText())
+        val plan = SpiritBuffs.plan(build, catalog, KrDict.EMPTY)
+        println("[TEST] ${plan.summary} · 꺼짐=${plan.inactive.map { it.name }}")
+        val names = plan.active.map { it.gem.en }
+        assertTrue("바람의 무희가 켜지지 않았다", names.contains("Wind Dancer"))
+        assertTrue("원소 융합이 켜지지 않았다", names.contains("Elemental Conflux"))
+        assertTrue("정신력 젬을 다섯도 못 켰다: $names", names.size >= 5)
+        // 켜진 몫은 반드시 예산 안이어야 하고, 넘친 젬은 꺼짐으로 남아야 한다.
+        assertTrue("예산을 넘겨 켰다", plan.reserved <= plan.spirit + 0.001)
+        plan.inactive.forEach { spec ->
+            assertEquals("꺼진 젬도 목록에는 남는다", false, spec.active)
+        }
+        if (plan.inactive.isNotEmpty()) {
+            assertTrue("꺼짐 이유가 화면에 없다", plan.summary.contains("꺼짐"))
+        }
+        val stats = BattleSetup.statsFor(build, spiritCatalog = catalog)
+        assertNotNull(stats)
+        println("[TEST] 반영된 버프 수 ${stats!!.spiritBuffs.active.size} · 회피 ${stats.evade} · 생명력 ${stats.life}")
+        assertTrue("전투 수치에 버프가 반영되지 않았다", stats.spiritBuffs.active.size >= 5)
+        val world = BattleWorld(stats, BattleMode.MAP, 25, false, null, seed = 7L)
+        repeat(900) { world.update(1.0 / 60.0) }
+        println("[TEST] 전투 HUD=${world.spiritHud()} · 버프 피해=${world.spiritDamage} · 처치=${world.kills}")
+        assertTrue("정신력 버프가 전투에서 돌지 않았다", world.spiritHud().isNotBlank())
+    }
+
+    @Test
     fun itemGrantedBuffIsListed() {
         val b = PobBuild(className = "Monk")
         b.stats["Spirit"] = 100.0

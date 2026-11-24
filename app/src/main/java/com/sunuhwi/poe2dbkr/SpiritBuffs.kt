@@ -214,13 +214,15 @@ data class SpiritBuffPlan(
 
     fun spec(en: String): SpiritSpec? = active.firstOrNull { it.gem.en.equals(en, ignoreCase = true) }
 
-    /** 화면·결과 글 한 줄 (예: "바람의 무희 · 혼의 춤 · 정신력 90/130") */
+    /** 화면·결과 글 한 줄 (예: "바람의 무희 · 혼의 춤 · 정신력 90/130 · 혼의 춤(꺼짐)") */
     val summary: String
         get() = buildList {
             if (active.isNotEmpty()) add(active.joinToString(" · ") { it.name })
             if (spirit > 0.0) {
                 add("정신력 ${(reserved + spiritForMinions).toInt()}/${spirit.toInt()}")
             }
+            // 정신력이 모자라 꺼진 젬은 이유와 함께 남긴다.
+            if (inactive.isNotEmpty()) add(inactive.joinToString(" · ") { "${it.name}(꺼짐)" })
         }.joinToString(" · ")
 
     companion object {
