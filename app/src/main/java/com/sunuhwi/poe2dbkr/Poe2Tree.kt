@@ -28,6 +28,8 @@ data class TreeNode(
     val grantedText: String = "",
     /** 부여 스킬의 세부 수치 (poe2db 스킬 창 기준) */
     val grantedStats: String = "",
+    /** 아이콘 스프라이트 안의 자리 [x, y, w, h] (없으면 null) */
+    val icon: IntArray? = null,
 ) {
     val displayName: String get() = nameKo.ifBlank { nameEn }
     val isKeystone: Boolean get() = kind == 'k'
@@ -56,6 +58,8 @@ class TreeDict(
     val ascStarts: Map<Int, Int> = emptyMap(),
     /** 트리 전체 범위 [minX, minY, maxX, maxY] */
     val bounds: FloatArray = FloatArray(0),
+    /** 노드 아이콘을 모아 둔 스프라이트 파일 이름 */
+    val iconAsset: String = "tree_icons.webp",
 ) {
 
     /** 화면에 그릴 때 쓰는 배열 묶음 (한 번만 만든다) */
@@ -163,6 +167,10 @@ class TreeDict(
                 val row = nodeArray?.optJSONArray(i) ?: continue
                 val id = row.optInt(0, 0)
                 if (id <= 0) continue
+                val icon = row.optJSONArray(11)?.let { rect ->
+                    if (rect.length() < 4) null
+                    else intArrayOf(rect.optInt(0, 0), rect.optInt(1, 0), rect.optInt(2, 0), rect.optInt(3, 0))
+                }
                 nodes[id] = TreeNode(
                     id = id,
                     nameEn = row.optString(1),
@@ -175,6 +183,7 @@ class TreeDict(
                     grantedName = row.optString(8),
                     grantedText = row.optString(9),
                     grantedStats = row.optString(10),
+                    icon = icon,
                 )
             }
             val edges = ArrayList<Int>()
@@ -210,7 +219,10 @@ class TreeDict(
             } else {
                 FloatArray(0)
             }
-            return TreeDict(classes, nodes, edges, classStarts, ascStarts, bounds)
+            return TreeDict(
+                classes, nodes, edges, classStarts, ascStarts, bounds,
+                root.optString("icons", "tree_icons.webp"),
+            )
         }
 
         /** 고유 이름·노드 이름을 바이트열로 (큰 수 먼저). */

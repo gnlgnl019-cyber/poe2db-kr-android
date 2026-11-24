@@ -197,6 +197,9 @@ open class JSONObject {
 
     fun length(): Int = map.size
 
+    /** 실제 org.json과 같은 이름 순회 (테스트에서도 이름 목록을 쓸 수 있게) */
+    fun keys(): MutableIterator<String> = map.keys.iterator()
+
     override fun toString(): String = map.toString()
 }
 

@@ -23,9 +23,13 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
+from tree_icons import build as build_icons
+
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / ".cache" / "tree"
 OUT = ROOT / "app" / "src" / "main" / "assets" / "poe2_tree_kr.json"
+ICON_OUT = ROOT / "app" / "src" / "main" / "assets" / "tree_icons.webp"
+ICON_CACHE = ROOT / ".cache" / "icons"
 URL = "https://poe2db.tw/data/passive-skill-tree/0.5/data_{lang}.json?17"
 UA = (
     "Mozilla/5.0 (Linux; Android 14; SM-S918N) AppleWebKit/537.36 "
@@ -96,6 +100,13 @@ def main():
             if asc.get("id"):
                 asc_index[asc["id"]] = (i, j + 1)
 
+    # 노드 아이콘은 한 장의 스프라이트로 묶는다 (앱에서 트리를 그릴 때 잘라 쓴다).
+    icon_rects = build_icons(
+        [node.get("icon") for key, node in ko_nodes.items() if key != "root"],
+        ICON_CACHE,
+        ICON_OUT,
+    )
+
     nodes = []
     masteries = {}
     counts = {}
@@ -131,6 +142,7 @@ def main():
             granted_name,
             granted_text,
             "\n".join(granted_stats),
+            icon_rects.get(node.get("icon") or ""),
         ])
         if kind == "m" and node.get("masteryEffects"):
             rows = []
@@ -173,6 +185,7 @@ def main():
         "classStarts": class_starts,
         "ascStarts": asc_starts,
         "masteries": masteries,
+        "icons": "tree_icons.webp",
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"노드 종류 {counts}")

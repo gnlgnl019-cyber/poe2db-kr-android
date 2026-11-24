@@ -4076,8 +4076,12 @@ class BattleCanvasView @JvmOverloads constructor(
         val herald = w.heraldHud()
         val heraldLines = if (herald.isBlank()) emptyList()
         else wrapText("\u2744 $herald", max(80f * dp, badgeW - 20f * dp), 1)
+        // 정신력 점유 버프도 한 줄 (오라·지속 버프·발동 젬)
+        val spirit = w.spiritHud()
+        val spiritLines = if (spirit.isBlank()) emptyList()
+        else wrapText("\u25C8 $spirit", max(80f * dp, badgeW - 20f * dp), 1)
         val badgeH = (27f + (triggerLines.size + ascendLines.size + comboLines.size + minionLines.size +
-            beastLines.size + oilLines.size + heraldLines.size) * 11f) * dp
+            beastLines.size + oilLines.size + heraldLines.size + spiritLines.size) * 11f) * dp
 
         rect.set(pad, pad, pad + badgeW, pad + badgeH)
         fill.color = 0xCC0E1117.toInt()
@@ -4160,6 +4164,16 @@ class BattleCanvasView @JvmOverloads constructor(
             heraldLines.forEachIndexed { index, line ->
                 val y = pad + (33f + (triggerLines.size + ascendLines.size + comboLines.size +
                     minionLines.size + beastLines.size + oilLines.size + index) * 11f) * dp
+                c.drawText(line, pad + 10f * dp, y, textLight)
+            }
+            textLight.textSize = 10f * dp
+        }
+        if (spiritLines.isNotEmpty()) {
+            textLight.color = 0xFFE4C98A.toInt()
+            textLight.textSize = 9.5f * dp
+            spiritLines.forEachIndexed { index, line ->
+                val y = pad + (33f + (triggerLines.size + ascendLines.size + comboLines.size +
+                    minionLines.size + beastLines.size + oilLines.size + heraldLines.size + index) * 11f) * dp
                 c.drawText(line, pad + 10f * dp, y, textLight)
             }
             textLight.textSize = 10f * dp

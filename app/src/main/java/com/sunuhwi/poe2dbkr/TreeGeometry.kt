@@ -12,6 +12,7 @@ enum class TreeKind {
             'j' -> JEWEL
             'a' -> ASCENDANT_START
             'c' -> CLASS_START
+            'e' -> ASCENDANT
             else -> NORMAL
         }
     }
@@ -103,30 +104,64 @@ class TreeGeometry(
                 }
                 n++
             }
-            val position = HashMap<Int, Int>(n * 2)
-            for (i in 0 until n) position[ids[i]] = i
-            val edges = ArrayList<Int>(tree.edges.size)
+            return build(ids, xs, ys, codes, tree.edges, tree.bounds)
+        }
+
+        /** 아틀라스 트리도 같은 배열 구조로 옮긴다 */
+        fun ofAtlas(atlas: AtlasDict): TreeGeometry {
+            if (atlas.nodes.isEmpty()) return EMPTY
+            val ids = IntArray(atlas.nodes.size)
+            val xs = FloatArray(atlas.nodes.size)
+            val ys = FloatArray(atlas.nodes.size)
+            val codes = ByteArray(atlas.nodes.size)
+            var n = 0
+            atlas.nodes.values.forEach { node ->
+                ids[n] = node.id
+                xs[n] = node.x
+                ys[n] = node.y
+                codes[n] = when (node.kind) {
+                    'n' -> 'n'.code.toByte()
+                    'k' -> 'k'.code.toByte()
+                    'm' -> 'm'.code.toByte()
+                    'j' -> 'j'.code.toByte()
+                    else -> 's'.code.toByte()
+                }
+                n++
+            }
+            return build(ids, xs, ys, codes, atlas.edges, atlas.bounds)
+        }
+
+        private fun build(
+            ids: IntArray,
+            xs: FloatArray,
+            ys: FloatArray,
+            codes: ByteArray,
+            pairs: List<Int>,
+            bounds3: FloatArray,
+        ): TreeGeometry {
+            val position = HashMap<Int, Int>(ids.size * 2)
+            for (i in ids.indices) position[ids[i]] = i
+            val edges = ArrayList<Int>(pairs.size)
             var i = 0
-            while (i + 1 < tree.edges.size) {
-                val a = position[tree.edges[i]]
-                val b = position[tree.edges[i + 1]]
+            while (i + 1 < pairs.size) {
+                val a = position[pairs[i]]
+                val b = position[pairs[i + 1]]
                 if (a != null && b != null) {
                     edges.add(a)
                     edges.add(b)
                 }
                 i += 2
             }
-            val bounds = tree.bounds
             return TreeGeometry(
                 ids = ids,
                 xs = xs,
                 ys = ys,
                 codes = codes,
                 edges = edges.toIntArray(),
-                minX = if (bounds.size > 0) bounds[0] else xs.min(),
-                minY = if (bounds.size > 1) bounds[1] else ys.min(),
-                maxX = if (bounds.size > 2) bounds[2] else xs.max(),
-                maxY = if (bounds.size > 3) bounds[3] else ys.max(),
+                minX = if (bounds3.size > 0) bounds3[0] else xs.min(),
+                minY = if (bounds3.size > 1) bounds3[1] else ys.min(),
+                maxX = if (bounds3.size > 2) bounds3[2] else xs.max(),
+                maxY = if (bounds3.size > 3) bounds3[3] else ys.max(),
             )
         }
     }
@@ -194,6 +229,17 @@ class TreeViewport {
         scale = next
         offsetX = focusX - tx * scale
         offsetY = focusY - ty * scale
+    }
+
+    /** 화면 맞춤 계산 없이 배율을 직접 지정한다 (검색으로 노드로 날아갈 때). */
+    fun setScale(value: Float) {
+        scale = value.coerceIn(fitScale * 0.6f, maxScale)
+    }
+
+    /** 이동값을 직접 지정한다. */
+    fun setOffset(x: Float, y: Float) {
+        offsetX = x
+        offsetY = y
     }
 
     fun pan(dx: Float, dy: Float) {

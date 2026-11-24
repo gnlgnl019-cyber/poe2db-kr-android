@@ -9,6 +9,9 @@
     <color name="gold_soft">#E8C86A</color>
     <color name="gold_15">#26D4AF37</color>
     <color name="gold_40">#66D4AF37</color>
+    <color name="bronze">#6B5A33</color>
+    <color name="bronze_soft">#9A7F46</color>
+    <color name="ink">#0B0E14</color>
 
     <color name="text_primary">#ECE8E1</color>
     <color name="text_secondary">#A9AFBA</color>

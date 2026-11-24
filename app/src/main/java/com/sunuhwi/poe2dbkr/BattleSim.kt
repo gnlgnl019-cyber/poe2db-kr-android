@@ -196,6 +196,9 @@ data class BattlePlayerStats(
     /** PoB에서 읽은 전령 구성 (정신력 점유·보조 젬 포함) */
     val heralds: HeraldPlan = HeraldPlan.EMPTY,
 
+    /** PoB에서 읽은 정신력 점유 버프 (오라·지속 버프·발동 젬 포함) */
+    val spiritBuffs: SpiritBuffPlan = SpiritBuffPlan.EMPTY,
+
     /** 충전 운용 규칙 — 전투 격분·공명·충전 조절 등 (빌드 글에서 읽는다) */
     val charges: ChargeRules = ChargeRules(),
 
@@ -807,6 +810,9 @@ data class BattleResult(
     val heraldDamage: Double = 0.0,
     val heraldReports: List<HeraldReport> = emptyList(),
     val heraldText: String = "",
+    /** 정신력 점유 버프가 낸 피해·버프별 기록 */
+    val spiritDamage: Double = 0.0,
+    val spiritReports: List<SpiritReport> = emptyList(),
     /** 동결 상태로 부서진(산산조각) 적 수 */
     val shatters: Int = 0,
     /** 클리어 요약 (승리했을 때만) */
@@ -1165,6 +1171,41 @@ class BattleWorld(
         private set
     /** 천둥의 전령이 감전에서 낙뢰를 다시 내리는 간격 제한 */
     private var thunderOnShockCooldown = 0f
+
+    // ---------------------------------------------------------- 정신력 점유 버프
+    /** 이 전투에 켜진 정신력 점유 버프 (오라·지속 버프·발동 젬) */
+    val spiritBuffs: List<SpiritSpec> = stats.spiritBuffs.active
+    private var spiritAuraTimer = 0f
+    /** 바람의 무희 단계 (최대 3) */
+    private var windStages = 0f
+    private var windStageTimer = 0f
+    /** 혼의 춤 연막 (최대 3) */
+    private var shrouds = 0
+    private var shroudTimer = 0f
+    /** 철의 수호가 모아 둔 물리 피해 */
+    private var ironWardStored = 0.0
+    private var ironWardTimer = 0f
+    /** 독성 운반자가 모아 둔 중독 피해 */
+    private var plagueStored = 0.0
+    private var plagueTimer = 0f
+    /** 격노 중첩 (야만적인 광분·광폭·영원한 격노) */
+    private var rageStacks = 0f
+    private var caltropTimer = 0f
+    private var briarTimer = 0f
+    /** 원소 융합의 원소가 바뀌는 시계 (8초 주기) */
+    private var confluxPhase = 0f
+    /** 희귀·고유 적과 붙어 있던 시간 (소모) */
+    private var attritionTime = 0f
+    /** 껍질피부가 준 방어가 남은 시간 */
+    private var barkGuard = 0f
+    /** 정신력 버프가 낸 피해와 발동 횟수 */
+    var spiritDamage = 0.0
+        private set
+    private val spiritProcs = LinkedHashMap<String, Int>()
+    private val spiritDamageByName = LinkedHashMap<String, Double>()
+
+    /** 그 정신력 젬이 켜져 있는지 */
+    fun spiritOn(en: String): Boolean = spiritBuffs.any { it.gem.en == en }
 
     // ---------------------------------------------------------- 피해·사망 기록
     /** 이번 전투에서 스킬 하나가 쌓은 피해 (주력·콤보·메타젬·소환수·전직 전부) */
@@ -1679,6 +1720,7 @@ class BattleWorld(
         updateCharges(dt)
         checkOilIgnition()
         updateStrikes(dt)
+        updateSpirit(dt)
         refillSpawns()
         if (player.life <= 0.0) {
             player.life = 0.0
@@ -2175,7 +2217,8 @@ class BattleWorld(
         val perHit = dps / aps
         val factor = critFactor.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val hunt = 1.0 + huntStacks * 0.08
-        return (perHit / factor * hunt).coerceAtLeast(1.0)
+        // 정신력 버프의 격노·소모·원소 융합은 때리는 순간마다 배율로 들어간다.
+        return (perHit / factor * hunt * spiritHitMul()).coerceAtLeast(1.0)
     }
 
     /** 초당 공격 횟수가 0/NaN으로 들어와도 루프가 멈추지 않게 한다. */
@@ -2199,6 +2242,7 @@ class BattleWorld(
         // 폭풍의 종을 쓰는 빌드는 주력기로 연계를 쌓는다 (종 자체는 연계를 만들지 않는다).
         if (usesBell && stats.motion != SkillMotion.TEMPEST_BELL) gainBellCombo()
         val (damage, crit) = rollDamage()
+        spiritOnStrike(damage)
         val angle = atan2(target.y - player.y, target.x - player.x)
         val blink = stats.flicker &&
             (stats.form == AttackForm.MELEE || stats.form == AttackForm.UNARMED)
@@ -4626,9 +4670,229 @@ class BattleWorld(
         if (stats.fx == SkillEffectType.MINION) fireEvent(TriggerCondition.MINION_DEATH, null, 0.6)
         // 전령 — 처치 직전의 상태(동결·산산조각·감전)로 조건부 발동한다.
         triggerHeralds(e, frozenDeath)
+        // 정신력 버프 중 처치 조건이 붙은 것(역병·피의 전령)도 함께 돈다.
+        spiritOnKill(e)
     }
 
-    // ------------------------------------------------------------ 전령
+    // ------------------------------------------------------------ 정신력 점유 버프
+
+    /**
+     * 정신력 점유 버프의 시간 흐름.
+     * 단계·연막·저장 피해처럼 시간에 따라 쌓이는 것들을 여기서 돌린다.
+     */
+    private fun updateSpirit(dt: Float) {
+        if (spiritBuffs.isEmpty()) return
+        // 켜진 버프가 있으면 발밑에 옅은 오라 고리를 띄운다 (어느 버프인지 색으로 구분).
+        spiritAuraTimer -= dt
+        if (spiritAuraTimer <= 0f) {
+            spiritAuraTimer = 0.9f
+            val color = spiritColor(spiritBuffs.first())
+            addFx(FxKind.AURA, player.x, player.y, radius = 44f, life = 0.72f, color = color)
+        }
+        if (barkGuard > 0f) barkGuard = max(0f, barkGuard - dt)
+
+        // 바람의 무희 — 1.3초마다 단계 하나 (최대 3)
+        if (spiritOn("Wind Dancer")) {
+            windStageTimer += dt
+            if (windStageTimer >= 1.3f && windStages < 3f) {
+                windStageTimer = 0f
+                windStages += 1f
+            }
+        }
+        // 혼의 춤 — 11초마다 연막 하나 (최대 3)
+        if (spiritOn("Ghost Dance")) {
+            shroudTimer += dt
+            if (shroudTimer >= 11f) {
+                shroudTimer = 0f
+                shrouds = min(3, shrouds + 1)
+            }
+        }
+        // 격노 — 공격을 이어 가면 쌓이고, 적이 없으면 흘러내린다
+        if (spiritOn("Savage Fury") || spiritOn("Berserk") || spiritOn("Eternal Rage")) {
+            val fighting = enemies.any { it.alive }
+            if (fighting) {
+                rageStacks = min(20f, rageStacks + dt * effectiveAps().toFloat() * 0.5f)
+            } else {
+                rageStacks = max(0f, rageStacks - dt * 2f)
+            }
+            // 야만적인 광분은 유지하는 동안 생명력을 태운다.
+            if (spiritOn("Savage Fury") && rageStacks > 0f && player.life > 1.0) {
+                player.life -= player.baseLife * 0.03 * dt * (rageStacks / 20f)
+            }
+        }
+        // 소모 — 희귀·고유 적과 붙어 있는 시간만큼 강해진다
+        if (spiritOn("Attrition")) {
+            val close = enemies.any { it.alive && it.kind != EnemyKind.NORMAL }
+            attritionTime = if (close) min(40f, attritionTime + dt) else max(0f, attritionTime - dt * 2f)
+        }
+        // 원소 융합 — 8초마다 원소가 바뀌고, 그 원소의 피해가 4초 동안 커진다
+        if (spiritOn("Elemental Conflux") || spiritOn("Trinity")) {
+            confluxPhase = (confluxPhase + dt) % 8f
+        }
+        // 철의 수호 — 모아 둔 물리 피해가 한계를 넘으면 터진다
+        if (ironWardStored > 0.0) {
+            ironWardTimer = max(0f, ironWardTimer - dt)
+            val limit = max(400.0, (player.baseLife + player.baseEs) * 0.15)
+            if (ironWardTimer <= 0f && ironWardStored >= limit) {
+                ironWardTimer = 1.2f
+                val stored = ironWardStored
+                ironWardStored = 0.0
+                val radius = 150f
+                addFx(FxKind.SHOCKWAVE, player.x, player.y, radius = radius, life = 0.5f, color = 0xFFBFD6E8.toInt(), width = 1.6f)
+                val dealt = heraldBlast(player.x, player.y, radius, stored * 2.0, DamageElement.PHYSICAL, "철의 수호", ignite = false)
+                noteSpirit("Iron Ward", "철의 수호", dealt)
+            }
+        }
+        // 독성 운반자 — 모아 둔 중독을 3초마다 물리 피해로 터뜨린다
+        if (spiritOn("Plague Bearer") && plagueStored > 0.0) {
+            plagueTimer -= dt
+            if (plagueTimer <= 0f) {
+                plagueTimer = 3f
+                val burst = plagueStored
+                plagueStored = 0.0
+                addFx(FxKind.CLOUD, player.x, player.y, radius = 96f, life = 0.8f, color = 0xFF6FBF6A.toInt())
+                val dealt = heraldBlast(player.x, player.y, 96f, burst, DamageElement.PHYSICAL, "독성 운반자", ignite = false)
+                noteSpirit("Plague Bearer", "독성 운반자", dealt)
+            }
+        }
+        // 가시밭 — 가까이 온 적을 계속 찌른다
+        if (spiritOn("Briarpatch")) {
+            briarTimer -= dt
+            if (briarTimer <= 0f) {
+                briarTimer = 0.7f
+                val hit = baseHitDamage() * 0.12
+                val dealt = heraldBlast(player.x, player.y, 120f, hit, DamageElement.PHYSICAL, "가시밭", ignite = false)
+                if (dealt > 0.0) noteSpirit("Briarpatch", "가시밭", dealt)
+            }
+        }
+        // 마름쇠 — 회피로 흘린 뒤에도 자리가 남아 있으면 마저 밟힌다
+        if (caltropTimer > 0f) caltropTimer = max(0f, caltropTimer - dt)
+    }
+
+    /** 정신력 버프 하나가 낸 피해를 적립한다 */
+    private fun noteSpirit(en: String, label: String, damage: Double) {
+        if (damage <= 0.0 || !damage.isFinite()) return
+        spiritDamage += damage
+        spiritDamageByName[label] = (spiritDamageByName[label] ?: 0.0) + damage
+        spiritProcs[en] = (spiritProcs[en] ?: 0) + 1
+    }
+
+    /** 정신력 젬의 오라 색 */
+    private fun spiritColor(spec: SpiritSpec): Int = when (spec.gem.family) {
+        "냉기" -> 0xFF9BE8FF.toInt()
+        "번개" -> 0xFFFFE272.toInt()
+        "화염" -> 0xFFFF8A3D.toInt()
+        "카오스" -> 0xFF9C7BFF.toInt()
+        "물리" -> 0xFFD9C08A.toInt()
+        else -> 0xFFB8A16A.toInt()
+    }
+
+    /** 플레이어가 피해를 받으면 도는 정신력 버프 반응 (껍질피부·혼의 춤·바람의 무희·마그마 장벽) */
+    private fun spiritOnHitTaken(dmg: Double, element: DamageElement) {
+        if (spiritBuffs.isEmpty()) return
+        if (spiritOn("Barkskin")) {
+            barkGuard = 6f
+            addFx(FxKind.RING, player.x, player.y, radius = 40f, life = 0.4f, color = 0xFF9FB48A.toInt())
+        }
+        if (spiritOn("Ghost Dance") && shrouds > 0) {
+            shrouds--
+            val gain = (player.baseEs - player.es).coerceAtLeast(0.0) * 0.35 + 6.0
+            if (gain > 0.0) {
+                player.es += gain
+                player.esDelay = max(player.esDelay, stats.esRechargeDelay.toFloat() * 0.5f)
+                addPopup(player.x, player.y - 74f, "유령 연막", false, 0.7f, 0xFFB8D8FF.toInt(), 0.8f)
+                addFx(FxKind.AURA, player.x, player.y, radius = 38f, life = 0.5f, color = 0xFFB8D8FF.toInt())
+            }
+        }
+        if (spiritOn("Wind Dancer") && windStages > 0f) {
+            val stages = windStages
+            windStages = 0f
+            windStageTimer = 0f
+            val dealt = heraldBlast(
+                player.x, player.y, 92f, baseHitDamage() * 0.5 * stages,
+                DamageElement.PHYSICAL, "강풍의 힘", ignite = false,
+            )
+            addFx(FxKind.WING_GUST, player.x, player.y, radius = 92f, life = 0.5f, color = 0xFFCFE8E0.toInt(), width = 1.5f)
+            noteSpirit("Wind Dancer", "바람의 무희", dealt)
+        }
+        if (spiritOn("Magma Barrier")) {
+            val dealt = heraldBlast(
+                player.x, player.y, 112f, baseHitDamage() * 0.25,
+                DamageElement.FIRE, "마그마 장벽", ignite = true,
+            )
+            addFx(FxKind.FLAME_BURST, player.x, player.y, radius = 112f, life = 0.4f, color = 0xFFFF8A3D.toInt(), width = 0.8f)
+            noteSpirit("Magma Barrier", "마그마 장벽", dealt)
+        }
+        if (element == DamageElement.PHYSICAL && spiritOn("Iron Ward")) {
+            ironWardStored += dmg * 0.6
+        }
+    }
+
+    /** 회피 — 마름쇠의 발자취가 자리를 남긴다 */
+    private fun spiritOnDodge() {
+        if (!spiritOn("Trail of Caltrops")) return
+        if (caltropTimer > 0f) return
+        caltropTimer = 0.4f
+        addFx(FxKind.DUST, player.x, player.y, radius = 34f, life = 0.35f, color = 0xFFB9A982.toInt())
+        val dealt = heraldBlast(
+            player.x, player.y, 62f, baseHitDamage() * 0.15,
+            DamageElement.PHYSICAL, "마름쇠의 발자취", ignite = false,
+        )
+        noteSpirit("Trail of Caltrops", "마름쇠의 발자취", dealt)
+    }
+
+    /** 플레이어 공격이 들어갈 때 정신력 버프가 함께 쌓는다 (독성 운반자) */
+    private fun spiritOnStrike(damage: Double) {
+        if (spiritBuffs.isEmpty()) return
+        if (spiritOn("Plague Bearer")) {
+            val cap = baseHitDamage() * 30.0
+            plagueStored = min(cap, plagueStored + damage * 0.04)
+        }
+    }
+
+    /** 적이 쓰러질 때 — 역병·피의 전령이 남은 자리에 폭발을 남긴다 */
+    private fun spiritOnKill(e: Enemy) {
+        if (spiritBuffs.isEmpty()) return
+        if (spiritOn("Herald of Plague")) {
+            addFx(FxKind.CLOUD, e.x, e.y, radius = 96f, life = 0.7f, color = 0xFF6FBF6A.toInt())
+            val dealt = heraldBlast(e.x, e.y, 96f, baseHitDamage() * 0.4, DamageElement.CHAOS, "역병의 전령", ignite = false)
+            noteSpirit("Herald of Plague", "역병의 전령", dealt)
+        }
+        if (spiritOn("Herald of Blood")) {
+            addFx(FxKind.IMPACT, e.x, e.y, radius = 84f, life = 0.45f, color = 0xFFC23030.toInt(), width = 1.4f)
+            val dealt = heraldBlast(e.x, e.y, 84f, baseHitDamage() * 0.6, DamageElement.PHYSICAL, "피의 전령", ignite = false)
+            noteSpirit("Herald of Blood", "피의 전령", dealt)
+        }
+    }
+
+    /** 격노·소모·원소 융합이 지금 주는 피해 배율 */
+    private fun spiritHitMul(): Double {
+        if (spiritBuffs.isEmpty()) return 1.0
+        var mul = 1.0
+        if (rageStacks > 0f) mul *= 1.0 + rageStacks * 0.012
+        if (spiritOn("Attrition")) mul *= 1.0 + (attritionTime / 40.0).coerceIn(0.0, 1.0) * 0.49
+        if (confluxPhase < 4f && (spiritOn("Elemental Conflux") || spiritOn("Trinity"))) mul *= 1.49
+        return mul
+    }
+
+    /** HUD에 올릴 정신력 버프 한 줄 */
+    fun spiritHud(): String {
+        if (spiritBuffs.isEmpty()) return ""
+        if (spiritDamage <= 0.0) return stats.spiritBuffs.summary
+        val parts = spiritBuffs.take(3).map { spec ->
+            val procs = spiritProcs[spec.gem.en] ?: 0
+            if (procs > 0) "${spec.name} ${procs}회" else spec.name
+        }
+        return parts.joinToString(" · ")
+    }
+
+    /** 정신력 버프별 결과 기록 (발동한 것만) */
+    fun spiritReports(): List<SpiritReport> = spiritBuffs.mapNotNull { spec ->
+        val label = spiritBuffs.firstOrNull { it === spec }?.name ?: spec.name
+        val damage = spiritDamageByName[label] ?: 0.0
+        val procs = spiritProcs[spec.gem.en] ?: 0
+        if (procs <= 0 && damage <= 0.0) null else SpiritReport(spec.name, procs, damage)
+    }
 
     /**
      * 처치 사건 하나로 전령 3종의 조건을 살핀다.
@@ -4813,7 +5077,9 @@ class BattleWorld(
     private fun damageAfterAscendancy(raw: Double, element: DamageElement): Double {
         // 충전 조절이 유지 중이면 인내 충전이 있는 동안 받는 피해가 줄어든다.
         val guard = if (chargeRules.regulation && enduranceCharges > 0) chargeRules.regulationDefencePct else 0.0
-        val less = (stats.damageTakenLessPct + stats.unique.damageTakenLessPct + guard).coerceIn(0.0, 80.0) / 100.0
+        // 껍질피부 — 피격 직후 6초 동안 방어도가 올라 받는 피해가 줄어든다.
+        val bark = if (barkGuard > 0f) 12.0 else 0.0
+        val less = (stats.damageTakenLessPct + stats.unique.damageTakenLessPct + guard + bark).coerceIn(0.0, 80.0) / 100.0
         var total = raw * (1.0 - less)
         val elementalReduction = if (element == DamageElement.PHYSICAL) {
             0.0
@@ -5006,6 +5272,7 @@ class BattleWorld(
             evades++
             addPopup(player.x + (rand.nextFloat() - 0.5f) * 16f, player.y - 62f, "회피", false, 0.7f, 0xFF8CE8C0.toInt(), 0.86f)
             fireEvent(TriggerCondition.DODGE, null, 1.0)
+            spiritOnDodge()
             return
         }
         val dmg = damageAfterAscendancy(raw, element)
@@ -5032,6 +5299,7 @@ class BattleWorld(
             if (heavy) 1.1f else 0.86f,
         )
         recordHit(source, skill, element, dmg, poolBefore)
+        spiritOnHitTaken(dmg, element)
         if (chargeRules.enduranceOnHit) gainCharge(ChargeKind.ENDURANCE)
         shake = max(shake, if (heavy) 8f else 2.2f)
         addFx(FxKind.SLASH, fromX, fromY, angle = atan2(player.y - fromY, player.x - fromX), radius = 34f, life = 0.18f, color = 0xFFFF6A6A.toInt())
@@ -5881,6 +6149,8 @@ class BattleWorld(
             heraldProcs = heraldProcsTotal,
             heraldDamage = heraldDamage,
             heraldReports = heraldReports(),
+            spiritDamage = spiritDamage,
+            spiritReports = spiritReports(),
             heraldText = stats.heralds.summary,
             shatters = shatters,
             clear = if (state == State.VICTORY) clearSummary() else null,

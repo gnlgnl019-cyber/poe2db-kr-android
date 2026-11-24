@@ -214,6 +214,8 @@ object BattleSetup {
         tree: TreeDict = TreeDict.EMPTY,
         /** 전투 탭에서 짜 둔 콤보 순서 (있으면 이 순서대로 돈다) */
         combo: List<ComboStep> = emptyList(),
+        /** 정신력 점유 젬 자료 (poe2db에서 받아 둔 목록) */
+        spiritCatalog: SpiritCatalog = SpiritCatalog.EMPTY,
     ): BattlePlayerStats? {
         if (build == null) return null
         // 빌드에 찍힌 전직 노드를 먼저 모아 두고, 그 효과를 수치 계산과 전투 양쪽에 넘긴다.
@@ -333,8 +335,24 @@ object BattleSetup {
         }
         val charges = Charges.read(chargeLines)
         // 전령은 소환수가 먼저 가져간 정신력을 빼고 남은 예산으로 켜진다.
-        val heralds = Heralds.plan(build, dict, minions.spiritReserved)
-        return BattlePlayerStats(
+        // 정신력 젬도 같은 예산을 쓰므로, 전령보다 먼저 채우고 남은 몫을 전령에게 넘긴다.
+        val spiritBuffs = SpiritBuffs.plan(
+            build = build,
+            catalog = spiritCatalog,
+            dict = dict,
+            spiritForMinions = minions.spiritReserved,
+        )
+        val granted = SpiritBuffs.grantedBuffs(build, spiritCatalog, dict)
+        val buffs = if (granted.isEmpty()) spiritBuffs else spiritBuffs.copy(
+            specs = spiritBuffs.specs + granted,
+            inactive = spiritBuffs.inactive,
+        )
+        val heralds = Heralds.plan(
+            build,
+            dict,
+            minions.spiritReserved + buffs.reserved,
+        )
+        val out = BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
                 .filter { it.isNotBlank() }.joinToString(" · "),
             skillName = skillKo,
@@ -405,5 +423,6 @@ object BattleSetup {
             skillDpsList = calc.skillDps,
             totalDps = calc.totalDps,
         )
+        return SpiritBuffs.apply(out, buffs)
     }
 }

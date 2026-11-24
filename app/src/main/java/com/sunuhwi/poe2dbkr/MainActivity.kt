@@ -603,7 +603,7 @@ class MainActivity : AppCompatActivity() {
             loadMarketRates()
         }
 
-        listPane.btnAtlasTree.setOnClickListener { openTree(ATLAS_TREE_URL) }
+        listPane.btnAtlasTree.setOnClickListener { openNativeAtlas() }
         listPane.btnWebSearchHome.setOnClickListener {
             val query = currentQuery()
             if (query.isEmpty()) openSite(HOME_URL) else {
@@ -886,6 +886,10 @@ class MainActivity : AppCompatActivity() {
         }
         treePane.treeCanvas.onNodeTap = TreeCanvasView.OnNodeTap { id, allocated ->
             showTreeNode(id, allocated)
+            refreshTreePoints()
+        }
+        treePane.treeCanvas.onPointsChanged = TreeCanvasView.OnPointsChanged {
+            renderTreePoints(it)
         }
         treePane.btnTreeNodeClose.setOnClickListener { treePane.treeNodeCard.isVisible = false }
         treePane.btnTreeCanvasSite.setOnClickListener {
@@ -893,9 +897,22 @@ class MainActivity : AppCompatActivity() {
             openExternal(Uri.parse(url))
         }
         treePane.chipPassiveTree.setOnClickListener { showPassiveTree() }
-        treePane.chipAtlasTree.setOnClickListener { showWebTree(ATLAS_TREE_URL) }
+        treePane.chipAtlasTree.setOnClickListener { showAtlasTree() }
+        treePane.btnTreeSearch.setOnClickListener { showTreeSearch() }
+        treePane.btnTreeClass.setOnClickListener { toggleClassPicker() }
+        treePane.btnTreeStats.setOnClickListener { showTreeStats() }
         treePane.btnTreeRefresh.setOnClickListener {
-            if (canvasVisible()) treePane.treeCanvas.reset() else treePane.treeWebView.reload()
+            if (canvasVisible()) {
+                if (treePane.treeCanvas.hasAllocationToReset()) {
+                    treePane.treeCanvas.resetAllocation()
+                    refreshTreePoints()
+                    Snackbar.make(binding.root, R.string.tree_reset_done, Snackbar.LENGTH_SHORT).show()
+                } else {
+                    treePane.treeCanvas.reset()
+                }
+            } else {
+                treePane.treeWebView.reload()
+            }
         }
         treePane.btnTreeOpen.setOnClickListener {
             val url = if (canvasVisible()) buildTreeUrl.ifBlank { PASSIVE_TREE_URL }
@@ -905,7 +922,11 @@ class MainActivity : AppCompatActivity() {
         treePane.btnTreeZoomIn.setOnClickListener { treeZoom(1) }
         treePane.btnTreeZoomOut.setOnClickListener { treeZoom(-1) }
         treePane.btnTreeZoomReset.setOnClickListener {
-            if (canvasVisible()) treePane.treeCanvas.reset() else treeZoom(0)
+            if (canvasVisible()) treePane.treeCanvas.resetAllocation() else treeZoom(0)
+            refreshTreePoints()
+        }
+        treePane.btnTreeFit.setOnClickListener {
+            if (canvasVisible()) treePane.treeCanvas.showWholeTree() else treeZoom(0)
         }
     }
 
@@ -939,7 +960,7 @@ class MainActivity : AppCompatActivity() {
         showBuildTree()
     }
 
-    /** 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다. */
+    /** 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다 (직업·전직·찍은 노드 그대로). */
     private fun showBuildTree() {
         val build = pobBuild
         val tree = Poe2Tree.of(this)
@@ -952,21 +973,286 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
         treePane.treeNodeCard.isVisible = false
-        treePane.treeCanvas.bind(tree, build.treeNodeIds, build.treeMastery.keys.toList())
         val classIndex = tree.classIndex(build.className, build.treeClassId)
-        val cls = tree.classes.getOrNull(classIndex)
         val ascendIndex = if (classIndex >= 0) {
             tree.ascendancyIndex(classIndex, build.ascendClassName, build.treeAscendClassId)
         } else 0
-        val classKo = cls?.nameKo?.ifBlank { build.className } ?: build.className
-        val ascendKo = cls?.ascendancies?.getOrNull(ascendIndex - 1)?.second.orEmpty()
-        treePane.tvTreeCanvasInfo.text = if (ascendKo.isBlank()) {
-            getString(R.string.tree_canvas_info, classKo, build.treeNodeIds.size)
-        } else {
-            getString(R.string.tree_canvas_info_ascend, classKo, ascendKo, build.treeNodeIds.size)
-        }
+        treeClassPick = classIndex
+        treeAscendPick = ascendIndex
+        treePane.treeCanvas.bindLevel = build.level
+        treePane.treeCanvas.bindClassArt(ClassArts.of(this))
+        treePane.treeCanvas.bind(tree, build.treeNodeIds, build.treeMastery.keys.toList(), classIndex, ascendIndex)
+        updateTreeInfo()
+        refreshTreePoints()
+        buildClassRow()
         binding.bottomNav.selectedItemId = R.id.nav_tree
         treePane.chipPassiveTree.isChecked = true
+    }
+
+    /** 아틀라스 트리도 앱 안에서 그린다. 자료가 없으면 poe2db를 연다. */
+    private fun showAtlasTree() {
+        val atlas = TreeAtlas.of(this)
+        if (atlas.isEmpty()) {
+            showWebTree(ATLAS_TREE_URL)
+            return
+        }
+        treePane.treeWebView.isVisible = false
+        treePane.treeProgress.isVisible = false
+        treePane.treeCanvas.isVisible = true
+        treePane.treeCanvasBar.isVisible = true
+        treePane.treeNodeCard.isVisible = false
+        treePane.treeCanvas.bindAtlas(atlas)
+        treePane.tvTreeCanvasInfo.text = getString(R.string.tree_atlas_points, 0, atlas.totalPoints)
+        refreshTreePoints()
+        binding.bottomNav.selectedItemId = R.id.nav_tree
+        treePane.chipAtlasTree.isChecked = true
+    }
+
+    /** 트리 위쪽의 직업·전직 안내 줄 */
+    private fun updateTreeInfo() {
+        val build = pobBuild ?: return
+        if (!canvasVisible()) return
+        // 아틀라스 트리에는 직업·전직이 없다.
+        if (treePane.chipAtlasTree.isChecked) return
+        val tree = Poe2Tree.of(this)
+        val cls = tree.classes.getOrNull(treeClassPick)
+        val classKo = cls?.nameKo?.ifBlank { build.className } ?: build.className
+        val ascendKo = cls?.ascendancies?.getOrNull(treeAscendPick - 1)?.second.orEmpty()
+        treePane.tvTreeCanvasInfo.text = if (ascendKo.isBlank()) {
+            getString(R.string.tree_canvas_info, classKo, treePane.treeCanvas.allocatedIds().size)
+        } else {
+            getString(R.string.tree_canvas_info_ascend, classKo, ascendKo, treePane.treeCanvas.allocatedIds().size)
+        }
+    }
+
+    /** 찍은 포인트를 위쪽 줄에 다시 그린다. */
+    private fun refreshTreePoints() {
+        renderTreePoints(treePane.treeCanvas.points())
+        updateTreeInfo()
+    }
+
+    /** 패시브 20 / 123 · 전직 2 / 8 ( · 정신력 90 / 130) */
+    private fun renderTreePoints(points: TreePoints) {
+        val builder = android.text.SpannableStringBuilder()
+        fun add(label: String, value: String, color: Int) {
+            if (builder.isNotEmpty()) builder.append("   ")
+            val start = builder.length
+            builder.append("$label $value")
+            builder.setSpan(
+                android.text.style.ForegroundColorSpan(color), start, builder.length,
+                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+        add(
+            getString(R.string.tree_points_passive),
+            if (points.total > 0) "${points.allocated} / ${points.total}" else "${points.allocated}",
+            if (points.total > 0 && points.allocated >= points.total) Color.parseColor("#E8C060") else Color.parseColor("#ECE8E1"),
+        )
+        if (points.ascendancyTotal > 0) {
+            add(
+                getString(R.string.tree_points_ascend),
+                "${points.ascendancy} / ${points.ascendancyTotal}",
+                Color.parseColor("#C9B47A"),
+            )
+        }
+        // 정신력 점유 (정신력 젬 + 전령)
+        val build = pobBuild
+        val spirit = build?.stats?.get("Spirit")?.takeIf { it.isFinite() && it > 0.0 }
+        if (build != null && spirit != null) {
+            val plan = SpiritBuffs.plan(build, SpiritBuffs.catalog(this), krDict)
+            val heralds = Heralds.plan(build, krDict, plan.reserved)
+            val used = plan.reserved + heralds.reserved
+            add(
+                getString(R.string.tree_points_spirit),
+                "${used.toInt()} / ${spirit.toInt()}",
+                Color.parseColor("#8CE8C0"),
+            )
+        }
+        treePane.tvTreePoints.text = builder
+        treePane.tvTreePoints.isVisible = builder.isNotEmpty()
+    }
+
+    /** 노드 이름으로 트리에서 찾는다. */
+    private fun showTreeSearch() {
+        if (!canvasVisible()) {
+            showWebTree(PASSIVE_TREE_URL)
+            return
+        }
+        val input = android.widget.EditText(this).apply {
+            hint = getString(R.string.tree_search_hint)
+            setTextColor(Color.parseColor("#ECE8E1"))
+            setHintTextColor(Color.parseColor("#79808C"))
+            setSingleLine(true)
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+        }
+        val results = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.tree_search)
+            .setView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((18 * resources.displayMetrics.density).toInt(), 0, (18 * resources.displayMetrics.density).toInt(), 0)
+                addView(input)
+                addView(results)
+            })
+            .setNegativeButton(R.string.pob_close, null)
+            .create()
+        fun fill(query: String) {
+            results.removeAllViews()
+            val hits = treePane.treeCanvas.find(query, 8)
+            if (query.isNotBlank() && hits.isEmpty()) {
+                results.addView(TextView(this).apply {
+                    text = getString(R.string.tree_search_empty)
+                    setTextColor(Color.parseColor("#79808C"))
+                    textSize = 12f
+                })
+            }
+            hits.forEach { hit ->
+                results.addView(TextView(this).apply {
+                    text = hit.name
+                    setTextColor(Color.parseColor("#F0DCA8"))
+                    textSize = 13f
+                    setPadding(0, (10 * resources.displayMetrics.density).toInt(), 0, (4 * resources.displayMetrics.density).toInt())
+                    setOnClickListener {
+                        treePane.treeCanvas.focusNode(hit.id)
+                        showTreeNode(hit.id, treePane.treeCanvas.isAllocated(hit.id))
+                        dialog.dismiss()
+                    }
+                })
+            }
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = fill(s?.toString().orEmpty())
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        input.setOnEditorActionListener { _, action, _ ->
+            if (action == EditorInfo.IME_ACTION_SEARCH) {
+                val hit = treePane.treeCanvas.find(input.text.toString(), 1).firstOrNull()
+                if (hit != null) {
+                    treePane.treeCanvas.focusNode(hit.id)
+                    showTreeNode(hit.id, treePane.treeCanvas.isAllocated(hit.id))
+                    dialog.dismiss()
+                }
+                true
+            } else false
+        }
+        dialog.show()
+        input.requestFocus()
+    }
+
+    /** 직업·전직 고르기 줄을 편다/접는다. */
+    private fun toggleClassPicker() {
+        val bar = treePane.treeClassScroll
+        bar.isVisible = !bar.isVisible
+        if (bar.isVisible) buildClassRow()
+    }
+
+    private var treeClassPick = 0
+    private var treeAscendPick = 1
+
+    /** 직업 12줄 + 그 직업의 전직을 버튼으로 채운다. */
+    private fun buildClassRow() {
+        val tree = Poe2Tree.of(this)
+        if (tree.isEmpty() || !canvasVisible()) return
+        val row = treePane.treeClassRow
+        row.removeAllViews()
+        val pad = (5 * resources.displayMetrics.density).toInt()
+        tree.classes.forEachIndexed { index, cls ->
+            val name = cls.nameKo.ifBlank { getString(R.string.tree_class_unknown) }
+            if (name.isBlank()) return@forEachIndexed
+            row.addView(classPickButton(name, index == treeClassPick) {
+                treeClassPick = index
+                treeAscendPick = 1
+                treePane.treeCanvas.setClass(tree, index, 1, ClassArts.of(this))
+                buildClassRow()
+                updateTreeInfo()
+                refreshTreePoints()
+            }, pad)
+        }
+        // 고른 직업의 전직 세 줄
+        val cls = tree.classes.getOrNull(treeClassPick) ?: return
+        cls.ascendancies.forEachIndexed { order, (en, ko) ->
+            // 아직 공개되지 않은 전직(WIP)은 한국어 이름이 없으므로 목록에서 뺀다.
+            if (ko.isBlank() || ko == "WIP") return@forEachIndexed
+            val label = ko
+            row.addView(classPickButton("↳ $label", treeAscendPick == order + 1) {
+                treeAscendPick = order + 1
+                treePane.treeCanvas.setClass(tree, treeClassPick, treeAscendPick, ClassArts.of(this))
+                buildClassRow()
+                updateTreeInfo()
+                refreshTreePoints()
+            }, pad)
+        }
+    }
+
+    private fun classPickButton(label: String, checked: Boolean, onClick: () -> Unit): android.widget.CheckedTextView =
+        android.widget.CheckedTextView(this).apply {
+            text = label
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor(if (checked) "#F0DCA8" else "#A9AFBA"))
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_tree_chip)
+            isChecked = checked
+            setPadding((10 * resources.displayMetrics.density).toInt(), (5 * resources.displayMetrics.density).toInt(),
+                (10 * resources.displayMetrics.density).toInt(), (5 * resources.displayMetrics.density).toInt())
+            val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            params.marginEnd = (5 * resources.displayMetrics.density).toInt()
+            layoutParams = params
+            setOnClickListener { onClick() }
+        }
+
+    private fun classPickButton(
+        label: String,
+        checked: Boolean,
+        onClick: () -> Unit,
+        pad: Int,
+    ): android.widget.CheckedTextView =
+        classPickButton(label, checked, onClick).apply {
+            val params = layoutParams as LinearLayout.LayoutParams
+            params.marginEnd = pad
+            layoutParams = params
+        }
+
+    /** 스탯 요약 — 전투 탭과 같은 수치를 짧게 보여 준다. */
+    private fun showTreeStats() {
+        val stats = battleStats()
+        if (stats == null) {
+            showWebTree(PASSIVE_TREE_URL)
+            return
+        }
+        val text = buildString {
+            append(getString(R.string.tree_stat_dps)).append(' ')
+            append(BattleWorld.formatShort(stats.dps))
+            append("\n").append(getString(R.string.tree_stat_life)).append(' ')
+            append(BattleWorld.formatShort(stats.life))
+            append(" · ").append(getString(R.string.tree_stat_es)).append(' ')
+            append(BattleWorld.formatShort(stats.es))
+            append("\n").append(getString(R.string.tree_stat_evade)).append(' ')
+            append(String.format(Locale.KOREA, "%.1f", stats.evade)).append("%")
+            append(" · ").append(getString(R.string.tree_stat_phys)).append(' ')
+            append(BattleWorld.formatShort(stats.physRed))
+            append("\n").append(getString(R.string.tree_stat_res))
+            append(" 화 ").append(stats.fireRes.toInt()).append(" / 빙 ")
+            append(stats.coldRes.toInt()).append(" / 번 ").append(stats.lightRes.toInt())
+            append(" / 혼 ").append(stats.chaosRes.toInt())
+            append("\n").append(getString(R.string.tree_stat_crit)).append(' ')
+            append(String.format(Locale.KOREA, "%.1f", stats.critChance)).append("%")
+            append(" · ").append(String.format(Locale.KOREA, "%.2f", stats.aps)).append("/s")
+            if (stats.spiritBuffs.active.isNotEmpty()) {
+                append("\n\n").append(stats.spiritBuffs.summary)
+            }
+            if (stats.ascendSummary.isNotBlank()) {
+                append("\n").append(stats.ascendSummary)
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.tree_stats)
+            .setMessage(text)
+            .setPositiveButton(R.string.pob_close, null)
+            .show()
     }
 
     /** poe2db 트리를 웹뷰로 연다. */
@@ -982,6 +1268,12 @@ class MainActivity : AppCompatActivity() {
     private fun openTree(url: String) {
         binding.bottomNav.selectedItemId = R.id.nav_tree
         showWebTree(url)
+    }
+
+    /** 트리 탭으로 옮겨 앱 안의 아틀라스 트리를 그린다. */
+    private fun openNativeAtlas() {
+        binding.bottomNav.selectedItemId = R.id.nav_tree
+        showAtlasTree()
     }
 
     /** 트리에서 노드를 누르면 한글 설명을 띄운다. */
@@ -1096,7 +1388,7 @@ class MainActivity : AppCompatActivity() {
 
         pobPane.btnOpenNinjaBuilds.setOnClickListener { showNinjaBuilds() }
         pobPane.btnOpenTree.setOnClickListener { showBuildTree() }
-        pobPane.btnOpenAtlas.setOnClickListener { openTree(ATLAS_TREE_URL) }
+        pobPane.btnOpenAtlas.setOnClickListener { openNativeAtlas() }
 
         setupBattle()
     }
@@ -1699,6 +1991,7 @@ class MainActivity : AppCompatActivity() {
         dict = krDict,
         tree = Poe2Tree.of(this),
         combo = BattleCombos.toSteps(comboPicks),
+        spiritCatalog = SpiritBuffs.catalog(this),
     )
 
     /** PoB가 비운 스킬별 DPS를 보충하기 위해 계산기 값만 따로 받아 둔다 (스킬 칩에 쓴다) */
@@ -2007,11 +2300,19 @@ class MainActivity : AppCompatActivity() {
         val shatterLine = if (result.shatters > 0) {
             "\n" + getString(R.string.battle_result_shatter, result.shatters)
         } else ""
+        // 정신력 점유 버프가 돌았으면 버프별 발동 횟수와 피해도 적는다.
+        val spiritLine = if (result.spiritReports.isNotEmpty()) {
+            "\n" + getString(
+                R.string.battle_result_spirit,
+                result.spiritReports.joinToString(" · ") { it.name },
+                BattleWorld.formatShort(result.spiritDamage),
+            ) + "\n" + result.spiritReports.take(4).joinToString("\n") { "· " + it.line }
+        } else ""
         val clearLine = result.clear?.topSkill?.let { top ->
             "\n" + getString(R.string.battle_result_clear, top.name, BattleWorld.formatShort(top.damage))
         } ?: ""
         pobPane.tvBattleResult.text = head + deathLine + "\n" + body + chargeLine + clearLine + skillLine +
-            heraldLine + shatterLine + triggerLine + ascendLine + comboLine + minionLine + beastLine
+            heraldLine + spiritLine + shatterLine + triggerLine + ascendLine + comboLine + minionLine + beastLine
         pobPane.tvBattleResult.isVisible = true
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
         battleWantsPlay = false
