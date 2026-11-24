@@ -21,10 +21,12 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+import fonts
+
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "app" / "src" / "main" / "assets"
 DOCS = ROOT / "docs"
-FONT = "/usr/share/fonts/pickle-hwp/NotoSansCJKkr-Regular.otf"
+FONT = fonts.find(fonts.KOREAN)
 
 BG_TOP = (19, 26, 38)
 BG_MID = (11, 14, 20)
@@ -45,6 +47,8 @@ DOT_SCALE = 0.045
 
 
 def font(size):
+    if FONT is None:
+        return ImageFont.load_default()
     try:
         return ImageFont.truetype(FONT, size)
     except Exception:

@@ -22,6 +22,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+import fonts
+
 ROOT = Path(__file__).resolve().parent.parent
 STORE = ROOT / "store-assets"
 RES = ROOT / "app" / "src" / "main" / "res"
@@ -29,9 +31,8 @@ SOURCE_DIR = STORE / "source"
 SOURCE_FILE = SOURCE_DIR / "chaos-orb-108.webp"
 SOURCE_URL = "https://cdn.poe2db.tw/image/Art/2DItems/Currency/CurrencyRerollRare.webp"
 
-SANS_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-SERIF_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf"
-KR = "/workspace/.fonts/NotoSansKR.ttf"
+SERIF_BOLD = fonts.need(fonts.BOLD_SERIF, "제목")
+KR = fonts.need(fonts.KOREAN, "한글")
 
 BG_IN = (28, 29, 36)       # #1C1D24
 BG_OUT = (17, 18, 22)      # #111216

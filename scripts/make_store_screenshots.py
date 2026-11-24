@@ -18,11 +18,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+import fonts
+
 ROOT = Path(__file__).resolve().parent.parent
 STORE = ROOT / "store-assets"
 OUT = STORE / "screenshots"
 ICONS = ROOT / ".cache" / "store-icons"
-FONT_FILE = "/workspace/.fonts/NotoSansKR.ttf"
+FONT_FILE = fonts.need(fonts.KOREAN, "한글")
 
 W, H = 1080, 1920
 S = 3                      # 1dp = 3px
