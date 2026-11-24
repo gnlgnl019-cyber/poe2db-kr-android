@@ -401,10 +401,13 @@ class Enemy(
     val scale: Float,
     val slotAngle: Float,
     var boss: BossPreset? = null,
+    /** 처음 공격까지의 시간 — 전투 난수로 정해 같은 씨앗이면 같은 흐름이 된다 */
+    startDelay: Double = -1.0,
+    walkStart: Float = -1f,
 ) {
     var hp = maxHp
-    var attackTimer = interval * (0.35 + Random.nextDouble() * 0.5)
-    var walkPhase = Random.nextDouble().toFloat() * 6.28f
+    var attackTimer = if (startDelay >= 0.0) startDelay else interval * (0.35 + Random.nextDouble() * 0.5)
+    var walkPhase = if (walkStart >= 0f) walkStart else Random.nextDouble().toFloat() * 6.28f
     var hitFlash = 0f
     var alive = true
     var dot = 0.0
@@ -460,12 +463,15 @@ class Minion(
     /** 한 번 때릴 때의 피해 */
     val hitDamage: Double,
     val attackInterval: Double,
+    /** 처음 때리기까지의 시간·걸음 위상 — 전투 난수로 정한다 */
+    startDelay: Float = -1f,
+    walkStart: Float = -1f,
 ) {
     var hp = maxHp
     var alive = true
-    var attackTimer = 0.3f + Random.nextDouble().toFloat() * 0.4f
+    var attackTimer = if (startDelay >= 0f) startDelay else 0.3f + Random.nextDouble().toFloat() * 0.4f
     var attackAnim = 0f
-    var walkPhase = Random.nextDouble().toFloat() * 6.28f
+    var walkPhase = if (walkStart >= 0f) walkStart else Random.nextDouble().toFloat() * 6.28f
     var facing = 0f
     var deadFade = 0f
     var hitFlash = 0f
@@ -1467,6 +1473,8 @@ class BattleWorld(
                 scale = EnemyKind.BOSS.scale,
                 slotAngle = 0f,
                 boss = b,
+                startDelay = b.interval * (0.35 + rand.nextDouble() * 0.5),
+                walkStart = rand.nextFloat() * 6.28f,
             )
             enemies.add(e)
             plannedEnemies = 1
@@ -1512,6 +1520,8 @@ class BattleWorld(
                         maxHp = life.coerceAtLeast(30.0),
                         hitDamage = (dps * interval).coerceAtLeast(1.0),
                         attackInterval = interval,
+                        startDelay = (0.3 + rand.nextFloat() * 0.4).toFloat(),
+                        walkStart = rand.nextFloat() * 6.28f,
                     )
                 )
                 index++
@@ -1560,6 +1570,8 @@ class BattleWorld(
                 maxHp = life.coerceAtLeast(10.0),
                 hitDamage = darkHitPerExplosion.coerceAtLeast(1.0),
                 attackInterval = 1.0,
+                startDelay = (0.3 + rand.nextFloat() * 0.4).toFloat(),
+                walkStart = rand.nextFloat() * 6.28f,
             )
         )
         ground.toads = minions.count { it.alive && it.isToad }
@@ -1613,6 +1625,8 @@ class BattleWorld(
                 speed = kind.speed * (0.9f + rand.nextFloat() * 0.2f),
                 scale = kind.scale * crowd,
                 slotAngle = index * 2.399f,
+                startDelay = kind.interval * (0.35 + rand.nextDouble() * 0.5),
+                walkStart = rand.nextFloat() * 6.28f,
             )
         )
         spawnedEnemies++
@@ -1668,6 +1682,8 @@ class BattleWorld(
                 speed = kind.speed * (0.9f + rand.nextFloat() * 0.2f),
                 scale = kind.scale * 0.82f,
                 slotAngle = rand.nextFloat() * 6.28f,
+                startDelay = kind.interval * (0.35 + rand.nextDouble() * 0.5),
+                walkStart = rand.nextFloat() * 6.28f,
             )
         )
         spawnedEnemies++
