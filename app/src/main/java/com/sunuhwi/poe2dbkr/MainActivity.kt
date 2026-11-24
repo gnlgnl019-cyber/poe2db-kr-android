@@ -139,6 +139,8 @@ class MainActivity : AppCompatActivity() {
         applyWindowInsets()
         // 광고는 미리 받아 두고, 없으면 빌드 불러오기를 그대로 진행한다.
         ads = Ads(this).also { it.preload() }
+        // 정신력 점유 스킬 이름을 미리 읽어 둔다 (스킬 칸·콤보에서 정신력·메타 젬을 걸러 내는 데 쓴다).
+        runCatching { SpiritBuffs.catalog(this) }
         bookmarks = BookmarkStore(this)
         pobStore = PobStore(this)
         comboStore = ComboStore(this)
