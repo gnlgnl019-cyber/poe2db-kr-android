@@ -22,6 +22,9 @@ import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
  * - 광고 콜백이 오지 않는 경우에도 [GUARD_MS] 뒤에는 무조건 빌드 불러오기를 진행한다.
  *
  * 광고 단위는 debug에서 구글 시험용 ID를 쓴다 (실제 광고를 누르면 정책 위반이 된다).
+ *
+ * 켜고 끄는 값은 [BuildConfig.ENABLE_ADS] 하나다. 꺼져 있으면 SDK 초기화도,
+ * 광고 요청도, 표시도 하지 않고 빌드 불러오기만 그대로 진행한다.
  */
 class Ads(private val activity: Activity) {
 
@@ -32,6 +35,7 @@ class Ads(private val activity: Activity) {
 
     /** 미리 받아 둔다. 앱을 열 때 한 번 부르면 된다. */
     fun preload() {
+        if (!BuildConfig.ENABLE_ADS) return
         runCatching {
             if (!initialized) {
                 initialized = true
@@ -78,6 +82,10 @@ class Ads(private val activity: Activity) {
      * 준비되지 않았으면 곧바로 [onDone]을 부른다 (불러오기를 막지 않는다).
      */
     fun showThenLoad(onDone: () -> Unit) {
+        if (!BuildConfig.ENABLE_ADS) {
+            onDone()
+            return
+        }
         val ad = interstitial
         val now = SystemClock.elapsedRealtime()
         val ready = ad != null && now - lastShownAt >= COOLDOWN_MS && !activity.isFinishing

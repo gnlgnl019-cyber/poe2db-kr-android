@@ -32,8 +32,11 @@ android {
         applicationId = "com.sunuhwi.poe2dbkr"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
+        versionCode = 3
         versionName = "1.0.0"
+
+        // 광고 스위치. 테스트 기간에는 꺼 두고, 정식 출시 때 true로 바꾸면 다시 켜진다.
+        buildConfigField("boolean", "ENABLE_ADS", "false")
 
         resourceConfigurations += listOf("ko", "en")
         vectorDrawables.useSupportLibrary = true

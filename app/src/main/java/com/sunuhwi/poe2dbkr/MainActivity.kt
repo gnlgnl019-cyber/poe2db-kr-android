@@ -120,7 +120,7 @@ class MainActivity : AppCompatActivity() {
     private val battleSpiritOff = LinkedHashSet<String>()
     /** 전투 화면에서 직접 끈 메타(발동) 젬 */
     private val battleTriggerOff = LinkedHashSet<TriggerKind>()
-    /** 전면 광고 (PoB 빌드 '불러오기'를 누를 때 한 번) */
+    /** 전면 광고 (PoB 빌드 '불러오기'를 누를 때 한 번). 광고를 꺼 둔 빌드에서는 null이다. */
     private var ads: Ads? = null
 
     private val activeTab: Int
@@ -135,8 +135,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applyWindowInsets()
-        // 광고는 미리 받아 두고, 없으면 빌드 불러오기를 그대로 진행한다.
-        ads = Ads(this).also { it.preload() }
+        // 광고를 켜 둔 빌드에서만 미리 받아 두고, 없으면 빌드 불러오기를 그대로 진행한다.
+        ads = if (BuildConfig.ENABLE_ADS) Ads(this).also { it.preload() } else null
         // 정신력 점유 스킬 이름을 미리 읽어 둔다 (스킬 칸·콤보에서 정신력·메타 젬을 걸러 내는 데 쓴다).
         runCatching { SpiritBuffs.catalog(this) }
         bookmarks = BookmarkStore(this)
