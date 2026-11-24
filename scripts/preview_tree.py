@@ -185,7 +185,7 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
     # 직업 메달 + 전직 링
     if class_start in by_id:
         mx, my = sx(by_id[class_start]["x"]), sy(by_id[class_start]["y"])
-        radius = 132.0
+        radius = 200.0
         draw.ellipse((mx - radius * 2.1, my - radius * 2.1, mx + radius * 2.1, my + radius * 2.1),
                      fill=(232, 192, 96, 22))
         disc = Image.new("RGBA", (int(radius * 2), int(radius * 2)), (0, 0, 0, 0))

@@ -709,13 +709,13 @@ class TreeCanvasView @JvmOverloads constructor(
         if (x < left - 4000 || x > right + 4000 || y < top - 4000 || y > bottom + 4000) return
         val sx = viewport.screenX(x)
         val sy = viewport.screenY(y)
-        val radius = (900f * s).coerceIn(34f * density, 78f * density)
+        val radius = (900f * s).coerceIn(42f * density, 96f * density)
 
         // 뒤로 퍼지는 따뜻한 빛
         glowPaint.color = 0x22E8C060
-        canvas.drawCircle(sx, sy, radius * 2.1f, glowPaint)
-        glowPaint.color = 0x1AC69A4A
-        canvas.drawCircle(sx, sy, radius * 2.9f, glowPaint)
+        canvas.drawCircle(sx, sy, radius * 1.7f, glowPaint)
+        glowPaint.color = 0x18C69A4A
+        canvas.drawCircle(sx, sy, radius * 2.3f, glowPaint)
 
         // 일러스트를 원 안에 넣는다
         val art = classArtRect
