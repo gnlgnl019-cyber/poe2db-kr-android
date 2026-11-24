@@ -156,6 +156,9 @@ class TreeCanvasView @JvmOverloads constructor(
     private val sectionFailures = HashMap<String, Int>()
 
     private val viewport = TreeViewport()
+    /** 시작 노드로 당겨 둔 자리 — 화면 크기가 잡힐 때 이 자리를 다시 가운데로 둔다 */
+    private var focusX = Float.NaN
+    private var focusY = Float.NaN
     private var scene: TreeScene = TreeScene.EMPTY
     private var tree: TreeDict = TreeDict.EMPTY
     private var alloc = TreeAllocation(TreeGeometry.EMPTY)
@@ -509,7 +512,9 @@ class TreeCanvasView @JvmOverloads constructor(
         // 테두리 고리 지름이 26dp쯤 되게 당긴다 — 한 화면에 노드 여섯 줄이 보인다.
         val zoom = (13f * density / TreeMetrics.NORMAL).coerceIn(viewport.fitScale * 0.6f, viewport.maxScale)
         viewport.setScale(zoom)
-        viewport.center(geo.xs[start], geo.ys[start], width, height)
+        focusX = geo.xs[start]
+        focusY = geo.ys[start]
+        viewport.center(focusX, focusY, width, height)
         clamp()
         highlight = start
         flash = 1.6f
@@ -517,6 +522,9 @@ class TreeCanvasView @JvmOverloads constructor(
     }
 
     private fun fitAllocated() {
+        // 찍은 노드 전체를 보는 자리로 옮기면 시작점 고정은 푼다.
+        focusX = Float.NaN
+        focusY = Float.NaN
         val geo = scene.geometry
         val start = scene.classStart
         var minX = if (start >= 0) geo.xs[start] else Float.MAX_VALUE
@@ -571,6 +579,13 @@ class TreeCanvasView @JvmOverloads constructor(
         }
         // 처음 그려지거나 화면이 돌아가면 지금 트리에 맞춰 다시 앉힌다.
         if (scene.size == 0) return
+        // 직업을 골라 시작 노드로 당겨 둔 자리는 그 자리를 계속 가운데에 둔다.
+        if (focusX.isFinite() && focusY.isFinite() && (oldw == 0 || oldh == 0)) {
+            viewport.center(focusX, focusY, w, h)
+            clamp()
+            invalidate()
+            return
+        }
         centerOnStart()
     }
 
