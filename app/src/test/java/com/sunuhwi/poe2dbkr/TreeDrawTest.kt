@@ -58,10 +58,6 @@ class TreeDrawTest {
         println("[TEST] 찍은 패시브 ${points.allocated} · 전직 ${points.ascendancy}")
         assertTrue("찍은 노드가 너무 적다", points.allocated > 100)
         assertTrue("전직 노드가 너무 적다", points.ascendancy > 0)
-        // 전직 링에 올릴 노드 번호는 모두 실제 노드여야 한다.
-        scene.ascendRing.forEach { index ->
-            assertTrue("전직 링에 없는 노드 $index", index in 0 until scene.size)
-        }
     }
 
     @Test
@@ -89,18 +85,13 @@ class TreeDrawTest {
                     frames++
                     assertTrue("연결선 개수가 짝이 아니다", cull.plainCount % 4 == 0)
                     assertTrue("금빛 연결선 개수가 짝이 아니다", cull.onCount % 4 == 0)
-                    assertTrue("점 개수가 짝이 아니다", cull.dotCount % 2 == 0)
                     assertTrue(cull.plainCount <= cull.plainEdges.size)
                     assertTrue(cull.onCount <= cull.onEdges.size)
-                    assertTrue(cull.dotCount <= cull.dots.size)
                     assertTrue(cull.nodeCount <= cull.nodes.size)
                     for (i in 0 until cull.nodeCount) {
                         val index = cull.nodes[i]
                         assertTrue("없는 노드를 그리려 한다: $index", cull.has(index))
                         assertTrue("종류를 읽지 못했다", index in 0 until geo.size)
-                    }
-                    for (i in 0 until cull.dotCount) {
-                        assertTrue("좌표가 NaN이다", cull.dots[i].isFinite())
                     }
                     drawnNodes += cull.nodeCount
                 }
@@ -126,22 +117,49 @@ class TreeDrawTest {
     }
 
     @Test
-    fun ringSkipsBrokenIndices() {
-        val outX = FloatArray(TreeRing.MAX)
-        val outY = FloatArray(TreeRing.MAX)
-        val outIndex = IntArray(TreeRing.MAX)
-        val ring = intArrayOf(-5, 0, 99_999, 3, 4)
-        val placed = TreeRing.placement(ring, 10, 100f, 200f, 50f, outX, outY, outIndex)
-        println("[TEST] 링에 올린 노드 ${outIndex.take(placed).toList()}")
-        assertEquals(3, placed)
-        assertTrue(outIndex.take(placed).all { it in 0 until 10 })
-        // 빈 링·크기 0인 트리에서도 예외가 없다.
-        assertEquals(0, TreeRing.placement(IntArray(0), 10, 0f, 0f, 10f, outX, outY, outIndex))
-        assertEquals(0, TreeRing.placement(ring, 0, 0f, 0f, 10f, outX, outY, outIndex))
+    fun realBuildFitsOnAPhoneWithReadableNodes() {
+        val scene = scene()
+        val alloc = allocation(scene)
+        val geo = scene.geometry
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (i in alloc.allocated.indices) {
+            if (!alloc.allocated[i]) continue
+            // 전직 노드는 화면 맞춤에서 뺀다 (TreeCanvasView.fitAllocated와 같은 규칙).
+            if (i == scene.ascendStart || scene.ascendancy.getOrElse(i) { false }) continue
+            minX = minOf(minX, geo.xs[i])
+            minY = minOf(minY, geo.ys[i])
+            maxX = maxOf(maxX, geo.xs[i])
+            maxY = maxOf(maxY, geo.ys[i])
+        }
+        // 화면(TreeCanvasView.fitAllocated)과 같은 규칙: 둘레 12% + 220, 최소 6000 거리.
+        val spanX = (maxX - minX).coerceAtLeast(6000f)
+        val spanY = (maxY - minY).coerceAtLeast(6000f)
+        val cx = (minX + maxX) / 2f
+        val cy = (minY + maxY) / 2f
+        val view = TreeViewport()
+        view.fit(
+            1080, 2000,
+            cx - spanX / 2f - (spanX * 0.10f + 180f),
+            cy - spanY / 2f - (spanY * 0.10f + 180f),
+            cx + spanX / 2f + (spanX * 0.10f + 180f),
+            cy + spanY / 2f + (spanY * 0.10f + 180f),
+            30f,
+        )
+        val normal = TreeMetrics.radiusOf(TreeKind.NORMAL) * view.scale
+        val notable = TreeMetrics.radiusOf(TreeKind.NOTABLE) * view.scale
+        println("[TEST] 기본 배율 ${view.scale} · 보통 노드 반지름 ${normal}px · 주요 ${notable}px")
+        assertTrue("기본 화면에서 노드가 점으로만 보인다", view.scale >= 0.055f)
+        assertTrue("보통 노드가 너무 작다: ${normal}px", normal >= 6f)
+        assertTrue("주요 노드가 보통 노드보다 크지 않다", notable > normal * 1.2f)
+        // 노드 사이(자료 중앙값 약 212)보다 지름이 크게 넘치지 않아야 서로 뭉개지지 않는다.
+        assertTrue("노드가 너무 커서 겹친다", normal * 2f <= 260f)
     }
 
     @Test
-    fun atomTreeIsDrawnOnTopOfTheClassRowAndMedallion() {
+    fun classStartAndItsEdgesAreDrawnWithoutADecorationRing() {
         val scene = scene()
         val alloc = allocation(scene)
         val cull = TreeCull(scene.geometry, alloc.allocated, scene.icons, scene.ascendancy)
@@ -149,24 +167,24 @@ class TreeDrawTest {
         val viewport = TreeViewport()
         viewport.fit(1080, 1800, geo.minX, geo.minY, geo.maxX, geo.maxY, 20f)
         cull.compute(viewport.scale, viewport.offsetX, viewport.offsetY, 1080, 1800)
-        // 직업 시작 노드는 메달로 따로 그리고, 나머지 노드는 점·아이콘 중 하나로 그린다.
+        // 직업 시작 노드는 메달로 가리지 않고 노드 하나로 그린다.
         val start = scene.classStart
         assertTrue(start in 0 until scene.size)
-        for (i in 0 until cull.nodeCount) {
-            val index = cull.nodes[i]
-            assertTrue("직업 시작 노드를 노드로 또 그렸다", index != start || alloc.allocated[start])
-            assertTrue(index != start)
-        }
-        println("[TEST] 화면 맞춤 배율 ${viewport.scale} · 연결선 ${cull.plainCount / 4} · 금빛 ${cull.onCount / 4} · 노드 ${cull.nodeCount} · 점 ${cull.dotCount / 2}")
+        assertTrue("직업 시작 노드를 그리지 않았다", (0 until cull.nodeCount).any { cull.nodes[it] == start })
+        // 시작점의 짧은 연결선은 그린다 (예전에는 메달 때문에 지웠다).
+        val short = (0 until geo.edges.size / 2).map { geo.edges[it * 2] to geo.edges[it * 2 + 1] }
+            .firstOrNull { (a, b) -> (a == start || b == start) && !cull.isLongEdge(a, b) }
+        assertTrue("시작점에 붙은 짧은 연결선이 없다", short != null)
+        assertTrue("시작점의 짧은 연결선을 긴 선으로 취급한다", !cull.isLongEdge(short!!.first, short.second))
+        println("[TEST] 화면 맞춤 배율 ${viewport.scale} · 연결선 ${cull.plainCount / 4} · 금빛 ${cull.onCount / 4} · 노드 ${cull.nodeCount}")
     }
 
     @Test
-    fun noLineCrossesTheClassMedallion() {
+    fun onlyFarReachingCorridorsAreSkipped() {
         val scene = scene()
         val alloc = allocation(scene)
         val cull = TreeCull(scene.geometry, alloc.allocated, scene.icons, scene.ascendancy)
         val geo = scene.geometry
-        // 트리 전체가 보이도록 맞춰 놓고 모든 연결선을 한 번에 그려 본다.
         val view = TreeViewport()
         view.fit(1080, 1800, geo.minX, geo.minY, geo.maxX, geo.maxY, 0f)
         cull.compute(view.scale, view.offsetX, view.offsetY, 1080, 1800)
@@ -178,20 +196,13 @@ class TreeDrawTest {
             val a = geo.edges[i]
             val b = geo.edges[i + 1]
             i += 2
-            if (cull.medallionEdge(a) || cull.medallionEdge(b) || cull.isLongEdge(a, b)) skipped++ else expected++
+            if (cull.isLongEdge(a, b)) skipped++ else expected++
         }
-        println("[TEST] 연결선 ${expected + skipped}개 중 메달로 이어지는 ${skipped}개를 뺌 · 그린 것 $drawn")
-        assertTrue("메달로 이어지는 선을 빼지 않았다", skipped > 0)
-        // 화면 밖으로 나간 선은 그리지 않으므로 그린 수는 뺀 수보다 많을 수 없다.
-        assertTrue("메달로 이어지는 선을 그렸다", drawn <= expected)
+        println("[TEST] 연결선 ${expected + skipped}개 중 긴 통로 ${skipped}개를 뺌 · 그린 것 $drawn")
+        assertTrue("화면을 가로지르는 긴 통로가 자료에 있어야 한다", skipped > 0)
+        // 화면 밖으로 나간 선은 그리지 않으므로 그린 수는 남은 수보다 많을 수 없다.
+        assertTrue("긴 통로를 그렸다", drawn <= expected)
         assertTrue("연결선을 거의 못 그렸다", drawn > expected / 4)
-        // 직업 시작점·전직 시작점이 이 선의 한쪽 끝이어야 한다.
-        assertTrue(cull.medallionEdge(scene.classStart))
-        assertTrue("전직 시작점이 메달 연결로 잡히지 않았다", cull.medallionEdge(scene.ascendStart))
-        // 전직 통로처럼 멀리 떨어진 노드를 잇는 선도 그리지 않는다.
-        val start = scene.classStart
-        val far = scene.ascendRing.first { cull.isLongEdge(start, it) }
-        assertTrue("긴 전직 통로 선을 그대로 그린다", cull.isLongEdge(start, far))
     }
 
     @Test

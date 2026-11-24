@@ -95,8 +95,6 @@ class MainActivity : AppCompatActivity() {
     private var krDict: KrDict = KrDict.EMPTY
 
     private var pobBuild: PobBuild? = null
-    /** 불러온 빌드의 노드로 만든 poe2db 트리 주소 (없으면 기본 트리를 연다) */
-    private var buildTreeUrl = ""
     private val pobOverrides = HashMap<String, PobItem>()
     /** 전투 탭 콤보 설정 (빌드 스킬 순서) */
     private lateinit var comboStore: ComboStore
@@ -252,9 +250,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.nav_tree -> {
                     showPane(PANE_TREE)
-                    if (!canvasVisible() && treePane.treeWebView.url.isNullOrBlank()) {
-                        loadTree(PASSIVE_TREE_URL)
-                    }
+                    // 탭을 다시 눌러 돌아왔을 때는 보던 자리(확대·이동)를 그대로 둔다.
+                    if (treePane.treeCanvas.isEmpty()) showPassiveTree()
                 }
                 R.id.nav_pob -> {
                     showPane(PANE_POB)
@@ -855,45 +852,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------- 패시브 트리
-    @SuppressLint("SetJavaScriptEnabled")
     private fun setupTree() {
-        with(treePane.treeWebView.settings) {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            setSupportZoom(true)
-            builtInZoomControls = true
-            displayZoomControls = false
-            useWideViewPort = true
-            loadWithOverviewMode = true
-            cacheMode = WebSettings.LOAD_DEFAULT
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            allowFileAccess = false
-            allowContentAccess = false
-            textZoom = 100
-            userAgentString = "$userAgentString PoE2DBKR/1.0"
-        }
-        treePane.treeWebView.isClickable = true
-        treePane.treeWebView.isFocusable = true
-        treePane.treeWebView.isFocusableInTouchMode = true
-        // 트리 캔버스가 부모 레이아웃에 터치를 빼앗기지 않게 한다 (핀치·탭이 노드까지 도달).
-        treePane.treeWebView.setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN,
-                android.view.MotionEvent.ACTION_POINTER_DOWN,
-                -> view.parent?.requestDisallowInterceptTouchEvent(true)
-                android.view.MotionEvent.ACTION_UP,
-                android.view.MotionEvent.ACTION_CANCEL,
-                -> view.parent?.requestDisallowInterceptTouchEvent(false)
-            }
-            false
-        }
-        treePane.treeWebView.webViewClient = TreeClient()
-        treePane.treeWebView.webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView, newProgress: Int) {
-                treePane.treeProgress.progress = newProgress
-                treePane.treeProgress.isVisible = newProgress < 100
-            }
-        }
         treePane.treeCanvas.onNodeTap = TreeCanvasView.OnNodeTap { id, allocated ->
             showTreeNode(id, allocated)
             refreshTreePoints()
@@ -902,7 +861,6 @@ class MainActivity : AppCompatActivity() {
             renderTreePoints(it)
         }
         // 그리는 도중 한 조각이 실패해도 트리는 화면에 그대로 둔다.
-        // (예전에는 poe2db로 넘겨 버려서 웹 직업 선택창이 뜨는 원인이었다.)
         treePane.treeCanvas.onDrawProblem = { t ->
             Log.e(LOG_TAG, "패시브 트리를 그리는 중 일부를 건너뛰었습니다", t)
         }
@@ -911,49 +869,47 @@ class MainActivity : AppCompatActivity() {
         treePane.chipAtlasTree.setOnClickListener { showAtlasTree() }
         treePane.btnTreeSearch.setOnClickListener { showTreeSearch() }
         treePane.btnTreeStats.setOnClickListener { showTreeStats() }
-        treePane.btnTreeRefresh.setOnClickListener {
-            if (canvasVisible()) {
-                if (treePane.treeCanvas.hasAllocationToReset()) {
-                    treePane.treeCanvas.resetAllocation()
-                    refreshTreePoints()
-                    Snackbar.make(binding.root, R.string.tree_reset_done, Snackbar.LENGTH_SHORT).show()
-                } else {
-                    treePane.treeCanvas.reset()
-                }
-            } else {
-                treePane.treeWebView.reload()
-            }
+        treePane.btnTreeFit.setOnClickListener {
+            if (treePane.treeCanvas.isEmpty()) showPassiveTree() else treePane.treeCanvas.showWholeTree()
         }
-        treePane.btnTreeOpen.setOnClickListener {
-            val url = if (canvasVisible()) buildTreeUrl.ifBlank { PASSIVE_TREE_URL }
-            else treePane.treeWebView.url
-            if (!url.isNullOrBlank()) openExternal(Uri.parse(url))
+        treePane.btnTreeRefresh.setOnClickListener {
+            if (treePane.treeCanvas.hasAllocationToReset()) {
+                treePane.treeCanvas.resetAllocation()
+                refreshTreePoints()
+                Snackbar.make(binding.root, R.string.tree_reset_done, Snackbar.LENGTH_SHORT).show()
+            } else {
+                treePane.treeCanvas.reset()
+            }
         }
     }
 
     private fun canvasVisible(): Boolean = treePane.treeCanvas.isVisible
 
-    /** 패시브 칩: 불러온 빌드가 있으면 앱 안의 트리, 없으면 poe2db 트리. */
+    /**
+     * 패시브 칩: 불러온 빌드가 있으면 그 캐릭터의 트리, 없으면 직업 시작점에서 직접 찍어 보는 트리.
+     * 어느 쪽이든 앱이 노드와 연결선을 직접 그린다 (poe2db 화면을 띄우지 않는다).
+     */
     private fun showPassiveTree() {
-        val build = pobBuild
-        if (build == null || build.treeNodeIds.isEmpty()) {
-            showWebTree(PASSIVE_TREE_URL)
+        val tree = Poe2Tree.of(this)
+        if (tree.isEmpty()) {
+            Snackbar.make(binding.root, R.string.tree_no_data, Snackbar.LENGTH_LONG).show()
             return
         }
-        showBuildTree()
+        val build = pobBuild
+        if (build != null && build.treeNodeIds.isNotEmpty()) {
+            showBuildTree()
+        } else {
+            bindDefaultTree(tree)
+        }
     }
 
     /**
      * 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다 (직업·전직·찍은 노드 그대로).
-     *
-     * 예전에는 한 곳이라도 예외가 나면 poe2db 웹 트리로 넘겼는데, 그 화면에 사이트의
-     * 직업 선택 드롭다운이 그대로 떠서 오히려 쓸 수 없었다. 이제는 앱 안 트리를 그대로 두고,
-     * 트리 자료 자체가 없을 때만 poe2db를 연다.
      */
     private fun showBuildTree() {
         val build = pobBuild
         if (build == null || build.treeNodeIds.isEmpty()) {
-            showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+            showPassiveTree()
             return
         }
         try {
@@ -966,9 +922,7 @@ class MainActivity : AppCompatActivity() {
                     binding.root,
                     getString(R.string.tree_render_failed, " (${t.javaClass.simpleName})"),
                     Snackbar.LENGTH_LONG,
-                ).setAction(R.string.tree_open_web) {
-                    showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
-                }.show()
+                ).show()
             }
         }
     }
@@ -977,11 +931,9 @@ class MainActivity : AppCompatActivity() {
     private fun bindBuildTree(build: PobBuild) {
         val tree = Poe2Tree.of(this)
         if (tree.isEmpty()) {
-            showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+            Snackbar.make(binding.root, R.string.tree_no_data, Snackbar.LENGTH_LONG).show()
             return
         }
-        treePane.treeWebView.isVisible = false
-        treePane.treeProgress.isVisible = false
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
         treePane.treeNodeCard.isVisible = false
@@ -993,7 +945,6 @@ class MainActivity : AppCompatActivity() {
         treeClassPick = classIndex
         treeAscendPick = ascendIndex
         treePane.treeCanvas.bindLevel = build.level
-        treePane.treeCanvas.bindClassArt(ClassArts.of(this))
         treePane.treeCanvas.bind(tree, build.treeNodeIds, build.treeMastery.keys.toList(), classIndex, ascendIndex)
         // 직업 선택 줄은 트리 위에 늘 보이게 먼저 채운다.
         // (포인트·정신력 계산이 실패해도 직업 줄과 트리는 그대로 보여야 한다.)
@@ -1007,15 +958,36 @@ class MainActivity : AppCompatActivity() {
         binding.bottomNav.selectedItemId = R.id.nav_tree
     }
 
-    /** 아틀라스 트리도 앱 안에서 그린다. 자료가 없으면 poe2db를 연다. */
+    /** 빌드 없이 트리를 펼친다 — 직업 시작점에서 둘러보고 직접 찍어 볼 수 있다. */
+    private fun bindDefaultTree(tree: TreeDict) {
+        if (tree.classes.isEmpty()) {
+            Snackbar.make(binding.root, R.string.tree_no_data, Snackbar.LENGTH_LONG).show()
+            return
+        }
+        if (treeClassPick !in tree.classes.indices) treeClassPick = 0
+        treePane.treeCanvas.isVisible = true
+        treePane.treeCanvasBar.isVisible = true
+        treePane.treeNodeCard.isVisible = false
+        treePane.chipPassiveTree.isChecked = true
+        treePane.treeCanvas.bindLevel = 0
+        treePane.treeCanvas.bindDefault(tree, treeClassPick, treeAscendPick)
+        runCatching { buildClassRow() }
+            .onFailure { Log.e(LOG_TAG, "직업 선택 줄을 채우지 못했습니다", it) }
+        treePane.treeClassScroll.isVisible = treePane.treeClassRow.childCount > 0
+        runCatching { updateTreeInfo() }
+            .onFailure { Log.e(LOG_TAG, "트리 정보 줄을 갱신하지 못했습니다", it) }
+        runCatching { refreshTreePoints() }
+            .onFailure { Log.e(LOG_TAG, "트리 포인트를 갱신하지 못했습니다", it) }
+        binding.bottomNav.selectedItemId = R.id.nav_tree
+    }
+
+    /** 아틀라스 트리도 앱 안에서 그린다. */
     private fun showAtlasTree() {
         val atlas = TreeAtlas.of(this)
         if (atlas.isEmpty()) {
-            showWebTree(ATLAS_TREE_URL)
+            Snackbar.make(binding.root, R.string.tree_no_data, Snackbar.LENGTH_LONG).show()
             return
         }
-        treePane.treeWebView.isVisible = false
-        treePane.treeProgress.isVisible = false
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
         treePane.treeClassScroll.isVisible = false
@@ -1029,18 +1001,18 @@ class MainActivity : AppCompatActivity() {
 
     /** 트리 위쪽의 직업·전직 안내 줄 */
     private fun updateTreeInfo() {
-        val build = pobBuild ?: return
         if (!canvasVisible()) return
         // 아틀라스 트리에는 직업·전직이 없다.
         if (treePane.chipAtlasTree.isChecked) return
         val tree = Poe2Tree.of(this)
-        val cls = tree.classes.getOrNull(treeClassPick)
-        val classKo = cls?.nameKo?.ifBlank { build.className } ?: build.className
-        val ascendKo = cls?.ascendancies?.getOrNull(treeAscendPick - 1)?.second.orEmpty()
-        treePane.tvTreeCanvasInfo.text = if (ascendKo.isBlank()) {
-            getString(R.string.tree_canvas_info, classKo, treePane.treeCanvas.allocatedIds().size)
+        val cls = tree.classes.getOrNull(treeClassPick) ?: return
+        val classKo = cls.nameKo.ifBlank { cls.nameEn }
+        val ascendKo = cls.ascendancies.getOrNull(treeAscendPick - 1)?.second.orEmpty()
+        val count = treePane.treeCanvas.allocatedIds().size
+        treePane.tvTreeCanvasInfo.text = if (ascendKo.isNotBlank() && ascendKo != "WIP") {
+            getString(R.string.tree_canvas_info_ascend, classKo, ascendKo, count)
         } else {
-            getString(R.string.tree_canvas_info_ascend, classKo, ascendKo, treePane.treeCanvas.allocatedIds().size)
+            getString(R.string.tree_canvas_info, classKo, count)
         }
     }
 
@@ -1052,6 +1024,12 @@ class MainActivity : AppCompatActivity() {
 
     /** 패시브 20 / 123 · 전직 2 / 8 ( · 정신력 90 / 130) */
     private fun renderTreePoints(points: TreePoints) {
+        // 아틀라스는 패시브·전직이 없으므로 총점만 적는다.
+        if (treePane.chipAtlasTree.isChecked) {
+            treePane.tvTreePoints.text = getString(R.string.tree_atlas_points, points.allocated, points.total)
+            treePane.tvTreePoints.isVisible = true
+            return
+        }
         val builder = android.text.SpannableStringBuilder()
         fun add(label: String, value: String, color: Int) {
             if (builder.isNotEmpty()) builder.append("   ")
@@ -1093,9 +1071,9 @@ class MainActivity : AppCompatActivity() {
 
     /** 노드 이름으로 트리에서 찾는다. */
     private fun showTreeSearch() {
-        if (!canvasVisible()) {
-            showWebTree(PASSIVE_TREE_URL)
-            return
+        if (treePane.treeCanvas.isEmpty()) {
+            showPassiveTree()
+            if (treePane.treeCanvas.isEmpty()) return
         }
         val input = android.widget.EditText(this).apply {
             hint = getString(R.string.tree_search_hint)
@@ -1179,7 +1157,7 @@ class MainActivity : AppCompatActivity() {
                 row.addView(classPickButton(name, index == treeClassPick) {
                     treeClassPick = index
                     treeAscendPick = 1
-                    treePane.treeCanvas.setClass(tree, index, 1, ClassArts.of(this))
+                    treePane.treeCanvas.setClass(tree, index, 1)
                     buildClassRow()
                     updateTreeInfo()
                     refreshTreePoints()
@@ -1195,7 +1173,7 @@ class MainActivity : AppCompatActivity() {
             runCatching {
                 row.addView(classPickButton("↳ $ko", treeAscendPick == order + 1) {
                     treeAscendPick = order + 1
-                    treePane.treeCanvas.setClass(tree, treeClassPick, treeAscendPick, ClassArts.of(this))
+                    treePane.treeCanvas.setClass(tree, treeClassPick, treeAscendPick)
                     buildClassRow()
                     updateTreeInfo()
                     refreshTreePoints()
@@ -1244,7 +1222,7 @@ class MainActivity : AppCompatActivity() {
     private fun showTreeStats() {
         val stats = battleStats()
         if (stats == null) {
-            showWebTree(PASSIVE_TREE_URL)
+            Snackbar.make(binding.root, R.string.battle_need_build, Snackbar.LENGTH_SHORT).show()
             return
         }
         val text = buildString {
@@ -1279,22 +1257,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    /** poe2db 트리를 웹뷰로 연다. */
-    private fun showWebTree(url: String) {
-        treePane.treeCanvas.isVisible = false
-        treePane.treeCanvasBar.isVisible = false
-        treePane.treeClassScroll.isVisible = false
-        treePane.treeNodeCard.isVisible = false
-        treePane.treeWebView.isVisible = true
-        loadTree(url)
-    }
-
-    /** 트리 탭으로 옮겨 poe2db 페이지를 연다. */
-    private fun openTree(url: String) {
-        binding.bottomNav.selectedItemId = R.id.nav_tree
-        showWebTree(url)
-    }
-
     /** 트리 탭으로 옮겨 앱 안의 아틀라스 트리를 그린다. */
     private fun openNativeAtlas() {
         binding.bottomNav.selectedItemId = R.id.nav_tree
@@ -1320,11 +1282,6 @@ class MainActivity : AppCompatActivity() {
         treePane.tvTreeNodeStats.text = stats
         treePane.tvTreeNodeStats.isVisible = stats.isNotBlank()
         treePane.treeNodeCard.isVisible = true
-    }
-
-    private fun loadTree(url: String) {
-        val current = treePane.treeWebView.url
-        if (current != url) treePane.treeWebView.loadUrl(url)
     }
 
     // ------------------------------------------------------------- PoB 실험실
@@ -1721,23 +1678,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 스킬 칩 줄: '자동'(빌드 주력 스킬) + 불러온 빌드에 실제로 켜져 있는 액티브 스킬.
-     * 빌드를 바꾸거나 스킬을 끄면 이 줄도 그 빌드에 맞게 다시 만들어진다.
+     * 메인 스킬 선택 줄 — 불러온 빌드에 실제로 켜져 있는 액티브 스킬 중 하나를 고른다.
+     * 고른 스킬 하나로 전투하고, 여러 스킬을 섞어 쓰지 않는다.
      */
     private fun buildBattleSkillChips() {
         val group = pobPane.battleSkillChips
         group.removeAllViews()
         val options = BattleSetup.skillOptions(pobBuild, krDict, dpsByName = battleSkillDps())
-        // 고른 스킬이 이 빌드에 없으면(다른 빌드를 불러왔거나 스킬을 껐으면) 자동으로 돌아간다.
-        if (battleSkillPick != null && options.none { it.gem == battleSkillPick }) battleSkillPick = null
-        group.addView(
-            battleChip(getString(R.string.battle_skill_auto), battleSkillPick == null) {
-                battleSkillPick = null
-                markSkillChip(group, null)
-                refreshBattleHeader()
-                restartBattleIfRunning()
-            }
-        )
+        // 고른 스킬이 이 빌드에 없으면(다른 빌드를 불러왔거나 스킬을 껐으면) 첫 스킬을 메인으로 잡는다.
+        if (battleSkillPick == null || options.none { it.gem == battleSkillPick }) {
+            battleSkillPick = options.firstOrNull()?.gem
+        }
+        pobPane.tvBattleSkillPickTitle.isVisible = options.isNotEmpty()
         options.forEach { option ->
             val chip = battleChip(option.name, battleSkillPick == option.gem) {
                 battleSkillPick = option.gem
@@ -1751,7 +1703,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 스킬 칩 중 고른 젬만 체크하고 나머지는 푼다 (tag에 젬 이름, '자동'은 null) */
+    /** 스킬 칩 중 고른 젬만 체크하고 나머지는 푼다 (tag에 젬 이름) */
     private fun markSkillChip(group: ViewGroup, gem: String?) {
         for (i in 0 until group.childCount) {
             val c = group.getChildAt(i) as Chip
@@ -1763,13 +1715,11 @@ class MainActivity : AppCompatActivity() {
         if (battleStarted) startBattle()
     }
 
-    /** 전투 화면의 콤보 요약 — 직접 짠 콤보가 있으면 그것을, 없으면 자동 콤보를 적는다 */
+    /** 전투 화면의 콤보 요약 — 사용자가 직접 짠 콤보가 있을 때만 적는다 */
     private fun refreshComboLabel(current: BattlePlayerStats? = null) {
         val stats = current ?: runCatching { battleStats() }.getOrNull()
         if (stats != null) {
             // 빌드를 바꿔 지금 빌드에 없는 스킬이 남아 있으면 콤보에서 조용히 뺀다.
-            // 모션만 보고 지우면 같은 모션의 다른 스킬(전기불꽃·번개 화살 등)이나
-            // 준비 동작이 없는 스킬이 같이 사라지므로, 이 빌드에 실제로 있는 스킬인지로 판단한다.
             val options = BattleCombos.options(pobBuild, krDict)
             if (options.isNotEmpty()) {
                 val gems = options.map { it.gem.trim().lowercase() }.toSet()
@@ -1786,9 +1736,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (comboPicks.isEmpty()) {
-            val auto = stats?.let { ComboPlanner.summary(ComboPlanner.plan(it.motion, it.kit)) }.orEmpty()
-            pobPane.tvBattleCombo.isVisible = auto.isNotBlank()
-            pobPane.tvBattleCombo.text = if (auto.isBlank()) "" else getString(R.string.battle_combo_plan, auto)
+            pobPane.tvBattleCombo.isVisible = false
+            pobPane.tvBattleCombo.text = ""
         } else {
             pobPane.tvBattleCombo.isVisible = true
             pobPane.tvBattleCombo.text = getString(R.string.battle_combo_line, BattleCombos.summary(comboPicks))
@@ -1978,10 +1927,7 @@ class MainActivity : AppCompatActivity() {
 
         }
 
-        if (comboPicks.isEmpty()) {
-            // 처음 열면 자동 추천으로 시작해 손으로 고칠 수 있게 한다.
-            work.addAll(BattleCombos.autoPicks(stats, options))
-        }
+        // 처음 열면 빈 순서로 시작한다 — 직접 추가한 순서만 전투에 쓴다.
         render()
 
         val tools = LinearLayout(this).apply {
@@ -2004,12 +1950,6 @@ class MainActivity : AppCompatActivity() {
                     apply()
                 }
             })
-        }
-        toolButton(getString(R.string.battle_combo_auto)) {
-            val picks = BattleCombos.autoPicks(stats, options)
-            work.clear()
-            work.addAll(picks)
-            Snackbar.make(binding.root, getString(R.string.battle_combo_auto_done, picks.size), Snackbar.LENGTH_SHORT).show()
         }
         toolButton(getString(R.string.battle_combo_clear)) {
             work.clear()
@@ -2225,7 +2165,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
-        val fxLabel = if (battleSkillPick == null) stats.fx.label else stats.fx.label + " · 직접 선택"
+        val fxLabel = if (battleSkillPick == null) stats.fx.label + " · 빌드 주력" else stats.fx.label
         pobPane.tvBattleSkill.text = getString(
             R.string.battle_skill_line,
             stats.skillName,
@@ -2242,16 +2182,12 @@ class MainActivity : AppCompatActivity() {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
                 getString(R.string.pob_dps_infinite)
         }
-        // 빌드에 준비 단계가 필요한 콤보가 엮여 있거나 직접 짜 둔 콤보가 있으면 순서를 미리 보여 준다.
-        val plan = ComboPlanner.plan(stats.motion, stats.kit)
-        val comboText = if (comboPicks.isNotEmpty()) BattleCombos.summary(comboPicks)
-        else if (plan.size > 1) ComboPlanner.summary(plan) else ""
+        // 빌드에 준비 단계가 필요한 콤보를 엮거나 하는 일은 없다.
+        // 직접 짜 둔 콤보만 그 순서를 적고, 없으면 메인 스킬 하나로 싸운다.
+        val comboText = if (comboPicks.isNotEmpty()) BattleCombos.summary(comboPicks) else ""
         if (comboText.isNotBlank()) {
             pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(
-                    if (comboPicks.isNotEmpty()) R.string.battle_combo_custom else R.string.battle_combo_plan,
-                    comboText,
-                )
+                getString(R.string.battle_combo_custom, comboText)
         }
         // 전기불꽃은 poe2db 수치(나선 발수·지속시간·관통·벽 튕김)를 화면에 같이 적는다.
         if (stats.motion == SkillMotion.SPARK) {
@@ -2634,7 +2570,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val hadBattle = battleStarted
                 pobBuild = build
-                buildTreeUrl = Poe2Tree.url(build, Poe2Tree.of(this))
+                treePane.treeCanvas.clear()
                 pobOverrides.clear()
                 pobFlasks.clear()
                 inventorySelection = null
@@ -3296,10 +3232,9 @@ class MainActivity : AppCompatActivity() {
         val tree = Poe2Tree.of(this)
         val box = pobPane.llTreeNodes
         box.removeAllViews()
-        pobPane.btnOpenTree.setText(
-            if (buildTreeUrl.isNotBlank()) R.string.pob_tree_open_character else R.string.pob_open_tree
-        )
-        if (canvasVisible()) showBuildTree()
+        pobPane.btnOpenTree.setText(R.string.pob_tree_open_character)
+        // 트리 탭을 보고 있을 때만 그 자리에서 다시 그린다 (다른 탭에서 빌드를 불러올 때 탭이 튀지 않게).
+        if (binding.paneTree.isVisible) showBuildTree()
         val summary = Poe2Tree.summarize(build, tree)
         if (summary == null) {
             pobPane.tvTreeInfo.text = getString(R.string.pob_tree_no_nodes)
@@ -3597,37 +3532,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private inner class TreeClient : WebViewClient() {
-
-        override fun shouldOverrideUrlLoading(
-            view: WebView,
-            request: WebResourceRequest,
-        ): Boolean {
-            val uri = request.url
-            val host = uri.host.orEmpty()
-            if (host == "poe2db.tw" || host.endsWith(".poe2db.tw")) return false
-            openExternal(uri)
-            return true
-        }
-
-        override fun onPageFinished(view: WebView, url: String) {
-            treePane.treeProgress.isVisible = false
-            if (!url.startsWith("http")) return
-            view.evaluateJavascript(MobileCss.TREE_SCRIPT, null)
-        }
-
-        override fun onReceivedError(
-            view: WebView,
-            request: WebResourceRequest,
-            error: WebResourceError,
-        ) {
-            if (!request.isForMainFrame) return
-            Snackbar.make(binding.root, R.string.tree_error, Snackbar.LENGTH_LONG)
-                .setAction(R.string.retry) { view.reload() }
-                .show()
-        }
-    }
-
     private fun restoreState(state: Bundle?) {
         if (state == null) return
         val tab = state.getInt(KEY_TAB, R.id.nav_home)
@@ -3642,7 +3546,7 @@ class MainActivity : AppCompatActivity() {
             detailPane.webView.loadUrl(url)
         }
         if (activeTab == R.id.nav_market) ensureMarket()
-        if (activeTab == R.id.nav_tree && treePane.treeWebView.url.isNullOrBlank()) loadTree(PASSIVE_TREE_URL)
+        if (activeTab == R.id.nav_tree && treePane.treeCanvas.isEmpty()) showPassiveTree()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -3658,13 +3562,11 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         detailPane.webView.onResume()
-        treePane.treeWebView.onResume()
         if (battleWantsPlay && battleReady) battleView.resume()
     }
 
     override fun onPause() {
         detailPane.webView.onPause()
-        treePane.treeWebView.onPause()
         if (battleReady) battleView.pause()
         super.onPause()
     }
@@ -3673,7 +3575,6 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(filterTick)
         handler.removeCallbacks(marketTick)
         detailPane.webView.destroy()
-        treePane.treeWebView.destroy()
         if (battleReady) battleView.stop()
         super.onDestroy()
     }
@@ -3681,8 +3582,6 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val LOG_TAG = "PoE2DBKR"
         const val HOME_URL = "https://poe2db.tw/kr/"
-        const val PASSIVE_TREE_URL = "https://poe2db.tw/kr/passive-skill-tree/"
-        const val ATLAS_TREE_URL = "https://poe2db.tw/kr/atlas-skill-tree/"
         const val NINJA_BUILDS_URL = "https://poe.ninja/poe2/builds"
         const val PANE_LIST = 0
         const val PANE_MARKET = 1

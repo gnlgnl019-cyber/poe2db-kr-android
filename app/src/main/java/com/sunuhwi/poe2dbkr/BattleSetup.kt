@@ -21,8 +21,8 @@ data class BattleSkillOption(
 
 object BattleSetup {
 
-    /** 전투 탭 스킬 칩은 주력 스킬까지 5개면 충분하다 */
-    const val SKILL_CHIP_LIMIT = 5
+    /** 전투 탭 스킬 칩은 빌드의 액티브 스킬을 모두 보여 준다 (가로로 밀어 고른다) */
+    const val SKILL_CHIP_LIMIT = 12
 
     /**
      * 전투 탭 스킬 칸에 올릴 스킬 목록.

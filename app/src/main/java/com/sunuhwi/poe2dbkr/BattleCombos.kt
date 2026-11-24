@@ -135,28 +135,6 @@ object BattleCombos {
         )
     }
 
-    /** 빌드에서 뽑은 자동 추천 콤보 (준비 → 마무리 순서) */
-    fun autoPicks(stats: BattlePlayerStats, options: List<ComboPick>): List<ComboPick> {
-        val plan = ComboPlanner.plan(stats.motion, stats.kit)
-        val out = ArrayList<ComboPick>()
-        plan.forEach { step ->
-            val opt = options.firstOrNull { it.motion == step.motion && it.label == step.label }
-                ?: options.firstOrNull { it.motion == step.motion }
-            out.add(
-                ComboPick(
-                    gem = opt?.gem ?: step.label,
-                    label = step.label,
-                    motion = step.motion,
-                    role = step.role,
-                    repeats = step.repeats.coerceIn(1, 9),
-                    note = step.note,
-                    dps = opt?.dps ?: step.dps,
-                )
-            )
-        }
-        return out
-    }
-
     /** 화면에 한 줄로 보여줄 콤보 */
     fun summary(picks: List<ComboPick>): String =
         picks.joinToString(" → ") { pick ->

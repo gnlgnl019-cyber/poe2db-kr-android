@@ -60,11 +60,10 @@
 
     <string name="tree_passive">패시브 트리</string>
     <string name="tree_atlas">아틀라스 트리</string>
-    <string name="tree_error">트리를 불러오지 못했습니다</string>
-    <string name="tree_canvas_site">poe2db</string>
     <string name="tree_canvas_info">%1$s · 찍은 노드 %2$d개</string>
     <string name="tree_canvas_info_ascend">%1$s · %2$s · 찍은 노드 %3$d개</string>
     <string name="tree_canvas_hint">두 손가락으로 확대하고, 노드를 누르면 설명이 나옵니다.</string>
+    <string name="tree_fit">트리 전체 보기</string>
     <string name="tree_node_allocated">찍은 노드</string>
     <string name="tree_node_free">찍지 않은 노드</string>
     <string name="tree_node_generic">패시브</string>
@@ -89,7 +88,7 @@
     <string name="tree_class_unknown">미공개 직업</string>
     <string name="tree_reset_done">빌드에서 불러온 트리로 되돌렸습니다</string>
     <string name="tree_render_failed">트리를 그리는 중 문제가 있었습니다%1$s</string>
-    <string name="tree_open_web">poe2db로 열기</string>
+    <string name="tree_no_data">패시브 트리 자료를 읽지 못했습니다. 앱을 다시 설치하면 함께 들어 있습니다.</string>
     <string name="tree_allocate_blocked">이어진 노드부터 찍어야 합니다</string>
 
     <string name="pob_empty_title">빌드를 불러오세요</string>
@@ -209,7 +208,8 @@
     <string name="battle_mob_count">%1$d마리</string>
     <string name="battle_map_normal">일반 16T</string>
     <string name="battle_map_amp">피통·피해 증폭</string>
-    <string name="battle_skill_auto">자동</string>
+    <string name="battle_skill_pick_title">메인 스킬 선택 — 고른 스킬 하나로 싸웁니다</string>
+    <string name="battle_skill_pick_hint">아래에서 주력으로 쓸 스킬 하나를 고르세요. 전령·정신력 버프·발동 젬은 켜 둔 것만 따로 작동합니다.</string>
     <string name="pob_dps_infinite">PoB가 이 빌드의 DPS를 무한(inf)으로 계산했습니다 · poe.ninja와 같이 32비트 상한 2.1B로 표시합니다</string>
     <string name="pob_dps_missing">PoB에 DPS 값이 없어 평균 타격 × 공속 × 치명타로 추정합니다</string>
     <string name="battle_boss_note">보스 체력·피해는 커뮤니티 집계 기반 추정치입니다</string>
@@ -240,7 +240,6 @@
     <string name="battle_result_trigger">트리거 발동 %1$d회 · 트리거 피해 %2$s</string>
     <string name="battle_result_ascend">전직 부여 스킬 %1$d회 · 피해 %2$s</string>
     <string name="battle_result_combo">봇 콤보 %1$s · 상 %2$d · 와류 %3$d · 돌개바람 %4$d · 종 %5$d</string>
-    <string name="battle_combo_plan">봇 콤보: %1$s</string>
     <string name="battle_spark_line">전기불꽃: 나선 %1$d발 · 지속 2초 · 관통 %2$d회 · 벽 튕김 %3$d회</string>
     <string name="battle_spirit_line">정신력 %1$d / %2$d 점유</string>
     <string name="battle_spirit_title">정신력 젬 — 눌러서 켜고 끄기 (%1$s)</string>
@@ -250,18 +249,16 @@
 
     <string name="battle_combo_button">콤보 설정</string>
     <string name="battle_combo_title">콤보 설정</string>
-    <string name="battle_combo_hint">빌드에 장착한 스킬을 누르면 순서에 추가됩니다. 같은 스킬을 여러 번 넣을 수 있고, ↑ ↓ 로 순서를 바꾸고 ✕ 로 뺩니다.</string>
+    <string name="battle_combo_hint">빌드에 장착한 스킬을 눌러 순서를 직접 짜면 그 순서대로 싸웁니다. 비워 두면 위에서 고른 메인 스킬만 씁니다.</string>
     <string name="battle_combo_sequence">콤보 순서</string>
     <string name="battle_combo_empty">아직 순서가 없습니다. 아래 스킬을 눌러 추가하세요.</string>
     <string name="battle_combo_add">스킬 추가</string>
-    <string name="battle_combo_auto">자동 추천</string>
     <string name="battle_combo_clear">초기화</string>
     <string name="battle_combo_close">닫기</string>
     <string name="battle_combo_up">위로</string>
     <string name="battle_combo_down">아래로</string>
     <string name="battle_combo_remove">빼기</string>
     <string name="battle_combo_saved">콤보 %1$d개 저장 · 전투에 바로 적용합니다</string>
-    <string name="battle_combo_auto_done">빌드에 맞춰 %1$d개를 추천했습니다</string>
     <string name="battle_combo_line">콤보: %1$s</string>
     <string name="battle_combo_custom">직접 설정한 콤보: %1$s</string>
     <string name="battle_beast_line">야수 변신: %1$s</string>

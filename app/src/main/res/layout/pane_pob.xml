@@ -807,6 +807,20 @@
                             app:singleLine="true" />
                     </HorizontalScrollView>
 
+                    <!-- 메인 스킬 선택 — 고른 스킬 하나로 전투한다 -->
+                    <TextView
+                        android:id="@+id/tvBattleSkillPickTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="12dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="2dp"
+                        android:text="@string/battle_skill_pick_title"
+                        android:textColor="@color/gold"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+
                     <HorizontalScrollView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

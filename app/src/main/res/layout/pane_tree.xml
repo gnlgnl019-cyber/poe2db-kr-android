@@ -64,13 +64,13 @@
                 android:src="@drawable/ic_info" />
 
             <ImageButton
-                android:id="@+id/btnTreeOpen"
+                android:id="@+id/btnTreeFit"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/detail_open_browser"
+                android:contentDescription="@string/tree_fit"
                 android:padding="9dp"
-                android:src="@drawable/ic_open_in_new" />
+                android:src="@drawable/ic_tree_fit" />
 
             <ImageButton
                 android:id="@+id/btnTreeRefresh"
@@ -115,33 +115,16 @@
                 android:paddingBottom="6dp" />
         </HorizontalScrollView>
 
-        <com.google.android.material.progressindicator.LinearProgressIndicator
-            android:id="@+id/treeProgress"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:indeterminate="false"
-            android:max="100"
-            android:visibility="gone"
-            app:indicatorColor="@color/gold"
-            app:trackColor="@color/divider"
-            app:trackThickness="2dp" />
-
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <WebView
-                android:id="@+id/treeWebView"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@color/bg" />
-
+            <!-- 앱이 직접 그리는 트리 (웹뷰 없음) -->
             <com.sunuhwi.poe2dbkr.TreeCanvasView
                 android:id="@+id/treeCanvas"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:visibility="gone" />
+                android:layout_height="match_parent" />
 
             <LinearLayout
                 android:id="@+id/treeCanvasBar"

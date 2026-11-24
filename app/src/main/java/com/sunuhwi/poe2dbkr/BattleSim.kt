@@ -1248,10 +1248,15 @@ class BattleWorld(
     var triggerDamage = 0.0
         private set
 
-    /** 콤보 순서 — 전투 탭에서 짜 둔 콤보가 있으면 그것을 그대로 돌린다 */
-    val comboPlan: List<ComboStep> =
-        if (stats.combo.isNotEmpty()) stats.combo else ComboPlanner.plan(stats.motion, stats.kit)
-    /** 사용자가 직접 짠 콤보인지 (자동 추천과 구분해 HUD에 적는다) */
+    /**
+     * 콤보 순서 — 사용자가 전투 탭에서 직접 짠 콤보만 돈다.
+     *
+     * 예전에는 빌드에 든 다른 스킬을 봇이 알아서 엮어 썼는데, 사용자가 고른 메인 스킬과
+     * 상관없이 제멋대로 스킬을 섞어 쓰는 원인이었다. 지금은 콤보를 직접 짜지 않았으면
+     * 메인 스킬 하나만 쓰고, 콤보를 짠 경우에만 그 순서를 따른다.
+     */
+    val comboPlan: List<ComboStep> = stats.combo
+    /** 사용자가 직접 짠 콤보인지 */
     val comboCustom: Boolean = stats.combo.isNotEmpty()
     private var comboIndex = 0
     private var comboServed = 0
@@ -1266,7 +1271,7 @@ class BattleWorld(
     private val usesBell: Boolean =
         stats.motion == SkillMotion.TEMPEST_BELL || stats.kit.any { it.motion == SkillMotion.TEMPEST_BELL }
 
-    /** 봇이 자동으로 돌리는 콤보 설명 (전투 전 화면에 보여 준다) */
+    /** 봇이 도는 콤보 설명 (직접 짠 콤보가 있을 때만) */
     val comboSummary: String get() = ComboPlanner.summary(comboPlan)
 
     /** 지금 콤보에서 서 있는 칸 (화면 칩 강조에 쓴다) */
@@ -2291,8 +2296,8 @@ class BattleWorld(
     /**
      * 봇의 한 차례.
      *
-     * 빌드에 준비 단계가 필요한 조합(와류→돌개바람, 연계→폭풍의 종 등)이 있으면
-     * 그 순서대로 스킬을 바꿔 쓰고, 아니면 주력 스킬로 그냥 친다.
+     * 기본은 고른 메인 스킬 하나로만 친다. 사용자가 콤보를 직접 짜 두었을 때만
+     * 그 순서대로 다른 스킬을 바꿔 쓴다.
      */
     private fun takeTurn(target: Enemy) {
         val step = nextComboStep()

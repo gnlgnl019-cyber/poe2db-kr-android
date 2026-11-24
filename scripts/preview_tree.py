@@ -6,10 +6,12 @@
 결과: docs/preview-passive-tree.png (불러온 빌드의 패시브 트리)
       docs/preview-atlas-tree.png   (아틀라스 트리)
 
-앱의 TreeCanvasView와 같은 규칙(배경 그라데이션, 금동 연결선, 찍은 노드 금빛,
-직업 메달, 전직 링)을 PIL로 옮긴 그림이다. 실제 기기 렌더링과 픽셀 단위로 같지는
-않지만, 자료·아이콘·배치가 화면에서 어떻게 보이는지 눈으로 확인하는 데 쓴다.
+앱의 TreeCanvasView와 같은 규칙으로 PIL에 옮긴 그림이다.
+- poe2db 화면을 띄우지 않고 노드 좌표·연결선·아이콘으로 앱이 직접 그린다
+- 가운데 직업 일러스트·금색 고리·전직 노드 링 같은 장식은 없다
+- 노드는 실제 자리에 종류별 크기로, 찍은 노드는 금빛으로 빛난다
 """
+
 import base64
 import json
 import math
@@ -27,14 +29,18 @@ FONT = "/usr/share/fonts/pickle-hwp/NotoSansCJKkr-Regular.otf"
 BG_TOP = (19, 26, 38)
 BG_MID = (11, 14, 20)
 BG_EDGE = (5, 7, 10)
-EDGE = (90, 74, 46)
+EDGE = (106, 85, 51)
 EDGE_ON = (232, 192, 96)
 GOLD = (240, 220, 168)
 GOLD_DIM = (201, 180, 122)
 TEXT = (236, 232, 225)
 MUTED = (121, 128, 140)
-BRONZE = (107, 90, 51)
-BRONZE_SOFT = (154, 127, 70)
+BRONZE = (69, 62, 48)
+BRONZE_SOFT = (138, 117, 73)
+
+# 앱의 TreeMetrics와 같은 값 (트리 좌표 단위)
+RADIUS = {"n": 158, "k": 196, "m": 138, "j": 124, "a": 158, "c": 168, "e": 120, "s": 108}
+DOT_SCALE = 0.055
 
 
 def font(size):
@@ -86,10 +92,12 @@ def crop_icon(sheet, rect):
     return sheet.crop((x, y, x + w, y + h))
 
 
-def paste_circle(image, art, cx, cy, radius):
+def paste_circle(image, art, cx, cy, radius, alpha=255):
     """아이콘을 원 안에 가둬 붙인다 (앱의 clipPath와 같은 효과)."""
     size = max(2, int(radius * 2))
     art = art.resize((size, size), Image.LANCZOS).convert("RGBA")
+    if alpha < 255:
+        art.putalpha(art.split()[3].point(lambda v: int(v * alpha / 255)))
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
     if art.split()[3].getextrema()[0] < 255:
@@ -100,7 +108,7 @@ def paste_circle(image, art, cx, cy, radius):
 def normalize(tree, atlas):
     """두 자료를 같은 모양(id, 이름, 설명, 종류, x, y, 아이콘)으로 맞춘다."""
     passive_nodes = [
-        {"id": row[0], "name": row[2], "stats": row[3], "kind": row[4], "ascendancy": row[5],
+        {"id": row[0], "name": row[2] or row[1], "stats": row[3], "kind": row[4], "ascendancy": row[5],
          "x": row[6], "y": row[7], "icon": row[11]}
         for row in tree["nodes"]
     ]
@@ -115,8 +123,23 @@ def normalize(tree, atlas):
     )
 
 
-def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_ring, counters,
-              out_path, medallion_art=None, focus_span=2600.0, class_row=None):
+def fit(box, width, height):
+    """찍은 노드가 화면을 채우도록 배율·이동값을 잡는다 (앱의 TreeViewport.fit)."""
+    min_x, min_y, max_x, max_y = box
+    span_x = max(max_x - min_x, 6000.0)
+    span_y = max(max_y - min_y, 6000.0)
+    cx = (min_x + max_x) / 2
+    cy = (min_y + max_y) / 2
+    pad_x = span_x * 0.10 + 180
+    pad_y = span_y * 0.10 + 180
+    total_x = span_x + pad_x * 2
+    total_y = span_y + pad_y * 2
+    scale = min(width / total_x, height / total_y)
+    return scale, width / 2 - cx * scale, height / 2 - cy * scale
+
+
+def draw_tree(meta, icons, allocated_ids, box, out_path, counters, class_row=None,
+              class_starts=(), class_name=""):
     nodes = meta["nodes"]
     edges = meta["edges"]
     width, height = 1080, 1760
@@ -124,12 +147,8 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
     draw = ImageDraw.Draw(image, "RGBA")
 
     by_id = {n["id"]: n for n in nodes}
-
-    fx, fy = focus
-    span = focus_span
-    scale = width / (span * 2)
-    ox = width / 2 - fx * scale
-    oy = height / 2 - fy * scale
+    allocated = set(allocated_ids)
+    scale, ox, oy = fit(box, width, height)
 
     def sx(x):
         return ox + x * scale
@@ -137,16 +156,9 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
     def sy(y):
         return oy + y * scale
 
-    allocated = set(allocated_ids)
+    dot_scale = scale < DOT_SCALE
 
-    # 연결선 — 가운데 직업 메달·전직 링으로 이어지는 긴 선은 긋지 않는다 (앱 화면과 같게)
-    def medallion_edge(nid):
-        row = by_id.get(nid)
-        if row is None:
-            return True
-        # 직업 시작점·전직 시작점은 메달·전직 링으로 따로 그리므로 선을 긋지 않는다.
-        return row["kind"] in ("c", "a")
-
+    # 연결선 — 화면을 가로지르는 긴 통로(전직 시작점으로 뻗는 선)는 긋지 않는다.
     def long_edge(a, b):
         if a not in by_id or b not in by_id:
             return True
@@ -155,89 +167,95 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
         return dx * dx + dy * dy > 2500 * 2500
 
     for a, b in edges:
-        if a not in by_id or b not in by_id:
-            continue
-        if medallion_edge(a) or medallion_edge(b) or long_edge(a, b):
+        if long_edge(a, b):
             continue
         x1, y1 = sx(by_id[a]["x"]), sy(by_id[a]["y"])
         x2, y2 = sx(by_id[b]["x"]), sy(by_id[b]["y"])
         if max(x1, x2) < -50 or min(x1, x2) > width + 50 or max(y1, y2) < -50 or min(y1, y2) > height + 50:
             continue
+        stroke = max(2, int(4.2 * scale * 3))
         if a in allocated and b in allocated:
-            draw.line((x1, y1, x2, y2), fill=EDGE_ON + (70,), width=7)
-            draw.line((x1, y1, x2, y2), fill=EDGE_ON + (235,), width=3)
+            draw.line((x1, y1, x2, y2), fill=EDGE_ON + (80,), width=int(stroke * 4))
+            draw.line((x1, y1, x2, y2), fill=EDGE_ON + (235,), width=stroke)
         else:
-            draw.line((x1, y1, x2, y2), fill=EDGE + (150,), width=2)
+            draw.line((x1, y1, x2, y2), fill=EDGE + (175,), width=max(1, stroke - 1))
 
-    # 노드
-    kind_radius = {"n": 44, "k": 60, "m": 40, "j": 34, "a": 32, "c": 0, "s": 26}
-    for row in nodes:
-        nid, kind = row["id"], row["kind"]
+    # 노드 — 작은 노드를 먼저, 큰 노드를 나중에 그린다
+    def onclick_order(row):
+        return 0 if row["kind"] in ("s", "e") else 1
+
+    for row in sorted(nodes, key=onclick_order):
         px, py = sx(row["x"]), sy(row["y"])
         if px < -60 or px > width + 60 or py < -60 or py > height + 60:
             continue
-        if kind == "c":
-            continue
-        radius = kind_radius.get(kind, 26) * scale
-        on = nid in allocated
-        icon_rect = row["icon"]
-        if radius < 3 and not on:
+        kind = row["kind"]
+        on = row["id"] in allocated
+        radius = RADIUS.get(kind, 108) * scale
+        if dot_scale:
+            dot = {"k": 5.7, "n": 4.5, "a": 4.5, "m": 3.6, "j": 3.6, "e": 3.3, "c": 6.6}.get(kind, 2.6)
+            if on:
+                draw.ellipse((px - dot * 2, py - dot * 2, px + dot * 2, py + dot * 2), fill=EDGE_ON + (60,))
+                color = GOLD
+            else:
+                color = {"k": (180, 118, 47), "n": (154, 132, 85), "c": (255, 231, 176),
+                         "m": (91, 123, 160)}.get(kind, (74, 67, 54))
+            draw.ellipse((px - dot, py - dot, px + dot, py + dot), fill=color)
             continue
         if on:
-            draw.ellipse((px - radius * 1.8, py - radius * 1.8, px + radius * 1.8, py + radius * 1.8),
-                         fill=(232, 192, 96, 40))
-            draw.ellipse((px - radius * 1.3, py - radius * 1.3, px + radius * 1.3, py + radius * 1.3),
-                         fill=(232, 192, 96, 70))
-        if icon_rect:
-            art = crop_icon(icons, icon_rect)
-            if not on:
-                art = art.convert("RGBA")
-                art.putalpha(art.split()[3].point(lambda v: int(v * 0.58)))
-            paste_circle(image, art, px, py, radius * 1.02)
-        ring = GOLD_DIM if on else BRONZE_SOFT
-        draw.ellipse((px - radius, py - radius, px + radius, py + radius),
-                     outline=ring if on else BRONZE, width=max(1, int(radius * 0.22)))
-
-    # 직업 메달 + 전직 링
-    if class_start in by_id:
-        mx, my = sx(by_id[class_start]["x"]), sy(by_id[class_start]["y"])
-        radius = 200.0
-        draw.ellipse((mx - radius * 2.1, my - radius * 2.1, mx + radius * 2.1, my + radius * 2.1),
-                     fill=(232, 192, 96, 22))
-        disc = Image.new("RGBA", (int(radius * 2), int(radius * 2)), (0, 0, 0, 0))
-        mask = Image.new("L", disc.size, 0)
-        ImageDraw.Draw(mask).ellipse((2, 2, disc.size[0] - 2, disc.size[1] - 2), fill=255)
-        if medallion_art is not None:
-            art = medallion_art.resize(disc.size, Image.LANCZOS).convert("RGBA")
+            draw.ellipse((px - radius * 1.55, py - radius * 1.55, px + radius * 1.55, py + radius * 1.55),
+                         fill=(232, 192, 96, 45))
+            draw.ellipse((px - radius * 1.16, py - radius * 1.16, px + radius * 1.16, py + radius * 1.16),
+                         fill=(232, 192, 96, 75))
+        fill = (58, 46, 24, 255) if on else {
+            "k": (36, 28, 18), "n": (26, 29, 38), "c": (34, 26, 16),
+        }.get(kind, (14, 17, 24))
+        draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=fill)
+        if row["icon"] and RADIUS.get(kind, 108) * scale >= 2.4 * 3:
+            paste_circle(image, crop_icon(icons, row["icon"]), px, py, radius * 0.98,
+                         alpha=255 if on else 205)
         else:
-            art = Image.new("RGBA", disc.size, (13, 18, 24, 255))
-        disc.paste(art, (0, 0), mask)
-        image.paste(disc, (int(mx - radius), int(my - radius)), disc)
-        draw.ellipse((mx - radius, my - radius, mx + radius, my + radius), outline=(154, 127, 70), width=int(radius * 0.075))
-        draw.ellipse((mx - radius * 0.93, my - radius * 0.93, mx + radius * 0.93, my + radius * 0.93),
-                     outline=(216, 183, 106), width=int(radius * 0.03))
-        ring_r = radius * 1.32
-        for order, nid in enumerate(ascend_ring):
-            if nid not in by_id:
+            dot = radius * 0.34
+            draw.ellipse((px - dot, py - dot, px + dot, py + dot),
+                         fill=GOLD if on else (60, 58, 52))
+        ring = GOLD_DIM if on else {
+            "c": (224, 190, 120), "k": (180, 118, 47), "n": (138, 117, 73),
+            "m": (78, 106, 140), "j": (140, 122, 70), "a": (126, 151, 184),
+            "e": (126, 151, 184),
+        }.get(kind, BRONZE)
+        stroke = max(1, int(radius * 0.16))
+        draw.ellipse((px - radius, py - radius, px + radius, py + radius), outline=ring, width=stroke)
+        if kind in ("k", "n"):
+            gap = radius * 1.13
+            draw.ellipse((px - gap, py - gap, px + gap, py + gap),
+                         outline=(255, 231, 176, 120) if on else (62, 55, 40, 120), width=1)
+
+    # 직업 시작점 이름
+    if scale >= 0.04:
+        label_font = font(int(11 * 3))
+        for nid in class_starts:
+            row = by_id.get(nid)
+            if not row:
                 continue
-            angle = 2 * math.pi * order / len(ascend_ring) - math.pi / 2
-            px = mx + math.cos(angle) * ring_r
-            py = my + math.sin(angle) * ring_r
-            size = radius * 0.2
-            row = by_id[nid]
-            if row["icon"]:
-                paste_circle(image, crop_icon(icons, row["icon"]), px, py, size)
-            draw.ellipse((px - size, py - size, px + size, py + size), outline=BRONZE_SOFT, width=2)
+            px, py = sx(row["x"]), sy(row["y"])
+            if px < -100 or px > width + 100 or py < -50 or py > height + 50:
+                continue
+            label = class_name if nid == class_starts[0] and class_name else row["name"]
+            if not label:
+                continue
+            text_w = draw.textlength(label, font=label_font)
+            left = px - text_w / 2
+            if left < 4 or left + text_w > width - 4:
+                continue
+            draw.text((left, py - RADIUS["c"] * scale - 18), label, font=label_font, fill=(255, 231, 176))
 
     # 상단 띠 + 카운터
     draw.rectangle((0, 0, width, 92), fill=(10, 13, 18, 240))
-    draw.rectangle((0, 91, width, 92), fill=BRONZE)
+    draw.rectangle((0, 91, width, 92), fill=BRONZE_SOFT)
     chip_font = font(30)
     draw.rounded_rectangle((16, 22, 210, 70), radius=8, fill=(212, 175, 55, 40), outline=(212, 175, 55, 255), width=2)
-    draw.text((36, 30), "패시브 트리", font=chip_font, fill=(240, 220, 168))
-    draw.rounded_rectangle((222, 22, 430, 70), radius=8, fill=(23, 26, 33, 255), outline=BRONZE, width=2)
+    draw.text((36, 30), "패시브 트리", font=chip_font, fill=GOLD)
+    draw.rounded_rectangle((222, 22, 430, 70), radius=8, fill=(23, 26, 33, 255), outline=BRONZE_SOFT, width=2)
     draw.text((242, 30), "아틀라스 트리", font=chip_font, fill=MUTED)
-    # 상단 오른쪽 아이콘은 미리보기에서 그리지 않는다 (폰트에 없는 글자는 네모로 나온다).
     draw.rectangle((0, 92, width, 140), fill=(10, 13, 18, 235))
     x = 20
     for text, color in counters:
@@ -252,40 +270,33 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
             w = int(draw.textlength(label, font=font(26))) + 34
             draw.rounded_rectangle((cx, 152, cx + w, 152 + 56), radius=8,
                                    fill=(212, 175, 55, 45) if on else (23, 26, 33, 255),
-                                   outline=(212, 175, 55) if on else BRONZE, width=2)
-            draw.text((cx + 17, 165), label, font=font(26), fill=(240, 220, 168) if on else MUTED)
+                                   outline=(212, 175, 55) if on else BRONZE_SOFT, width=2)
+            draw.text((cx + 17, 165), label, font=font(26), fill=GOLD if on else MUTED)
             cx += w + 10
             if cx > width - 40:
                 break
 
     DOCS.mkdir(parents=True, exist_ok=True)
     image.save(out_path)
-    print(f"저장: {out_path}")
+    print(f"저장: {out_path} (배율 {scale:.4f})")
 
 
 def main():
     tree = json.load(open(ASSETS / "poe2_tree_kr.json", encoding="utf-8"))
     atlas = json.load(open(ASSETS / "poe2_atlas_kr.json", encoding="utf-8"))
-    arts = json.load(open(ASSETS / "class_art.json", encoding="utf-8"))
     tree_icons = Image.open(ASSETS / "tree_icons.webp").convert("RGBA")
     atlas_icons = Image.open(ASSETS / "atlas_icons.webp").convert("RGBA")
-    class_sheet = Image.open(ASSETS / arts["file"]).convert("RGBA")
 
     nodes, class_id, ascend_id, level = load_pob(ROOT / "app/src/test/resources/pob_real_build.txt")
     start = None
     for ci, nid in tree["classStarts"]:
         if ci == class_id:
             start = nid
-    asc_start = None
-    for ci, ai, nid in tree["ascStarts"]:
-        if ci == class_id and ai == ascend_id:
-            asc_start = nid
     passive_meta, atlas_meta = normalize(tree, atlas)
     node_map = {n[0]: n for n in tree["nodes"]}
-    asc_internal = node_map[asc_start][5] if asc_start else ""
-    ring = [n[0] for n in tree["nodes"] if n[5] == asc_internal and n[4] == "n"]
     class_index = tree["classes"][class_id]
     class_en = class_index[0]
+    class_ko = class_index[1] or class_en
     ascend_ko = class_index[2][ascend_id - 1][1] if len(class_index[2]) >= ascend_id else ""
 
     passive = sum(1 for nid in nodes if node_map.get(nid, [0, "", "", "", "s"])[4] not in ("a", "c")
@@ -294,34 +305,38 @@ def main():
                  and node_map.get(nid, [0, "", "", "", "s"])[4] not in ("a", "c"))
     total = level - 1 + 25
 
-    # 전직 노드는 트리 반대편에 모여 있어 화면 맞춤에서 뺀다.
-    main_nodes = [n for n in nodes if not node_map[n][5]]
-    xs = [node_map[n][6] for n in main_nodes] + [node_map[start][6]]
-    ys = [node_map[n][7] for n in main_nodes] + [node_map[start][7]]
-    focus_x = (min(xs) + max(xs)) / 2
-    focus_y = (min(ys) + max(ys)) / 2
-    focus_span = max(max(xs) - min(xs), max(ys) - min(ys)) * 1.35
-    # 전직 링은 시작점 둘레에 고르게 두른다 (각도 순).
-    ring.sort(key=lambda nid: math.atan2(node_map[nid][7] - node_map[start][7],
-                                         node_map[nid][6] - node_map[start][6]))
+    # 화면 맞춤: 찍은 노드 중 전직(바깥 동그라미)을 뺀 자리 + 직업 시작점
+    main_nodes = [n for n in nodes if n in node_map and not node_map[n][5]]
+    xs = [node_map[n][6] for n in main_nodes]
+    ys = [node_map[n][7] for n in main_nodes]
+    if start in node_map:
+        xs.append(node_map[start][6])
+        ys.append(node_map[start][7])
+    box = (min(xs), min(ys), max(xs), max(ys))
+    class_starts = sorted({nid for _, nid in tree["classStarts"] if nid in node_map},
+                          key=lambda nid: math.atan2(node_map[nid][7], node_map[nid][6]))
+
     draw_tree(
-        passive_meta, tree_icons, class_sheet, nodes, (focus_x, focus_y),
-        start, ring,
+        passive_meta, tree_icons, nodes, box,
+        DOCS / "preview-passive-tree.png",
         [("패시브 %d / %d" % (passive, total), TEXT),
          ("전직 %d / 8" % ascend, GOLD_DIM),
          ("정신력 90 / 130", (140, 232, 192))],
-        DOCS / "preview-passive-tree.png",
-        medallion_art=crop_icon(class_sheet, arts["classes"].get(class_en)),
-        focus_span=focus_span,
-        class_row=[(tree["classes"][class_id][1] or class_en, True)]
+        class_row=[(class_ko, True)]
         + [(c[1] or c[0], False) for i, c in enumerate(tree["classes"]) if i != class_id][:6],
+        class_starts=class_starts,
+        class_name=class_ko,
     )
-    print(f"직업 {class_en} {ascend_ko} · 찍은 노드 {len(nodes)} · 전직 링 {len(ring)}")
+    print(f"직업 {class_en} {ascend_ko} · 찍은 노드 {len(nodes)}")
 
+    atlas_nodes = [n for n in atlas["nodes"]]
+    axs = [n[4] for n in atlas_nodes]
+    ays = [n[5] for n in atlas_nodes]
     draw_tree(
-        atlas_meta, atlas_icons, class_sheet, [], (0, -3000), -1, [],
-        [("아틀라스 0 / 123", TEXT)],
+        atlas_meta, atlas_icons, [],
+        (min(axs), min(ays), max(axs), max(ays)),
         DOCS / "preview-atlas-tree.png",
+        [("아틀라스 0 / 123", TEXT)],
     )
 
 

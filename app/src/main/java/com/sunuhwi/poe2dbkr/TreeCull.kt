@@ -1,16 +1,20 @@
 package com.sunuhwi.poe2dbkr
 
+import kotlin.math.hypot
+
 /**
- * 트리 노드의 그리기 크기. 화면 배율과 곱해 반지름을 낸다.
+ * 트리 노드의 그리기 크기. poe2db 자료의 좌표 단위(노드 사이가 평균 200쯤)에 맞춘 반지름이다.
  * (그리기 코드와 시험이 같은 값을 보도록 한곳에 모아 둔다.)
  */
 object TreeMetrics {
-    const val NORMAL = 26f
-    const val NOTABLE = 44f
-    const val KEYSTONE = 60f
-    const val MASTERY = 40f
-    const val JEWEL = 34f
-    const val ASCENDANT = 32f
+    const val NORMAL = 108f
+    const val NOTABLE = 158f
+    const val KEYSTONE = 196f
+    const val MASTERY = 138f
+    const val JEWEL = 124f
+    const val ASCENDANT = 120f
+    const val ASCENDANT_START = 158f
+    const val CLASS_START = 168f
 
     fun radiusOf(kind: TreeKind): Float = when (kind) {
         TreeKind.NOTABLE -> NOTABLE
@@ -18,18 +22,32 @@ object TreeMetrics {
         TreeKind.MASTERY -> MASTERY
         TreeKind.JEWEL -> JEWEL
         TreeKind.ASCENDANT -> ASCENDANT
-        TreeKind.ASCENDANT_START -> ASCENDANT * 1.6f
-        TreeKind.CLASS_START -> 0f
+        TreeKind.ASCENDANT_START -> ASCENDANT_START
+        TreeKind.CLASS_START -> CLASS_START
         else -> NORMAL
     }
 
-    /** 아이콘 대신 점으로 그리는 노드인지 (작게 보일 때) */
-    fun isDot(kind: TreeKind, allocated: Boolean, scale: Float): Boolean {
-        if (allocated) return false
-        val small = kind == TreeKind.NORMAL || kind == TreeKind.ASCENDANT
-        if (!small) return false
-        val radius = radiusOf(kind) * scale
-        return scale <= 0.02f || radius < 3.2f || radius < 6f
+    /** 이 배율에서 아이콘을 넣을 만큼 노드가 큰지 (작으면 속을 비운 원으로만 그린다) */
+    fun showsIcon(kind: TreeKind, scale: Float, dp: Float): Boolean =
+        radiusOf(kind) * scale >= 2.4f * dp
+
+    /**
+     * 화면에서 점으로만 그리는 배율인지.
+     * 트리 전체를 한눈에 볼 때는 노드 5천 개가 서로 겹쳐 아이콘을 넣어도 알아볼 수 없으므로
+     * 종류별 크기만 다른 점으로 그린다.
+     */
+    fun isDotScale(scale: Float): Boolean = scale < 0.055f
+
+    /** 점으로 그릴 때의 반지름(px). 종류가 클수록 조금 크게 찍어 별자리처럼 보이게 한다. */
+    fun dotRadius(kind: TreeKind, dp: Float): Float = when (kind) {
+        TreeKind.KEYSTONE -> 1.9f * dp
+        TreeKind.NOTABLE -> 1.5f * dp
+        TreeKind.ASCENDANT_START -> 1.5f * dp
+        TreeKind.MASTERY -> 1.2f * dp
+        TreeKind.JEWEL -> 1.2f * dp
+        TreeKind.ASCENDANT -> 1.1f * dp
+        TreeKind.CLASS_START -> 2.2f * dp
+        else -> 0.85f * dp
     }
 }
 
@@ -63,11 +81,6 @@ class TreeCull(
     var onCount = 0
         private set
 
-    /** 점으로 그릴 노드 [x, y, …] */
-    val dots: FloatArray = FloatArray(size * 2 + 8)
-    var dotCount = 0
-        private set
-
     /** 원·아이콘으로 그릴 노드의 배열 위치 */
     val nodes: IntArray = IntArray(size)
     var nodeCount = 0
@@ -82,18 +95,13 @@ class TreeCull(
 
     fun isAscendancy(index: Int): Boolean = ascendancy.getOrElse(index) { false }
 
-    /**
-     * 가운데 직업 메달로 이어지는 선인지.
-     *
-     * 직업 시작점과 전직 시작점은 메달·전직 링으로 따로 그린다. 이 노드들에서 뻗는 선은
-     * 화면을 가로지르는 긴 금빛 줄이 되어 트리를 어지럽히므로(사용자 지적) 긋지 않는다.
-     */
-    fun medallionEdge(index: Int): Boolean =
-        kindOf(index) == TreeKind.CLASS_START || kindOf(index) == TreeKind.ASCENDANT_START
+    fun kindOf(index: Int): TreeKind = if (index in 0 until size) geometry.kindAt(index) else TreeKind.NORMAL
 
     /**
      * 트리 반대편까지 가로지르는 긴 연결선인지.
-     * 전직 통로처럼 멀리 떨어진 노드를 잇는 선은 화면을 가로질러 지저분해진다.
+     *
+     * 직업 시작점에서 전직 시작점으로 뻗는 통로(1만 5천~2만 거리)는 화면을 가로질러
+     * 트리를 어지럽히므로 긋지 않는다. 전직 덩어리 안쪽의 짧은 연결선은 그대로 그린다.
      */
     fun isLongEdge(a: Int, b: Int): Boolean {
         if (a !in 0 until size || b !in 0 until size) return true
@@ -102,8 +110,6 @@ class TreeCull(
         return dx * dx + dy * dy > LONG_EDGE * LONG_EDGE
     }
 
-    fun kindOf(index: Int): TreeKind = if (index in 0 until size) geometry.kindAt(index) else TreeKind.NORMAL
-
     /**
      * 화면 배율·이동값으로 보이는 것만 골라 담는다.
      * [width]·[height]가 0이면 아무것도 담지 않는다 (화면 회전·분할 화면 순간).
@@ -111,7 +117,6 @@ class TreeCull(
     fun compute(scale: Float, offsetX: Float, offsetY: Float, width: Int, height: Int) {
         plainCount = 0
         onCount = 0
-        dotCount = 0
         nodeCount = 0
         if (size == 0 || width <= 0 || height <= 0) return
         if (!scale.isFinite() || scale <= 0f) return
@@ -129,8 +134,6 @@ class TreeCull(
             val b = geometry.edges[i + 1]
             i += 2
             if (a !in 0 until size || b !in 0 until size) continue
-            // 메달·전직 링으로 이어지는 선과 화면을 가로지르는 긴 선은 긋지 않는다.
-            if (medallionEdge(a) || medallionEdge(b)) continue
             if (isLongEdge(a, b)) continue
             val ax = geometry.xs[a]
             val ay = geometry.ys[a]
@@ -159,25 +162,13 @@ class TreeCull(
             }
         }
 
-        // 노드
-        val pad = 200f / scale
+        // 노드 — 종류별 반지름만큼 화면 밖으로 걸친 것도 담는다.
         for (index in 0 until size) {
             val x = geometry.xs[index]
             val y = geometry.ys[index]
-            if (x < left - pad || x > right + pad || y < top - pad || y > bottom + pad) continue
-            val kind = geometry.kindAt(index)
-            if (kind == TreeKind.CLASS_START) continue
-            val on = isAllocated(index)
-            val sx = offsetX + x * scale
-            val sy = offsetY + y * scale
-            if (TreeMetrics.isDot(kind, on, scale)) {
-                if (dotCount + 2 <= dots.size) {
-                    dots[dotCount] = sx
-                    dots[dotCount + 1] = sy
-                    dotCount += 2
-                }
-                continue
-            }
+            val pad = TreeMetrics.radiusOf(geometry.kindAt(index)) * 1.4f + 40f
+            if (x * scale + offsetX < -pad || x * scale + offsetX > width + pad) continue
+            if (y * scale + offsetY < -pad || y * scale + offsetY > height + pad) continue
             if (nodeCount < nodes.size) {
                 nodes[nodeCount] = index
                 nodeCount++
@@ -186,38 +177,5 @@ class TreeCull(
     }
 }
 
-/**
- * 전직 노드를 직업 메달 둘레에 두는 자리.
- * 링 배열의 값이 어긋나 있어도(없는 노드 번호) 자리만 건너뛰고 예외를 내지 않는다.
- */
-object TreeRing {
-    /** 링에 올릴 수 있는 최대 노드 수 (화면이 지저분해지지 않게) */
-    const val MAX = 40
-
-    fun placement(
-        ring: IntArray,
-        size: Int,
-        centerX: Float,
-        centerY: Float,
-        radius: Float,
-        outX: FloatArray,
-        outY: FloatArray,
-        outIndex: IntArray,
-    ): Int {
-        if (ring.isEmpty()) return 0
-        var count = 0
-        val step = Math.PI * 2.0 / ring.size
-        for (order in ring.indices) {
-            if (count >= outX.size || count >= outY.size || count >= outIndex.size) break
-            if (count >= MAX) break
-            val index = ring[order]
-            if (index !in 0 until size) continue
-            val angle = (step * order - Math.PI / 2).toFloat()
-            outX[count] = centerX + kotlin.math.cos(angle) * radius
-            outY[count] = centerY + kotlin.math.sin(angle) * radius
-            outIndex[count] = index
-            count++
-        }
-        return count
-    }
-}
+/** 두 점 사이 거리 (시험·검증용) */
+internal fun treeDistance(a: TreeNode, b: TreeNode): Float = hypot(a.x - b.x, a.y - b.y)

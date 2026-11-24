@@ -31,6 +31,19 @@ class TreeScreenTest {
         Pob.decode(File("src/test/resources/pob_real_build.txt").readText())
     }
 
+
+    @Test
+    fun treeTabDrawsTheTreeItselfInsteadOfShowingTheSite() {
+        val layout = File("src/main/res/layout/pane_tree.xml").readText()
+        println("[TEST] 트리 화면에 TreeCanvasView=${layout.contains("TreeCanvasView")} · WebView=${layout.contains("WebView")}")
+        assertFalse("트리 화면에 웹뷰가 남아 있다", layout.contains("WebView"))
+        assertTrue("트리 화면에 앱이 직접 그리는 캔버스가 없다", layout.contains("com.sunuhwi.poe2dbkr.TreeCanvasView"))
+        // 예전에 사이트 화면을 띄우던 코드가 남아 있으면 안 된다.
+        val activity = File("src/main/java/com/sunuhwi/poe2dbkr/MainActivity.kt").readText()
+        assertFalse("트리 탭이 아직 poe2db 주소를 연다", activity.contains("passive-skill-tree/\""))
+        assertFalse("트리 웹뷰 코드가 남아 있다", activity.contains("treePane.treeWebView"))
+    }
+
     @Test
     fun everyNodeHasAnIconInTheSprite() {
         val without = tree.nodes.values.count { it.icon == null }
@@ -83,9 +96,10 @@ class TreeScreenTest {
         assertEquals(tree.nodes.size, scene.size)
         val start = scene.geometry.indexOf(tree.startNode(classIndex, 0))
         assertEquals("직업 시작 노드 자리", start, scene.classStart)
-        assertTrue("전직 링이 비었다", scene.ascendRing.isNotEmpty())
+        assertEquals("직업 이름", "몽크", scene.className)
+        assertTrue("전직 시작 노드가 없다", scene.ascendStart >= 0)
         val named = (0 until scene.size).count { scene.names[it].isNotBlank() }
-        println("[TEST] 이름 있는 노드 $named · 전직 링 ${scene.ascendRing.size}")
+        println("[TEST] 이름 있는 노드 $named · 직업 ${scene.className} · 전직 ${scene.ascendName}")
         assertTrue("노드 이름이 비었다", named > 4000)
     }
 

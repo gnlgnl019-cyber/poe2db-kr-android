@@ -26,6 +26,7 @@ class SkillMotionTest {
         kit: List<KitSkill> = emptyList(),
         ascend: List<AscendancyEffects.AscSkill> = emptyList(),
         crit: Double = 25.0,
+        combo: List<ComboStep> = emptyList(),
     ) = BattlePlayerStats(
         className = "Monk · Martial Artist",
         skillName = skill,
@@ -48,6 +49,7 @@ class SkillMotionTest {
         dpsBase = dps,
         ascendSkills = ascend,
         kit = kit,
+        combo = combo,
     )
 
     private fun tick(world: BattleWorld, seconds: Double) {
@@ -156,11 +158,16 @@ class SkillMotionTest {
     }
 
     @Test
-    fun whirlwindStagesThenTwisterEatsThem() {
+    fun userComboStagesWhirlwindThenTwisterEatsThem() {
         val kit = listOf(
             KitSkill("돌개바람", SkillMotion.TWISTER, dps = 240_000.0, role = ComboRole.BURST),
         )
-        val whirlStats = stats(skill = "Whirling Slash", kit = kit, aps = 2.4)
+        // 콤보는 사용자가 직접 짠 경우에만 돈다 — 소용돌이 베기 2번 → 돌개바람.
+        val combo = listOf(
+            ComboStep("소용돌이 베기", SkillMotion.WHIRLING_SLASH, ComboRole.BUILD, repeats = 2, note = "와류 2단계"),
+            ComboStep("돌개바람", SkillMotion.TWISTER, ComboRole.BURST, note = "와류 소모"),
+        )
+        val whirlStats = stats(skill = "Whirling Slash", kit = kit, aps = 2.4, combo = combo)
         val world = BattleWorld(whirlStats, BattleMode.MAP, 24, false, null)
         println("[TEST] 콤보 순서=" + world.comboSummary)
         var sawWhirlwind = false
@@ -186,11 +193,19 @@ class SkillMotionTest {
     }
 
     @Test
-    fun tempestBellNeedsFourComboBeforeItFalls() {
+    fun userComboFillsFourChainsBeforeBellFalls() {
         val kit = listOf(
             KitSkill("폭풍의 종", SkillMotion.TEMPEST_BELL, dps = 300_000.0, role = ComboRole.BURST),
         )
-        val world = BattleWorld(stats(skill = "Boneshatter", kit = kit, aps = 3.0), BattleMode.MAP, 20, false, null)
+        // 콤보를 직접 짜야 종이 나간다 — 주력 4번으로 연계를 채운 뒤 종.
+        val combo = listOf(
+            ComboStep("Boneshatter", SkillMotion.DEFAULT, ComboRole.MAIN, repeats = ComboPlanner.BELL_COMBO, note = "연계 4"),
+            ComboStep("폭풍의 종", SkillMotion.TEMPEST_BELL, ComboRole.BURST, note = "종 강타"),
+        )
+        val world = BattleWorld(
+            stats(skill = "Boneshatter", kit = kit, aps = 3.0, combo = combo),
+            BattleMode.MAP, 20, false, null,
+        )
         var bellSeen = false
         var comboBeforeBell = -1
         repeat(60 * 6) {

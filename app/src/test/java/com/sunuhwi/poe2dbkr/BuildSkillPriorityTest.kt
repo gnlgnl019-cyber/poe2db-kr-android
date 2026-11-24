@@ -211,15 +211,15 @@ class BuildSkillPriorityTest {
         println("[TEST] 찍힌 노드 ${alloc.allocatedIds().size} · $points")
         assertTrue(points.allocated >= 0)
         // 12직업 × 전직 0~3을 모두 훑어 화면 자료가 깨지지 않는지 본다.
-        var rings = 0
+        var named = 0
         for (classIndex in tree.classes.indices) {
             for (ascend in 0..3) {
                 val s = TreeScene.of(tree, classIndex, ascend)
-                if (s.ascendRing.isNotEmpty()) rings++
+                if (s.className.isNotBlank()) named++
                 assertTrue("직업 $classIndex/$ascend 전직이 이어지지 않았다", s.ascendStart >= -1)
             }
         }
-        println("[TEST] 전직 링이 있는 조합 $rings")
-        assertTrue("전직 링이 하나도 안 만들어진다", rings > 0)
+        println("[TEST] 직업 이름이 붙은 조합 $named")
+        assertTrue("직업 이름이 하나도 안 붙는다", named > 0)
     }
 }

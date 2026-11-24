@@ -211,7 +211,8 @@ class TreeViewport {
         val roomY = (height - padding * 2).coerceAtLeast(1f)
         scale = minOf(room / spanX, roomY / spanY)
         fitScale = scale
-        maxScale = 4f
+        // 노드 사이가 200쯤 되는 좌표계라 1.2배면 노드 하나가 화면 절반을 덮을 만큼 충분히 크다.
+        maxScale = 1.2f
         center((minX + maxX) / 2f, (minY + maxY) / 2f, width, height)
     }
 
