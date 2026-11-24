@@ -895,6 +895,56 @@ class MainActivity : AppCompatActivity() {
 
     private fun canvasVisible(): Boolean = treePane.treeCanvas.isVisible
 
+    /** PoB 탭 패시브 화면의 트리 — 그 자리에서도 확대·축소하고 노드를 눌러 설명을 본다. */
+    private fun setupPobTree() {
+        // 이 화면은 빌드를 보여 주기만 한다. 찍고 빼는 것은 트리 탭에서 한 곳에서만 한다.
+        pobPane.pobTreeCanvas.editable = false
+        pobPane.pobTreeCanvas.onNodeTap = TreeCanvasView.OnNodeTap { id, allocated ->
+            showPobTreePick(id, allocated)
+        }
+        pobPane.pobTreeCanvas.onDrawProblem = { t ->
+            Log.e(LOG_TAG, "패시브 탭 트리를 그리는 중 일부를 건너뛰었습니다", t)
+        }
+    }
+
+    /**
+     * PoB 탭 패시브 화면에 트리를 그린다.
+     *
+     * 불러온 빌드가 있으면 그 캐릭터의 직업·전직·찍은 노드를 그대로 그리고,
+     * 없으면 고른 직업의 시작 노드에서 펼친다.
+     */
+    private fun bindPobTree(build: PobBuild?) {
+        val tree = Poe2Tree.of(this)
+        if (tree.isEmpty()) return
+        val canvas = pobPane.pobTreeCanvas
+        pobPane.tvPobTreePick.isVisible = false
+        if (build != null && build.treeNodeIds.isNotEmpty()) {
+            val classIndex = tree.classIndex(build.className, build.treeClassId)
+            val ascendIndex = if (classIndex >= 0) {
+                tree.ascendancyIndex(classIndex, build.ascendClassName, build.treeAscendClassId)
+            } else 0
+            canvas.bindLevel = build.level
+            canvas.bind(tree, build.treeNodeIds, build.treeMastery.keys.toList(), classIndex, ascendIndex)
+        } else {
+            canvas.bindLevel = 0
+            canvas.bindDefault(tree, treeClassPick, treeAscendPick)
+        }
+    }
+
+    /** PoB 탭 트리에서 노드를 눌렀을 때 — 이름·상태·설명을 트리 아래에 짧게 적는다. */
+    private fun showPobTreePick(id: Int, allocated: Boolean) {
+        val canvas = pobPane.pobTreeCanvas
+        val name = canvas.nodeName(id).ifBlank { getString(R.string.tree_node_generic) }
+        val stats = canvas.nodeStats(id).trim()
+        val state = getString(if (allocated) R.string.tree_node_allocated else R.string.tree_node_free)
+        val text = buildString {
+            append(name).append(" · ").append(state)
+            if (stats.isNotBlank()) append("\n").append(stats)
+        }
+        pobPane.tvPobTreePick.text = text
+        pobPane.tvPobTreePick.isVisible = true
+    }
+
     /**
      * 패시브 칩: 불러온 빌드가 있으면 그 캐릭터의 트리, 없으면 직업 시작점에서 직접 찍어 보는 트리.
      * 어느 쪽이든 앱이 노드와 연결선을 직접 그린다 (poe2db 화면을 띄우지 않는다).
@@ -969,6 +1019,8 @@ class MainActivity : AppCompatActivity() {
             .onFailure { Log.e(LOG_TAG, "트리 정보 줄을 갱신하지 못했습니다", it) }
         runCatching { refreshTreePoints() }
             .onFailure { Log.e(LOG_TAG, "트리 포인트를 갱신하지 못했습니다", it) }
+        runCatching { bindPobTree(build) }
+            .onFailure { Log.e(LOG_TAG, "패시브 탭 트리를 그리지 못했습니다", it) }
         binding.bottomNav.selectedItemId = R.id.nav_tree
     }
 
@@ -996,6 +1048,8 @@ class MainActivity : AppCompatActivity() {
             .onFailure { Log.e(LOG_TAG, "트리 정보 줄을 갱신하지 못했습니다", it) }
         runCatching { refreshTreePoints() }
             .onFailure { Log.e(LOG_TAG, "트리 포인트를 갱신하지 못했습니다", it) }
+        runCatching { bindPobTree(null) }
+            .onFailure { Log.e(LOG_TAG, "패시브 탭 트리를 그리지 못했습니다", it) }
         binding.bottomNav.selectedItemId = R.id.nav_tree
     }
 
@@ -1361,6 +1415,7 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------- PoB 실험실
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupPob() {
+        setupPobTree()
         pobPane.pobTabs.tabMode = TabLayout.MODE_FIXED
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_overview))
         pobPane.pobTabs.addTab(pobPane.pobTabs.newTab().setText(R.string.pob_tab_skills))
@@ -1388,8 +1443,12 @@ class MainActivity : AppCompatActivity() {
                 if (tab.position == 2) refreshSlots()
                 if (tab.position == 1) renderSkills()
                 if (tab.position == 6) renderMeta()
-                if (tab.position == 4) runCatching { buildClassRow() }
-                    .onFailure { Log.e(LOG_TAG, "패시브 탭 직업 줄을 채우지 못했습니다", it) }
+                if (tab.position == 4) {
+                    runCatching { buildClassRow() }
+                        .onFailure { Log.e(LOG_TAG, "패시브 탭 직업 줄을 채우지 못했습니다", it) }
+                    runCatching { bindPobTree(pobBuild) }
+                        .onFailure { Log.e(LOG_TAG, "패시브 탭 트리를 그리지 못했습니다", it) }
+                }
                 if (tab.position == 5) {
                     if (battleReady) {
                         if (battleWantsPlay) battleView.resume() else battleView.refresh()

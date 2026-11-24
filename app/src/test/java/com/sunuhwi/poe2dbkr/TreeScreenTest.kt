@@ -44,6 +44,61 @@ class TreeScreenTest {
         assertFalse("트리 웹뷰 코드가 남아 있다", activity.contains("treePane.treeWebView"))
     }
 
+    // ------------------------------------------------------------- 손짓이 닿는 자리
+
+    /**
+     * 트리를 감싼 스크롤이 있으면 두 손가락을 벌리는 순간 그쪽이 손짓을 가져가 확대가 먹지 않는다.
+     * 두 화면 모두 트리 캔버스 위에 스크롤이 겹쳐 있지 않은지 레이아웃 그대로 확인한다.
+     */
+    @Test
+    fun noScrollViewSitsAboveTheTreeCanvas() {
+        val targets = mapOf(
+            "pane_tree.xml" to "@+id/treeCanvas",
+            "pane_pob.xml" to "@+id/pobTreeCanvas",
+        )
+        targets.forEach { (file, id) ->
+            val parents = parentsOfTag(File("src/main/res/layout/$file"), id)
+            println("[TEST] $file 의 $id 를 감싼 것: $parents")
+            assertTrue("$file 에 $id 가 없다", parents.isNotEmpty())
+            val scrolls = parents.filter { it.contains("ScrollView") }
+            assertTrue("$file 에서 스크롤이 트리 손짓을 가져간다: $scrolls", scrolls.isEmpty())
+        }
+    }
+
+    @Test
+    fun pobPassivePageHasItsOwnTree() {
+        val layout = File("src/main/res/layout/pane_pob.xml").readText()
+        assertTrue("패시브 탭에 앱이 그리는 트리가 없다", layout.contains("com.sunuhwi.poe2dbkr.TreeCanvasView"))
+        assertTrue("패시브 탭 트리에 이름표가 없다", layout.contains("@+id/pobTreeCanvas"))
+        val activity = File("src/main/java/com/sunuhwi/poe2dbkr/MainActivity.kt").readText()
+        assertTrue("패시브 탭 트리를 채우지 않는다", activity.contains("bindPobTree("))
+        assertTrue("패시브 탭 트리의 노드 설명을 띄우지 않는다", activity.contains("showPobTreePick("))
+    }
+
+    /** 레이아웃에서 주어진 이름표를 가진 요소를 감싼 요소 이름들 (바깥에서 안쪽 순서) */
+    private fun parentsOfTag(file: File, id: String): List<String> {
+        val parser = org.kxml2.io.KXmlParser()
+        parser.setInput(file.reader())
+        val stack = ArrayList<String>()
+        var event = parser.eventType
+        while (event != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                org.xmlpull.v1.XmlPullParser.START_TAG -> {
+                    var matched = false
+                    for (i in 0 until parser.attributeCount) {
+                        val value = parser.getAttributeValue(i)
+                        if (value == id) matched = true
+                    }
+                    if (matched) return stack.toList()
+                    stack.add(parser.name)
+                }
+                org.xmlpull.v1.XmlPullParser.END_TAG -> if (stack.isNotEmpty()) stack.removeAt(stack.size - 1)
+            }
+            event = parser.next()
+        }
+        return emptyList()
+    }
+
     @Test
     fun everyNodeHasAnIconInTheSprite() {
         val without = tree.nodes.values.count { it.icon == null }

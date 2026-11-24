@@ -612,6 +612,32 @@
                         android:paddingBottom="6dp" />
                 </HorizontalScrollView>
 
+                <!-- 앱이 직접 그리는 패시브 트리 — 이 자리에서도 두 손가락으로 확대·축소하고 노드를 눌러 볼 수 있다 -->
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1">
+
+                    <com.sunuhwi.poe2dbkr.TreeCanvasView
+                        android:id="@+id/pobTreeCanvas"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <TextView
+                        android:id="@+id/tvPobTreePick"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="bottom"
+                        android:layout_marginStart="10dp"
+                        android:layout_marginEnd="10dp"
+                        android:layout_marginBottom="8dp"
+                        android:background="@drawable/bg_tree_panel"
+                        android:padding="10dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11.5sp"
+                        android:visibility="gone" />
+                </FrameLayout>
+
             <ScrollView
                 android:layout_width="match_parent"
                 android:layout_height="0dp"

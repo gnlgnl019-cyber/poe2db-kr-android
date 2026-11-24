@@ -9,11 +9,10 @@ import android.graphics.Shader
 import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
-import android.view.ScaleGestureDetector
 import android.view.View
+import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
-import kotlin.math.hypot
 
 /** 트리 한 노드의 이름·설명·아이콘을 배열로 모아 둔 묶음 (노드 5천 개를 객체로 다루지 않는다) */
 class TreeScene(
@@ -145,6 +144,14 @@ class TreeCanvasView @JvmOverloads constructor(
         fun onRefused(result: TreeAllocation.Result)
     }
 
+    /**
+     * 이 화면에서 노드를 찍고 뺄 수 있는지.
+     *
+     * PoB 탭처럼 빌드를 보여 주기만 하는 자리에서는 false로 두어, 눌러도 이름과 설명만 뜨고
+     * 찍은 노드가 이 화면과 다른 화면에서 서로 달라지지 않게 한다.
+     */
+    var editable: Boolean = true
+
     var onNodeTap: OnNodeTap? = null
     var onPointsChanged: OnPointsChanged? = null
     var onRefused: OnRefused? = null
@@ -211,25 +218,13 @@ class TreeCanvasView @JvmOverloads constructor(
     private var flash = 0f
     private val clipPath = android.graphics.Path()
 
-    private val scaleDetector = ScaleGestureDetector(
-        context,
-        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean {
-                flinging = false
-                viewport.zoomAround(detector.scaleFactor, detector.focusX, detector.focusY)
-                clamp()
-                invalidate()
-                return true
-            }
-        },
+    /** 손짓을 세는 칸 — 두 손가락 확대·축소, 한 손가락 이동, 짧게 누르기 */
+    private val gestures = TreeGestures(
+        viewport,
+        slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat(),
+        flickSpeed = 6f * density,
     )
 
-    private var lastX = 0f
-    private var lastY = 0f
-    private var downX = 0f
-    private var downY = 0f
-    private var downTime = 0L
-    private var dragging = false
     private var velocityX = 0f
     private var velocityY = 0f
     private var flinging = false
@@ -244,6 +239,14 @@ class TreeCanvasView @JvmOverloads constructor(
     init {
         isClickable = true
         isFocusable = true
+        // 트리를 화면 밖으로 조금은 밀어 볼 수 있게 둔다.
+        viewport.overscroll = 120f * density
+        gestures.onMoved = {
+            flinging = false
+            invalidate()
+        }
+        gestures.onTap = { x, y -> pick(x, y) }
+        gestures.onFlick = { dx, dy -> startFling(dx, dy) }
     }
 
     /**
@@ -342,6 +345,7 @@ class TreeCanvasView @JvmOverloads constructor(
         pointTotal = atlas.totalPoints
         bindAllocation(nodeIds)
         alloc.markBound()
+        refreshZoomRange()
         viewport.fit(width, height, scene.geometry.minX, scene.geometry.minY, scene.geometry.maxX, scene.geometry.maxY, 18f * density)
         invalidate()
         notifyPoints()
@@ -457,10 +461,10 @@ class TreeCanvasView @JvmOverloads constructor(
         if (index < 0) return false
         highlight = index
         flash = 1.6f
+        refreshZoomRange()
         val targetScale = if (zoomIn) maxOf(viewport.scale, viewport.fitScale * 4f) else viewport.scale
         viewport.setScale(targetScale)
-        viewport.center(scene.geometry.xs[index], scene.geometry.ys[index], width, height)
-        clamp()
+        viewport.center(scene.geometry.xs[index], scene.geometry.ys[index])
         invalidate()
         return true
     }
@@ -471,7 +475,6 @@ class TreeCanvasView @JvmOverloads constructor(
 
     private fun zoom(factor: Float) {
         viewport.zoomAround(factor, width / 2f, height / 2f)
-        clamp()
         invalidate()
     }
 
@@ -486,8 +489,24 @@ class TreeCanvasView @JvmOverloads constructor(
     fun showWholeTree() {
         if (scene.size == 0) return
         val geo = scene.geometry
+        refreshZoomRange()
         viewport.fit(width, height, geo.minX, geo.minY, geo.maxX, geo.maxY, 14f * density)
         invalidate()
+    }
+
+    /**
+     * 확대·축소 한도를 화면 크기와 트리 자리에서 다시 잡는다.
+     *
+     * 제일 작게 줄여도 트리 전체가 화면에 들어오는 배율에서 멈추고,
+     * 제일 크게 키우면 보통 노드의 반지름이 26dp쯤 된다 (그 위로는 노드가 손끝만 해진다).
+     */
+    private fun refreshZoomRange() {
+        if (scene.size == 0 || width <= 0 || height <= 0) return
+        val geo = scene.geometry
+        viewport.setBounds(geo.minX, geo.minY, geo.maxX, geo.maxY)
+        val whole = viewport.wholeScale(14f * density)
+        val biggest = maxOf(26f * density / TreeMetrics.NORMAL, whole * 2f)
+        viewport.setZoomRange(whole * 0.92f, biggest)
     }
 
     /**
@@ -509,13 +528,12 @@ class TreeCanvasView @JvmOverloads constructor(
             centerOnStart()
             return
         }
-        // 테두리 고리 지름이 26dp쯤 되게 당긴다 — 한 화면에 노드 여섯 줄이 보인다.
-        val zoom = (13f * density / TreeMetrics.NORMAL).coerceIn(viewport.fitScale * 0.6f, viewport.maxScale)
-        viewport.setScale(zoom)
+        // 테두리 고리 반지름이 13dp쯤 되게 당긴다 — 한 화면에 노드 여섯 줄이 보인다.
+        refreshZoomRange()
+        viewport.setScale(13f * density / TreeMetrics.NORMAL)
         focusX = geo.xs[start]
         focusY = geo.ys[start]
-        viewport.center(focusX, focusY, width, height)
-        clamp()
+        viewport.center(focusX, focusY)
         highlight = start
         flash = 1.6f
         invalidate()
@@ -545,6 +563,7 @@ class TreeCanvasView @JvmOverloads constructor(
         }
         if (!any) {
             // 찍은 노드도 시작점도 없는 아틀라스 — 트리 전체를 본다.
+            refreshZoomRange()
             viewport.fit(width, height, geo.minX, geo.minY, geo.maxX, geo.maxY, 16f * density)
             return
         }
@@ -555,6 +574,7 @@ class TreeCanvasView @JvmOverloads constructor(
         val cy = (minY + maxY) / 2f
         val padX = spanX * 0.10f + 180f
         val padY = spanY * 0.10f + 180f
+        refreshZoomRange()
         viewport.fit(
             width,
             height,
@@ -580,9 +600,10 @@ class TreeCanvasView @JvmOverloads constructor(
         // 처음 그려지거나 화면이 돌아가면 지금 트리에 맞춰 다시 앉힌다.
         if (scene.size == 0) return
         // 직업을 골라 시작 노드로 당겨 둔 자리는 그 자리를 계속 가운데에 둔다.
+        viewport.resize(w, h)
+        refreshZoomRange()
         if (focusX.isFinite() && focusY.isFinite() && (oldw == 0 || oldh == 0)) {
-            viewport.center(focusX, focusY, w, h)
-            clamp()
+            viewport.center(focusX, focusY)
             invalidate()
             return
         }
@@ -803,56 +824,53 @@ class TreeCanvasView @JvmOverloads constructor(
 
     // ------------------------------------------------------------ 손짓
 
+    /**
+     * 손가락 하나하나를 [TreeGestures]에 그대로 넘긴다.
+     *
+     * 두 손가락이 닿는 순간부터는 화면을 감싼 쪽(스크롤·탭 넘김)이 손짓을 가져가지 않게 막는다.
+     * 이 신호가 없으면 핀치를 시작할 때 부모가 먼저 반응해 확대가 아예 먹지 않는다.
+     */
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                lastX = event.x
-                lastY = event.y
-                downX = event.x
-                downY = event.y
-                downTime = System.currentTimeMillis()
-                dragging = false
-                flinging = false
-                velocityX = 0f
-                velocityY = 0f
                 parent?.requestDisallowInterceptTouchEvent(true)
+                gestures.down(event.x, event.y, event.eventTime)
             }
-            MotionEvent.ACTION_POINTER_DOWN -> dragging = true
-            MotionEvent.ACTION_MOVE -> {
-                if (!scaleDetector.isInProgress && event.pointerCount == 1) {
-                    val dx = event.x - lastX
-                    val dy = event.y - lastY
-                    if (abs(dx) + abs(dy) > 2f * density) dragging = true
-                    if (dragging) {
-                        viewport.pan(dx, dy)
-                        clamp()
-                        velocityX = dx
-                        velocityY = dy
-                        invalidate()
-                    }
-                    lastX = event.x
-                    lastY = event.y
-                }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+                gestures.addPointer(
+                    event.getPointerId(event.actionIndex),
+                    event.getX(event.actionIndex),
+                    event.getY(event.actionIndex),
+                )
             }
+            MotionEvent.ACTION_MOVE -> gestures.move(pointersOf(event))
+            MotionEvent.ACTION_POINTER_UP -> gestures.liftPointer(event.getPointerId(event.actionIndex))
             MotionEvent.ACTION_UP -> {
+                gestures.up(event.eventTime)
                 parent?.requestDisallowInterceptTouchEvent(false)
-                val moved = hypot(event.x - downX, event.y - downY)
-                if (!dragging && moved < 12f * density &&
-                    System.currentTimeMillis() - downTime < 600
-                ) {
-                    pick(event.x, event.y)
-                } else if (abs(velocityX) + abs(velocityY) > 6f * density) {
-                    // 손을 떼도 잠깐 더 흘러간다.
-                    fling()
-                }
             }
-            MotionEvent.ACTION_CANCEL -> parent?.requestDisallowInterceptTouchEvent(false)
+            MotionEvent.ACTION_CANCEL -> {
+                gestures.cancel()
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
         }
         return true
     }
 
-    private fun fling() {
+    /** 지금 닿아 있는 손가락의 자리를 모은다. */
+    private fun pointersOf(event: MotionEvent): List<TreePointer> {
+        val out = ArrayList<TreePointer>(event.pointerCount)
+        for (i in 0 until event.pointerCount) {
+            out.add(TreePointer(event.getPointerId(i), event.getX(i), event.getY(i)))
+        }
+        return out
+    }
+
+    /** 손을 뗀 뒤에도 그 방향으로 잠깐 더 흘러가게 한다. */
+    private fun startFling(dx: Float, dy: Float) {
+        velocityX = dx
+        velocityY = dy
         flinging = true
         postOnAnimation(flingStep)
     }
@@ -863,7 +881,6 @@ class TreeCanvasView @JvmOverloads constructor(
             viewport.pan(velocityX, velocityY)
             velocityX *= 0.90f
             velocityY *= 0.90f
-            clamp()
             invalidate()
             if (abs(velocityX) + abs(velocityY) > 0.4f * density) {
                 postOnAnimation(this)
@@ -871,31 +888,6 @@ class TreeCanvasView @JvmOverloads constructor(
                 flinging = false
             }
         }
-    }
-
-    /** 확대·이동이 트리에서 너무 멀어지지 않게 붙잡아 둔다. */
-    private fun clamp() {
-        if (scene.size == 0 || width == 0) return
-        val geo = scene.geometry
-        val s = viewport.scale
-        val margin = 120f * density
-        val spanX = (geo.maxX - geo.minX) * s
-        val spanY = (geo.maxY - geo.minY) * s
-        val minOffsetX = margin - geo.maxX * s
-        val maxOffsetX = width - margin - geo.minX * s
-        val minOffsetY = margin - geo.maxY * s
-        val maxOffsetY = height - margin - geo.minY * s
-        val ox = if (spanX < width - margin * 2) {
-            (width - spanX) / 2f - geo.minX * s
-        } else {
-            viewport.offsetX.coerceIn(minOffsetX, maxOffsetX)
-        }
-        val oy = if (spanY < height - margin * 2) {
-            (height - spanY) / 2f - geo.minY * s
-        } else {
-            viewport.offsetY.coerceIn(minOffsetY, maxOffsetY)
-        }
-        viewport.setOffset(ox, oy)
     }
 
     /** 누른 자리 가까이에 있는 노드를 찾아 고른다. 이어진 자리면 바로 찍는다. */
@@ -912,6 +904,11 @@ class TreeCanvasView @JvmOverloads constructor(
         flash = 1.6f
         val id = geo.ids[index]
         val wasAllocated = allocated[index]
+        if (!editable) {
+            onNodeTap?.onTap(id, wasAllocated)
+            invalidate()
+            return
+        }
         val result = if (wasAllocated) deallocate(id) else allocate(id)
         if (result != TreeAllocation.Result.DONE) onRefused?.onRefused(result)
         onNodeTap?.onTap(id, wasAllocated)
