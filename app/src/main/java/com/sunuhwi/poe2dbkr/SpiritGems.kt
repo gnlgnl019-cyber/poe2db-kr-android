@@ -57,8 +57,29 @@ object SpiritGems {
         "Summon Companion", "Thundergod's Wrath",
     )
 
-    private val SKILL_KEYS: Set<String> = SKILLS.mapTo(HashSet()) { key(it) }
-    private val META_KEYS: Set<String> = META.mapTo(HashSet()) { key(it) }
+    private val SKILL_KEYS: MutableSet<String> = SKILLS.mapTo(HashSet()) { key(it) }
+    private val META_KEYS: MutableSet<String> = META.mapTo(HashSet()) { key(it) }
+
+    /**
+     * poe2db에서 받아 둔 정신력 점유 스킬 이름을 더한다.
+     * (자료가 갱신되면 손으로 적은 목록보다 이쪽이 먼저 맞는다.)
+     */
+    @Synchronized
+    fun register(names: Collection<String>) {
+        names.forEach { name ->
+            val k = key(name)
+            if (k.isNotEmpty()) SKILL_KEYS.add(k)
+        }
+    }
+
+    /** 메타 젬(발동 장치)으로도 등록한다 */
+    @Synchronized
+    fun registerMeta(names: Collection<String>) {
+        names.forEach { name ->
+            val k = key(name)
+            if (k.isNotEmpty()) META_KEYS.add(k)
+        }
+    }
 
     /** 정신력을 점유하는 지속형 스킬인지 */
     fun isSpirit(name: String): Boolean {

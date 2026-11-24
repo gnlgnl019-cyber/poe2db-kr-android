@@ -228,6 +228,9 @@ object PobTriggers {
             if (triggerGems.isEmpty()) continue
             for (triggerGem in triggerGems) {
                 val kind = TriggerKind.of(triggerGem) ?: continue
+                // 전령은 [Heralds]가 따로 계산한다 — 여기서 또 잡으면 같은 전령이 두 번 집계되고,
+                // 전투 화면에서 전령을 꺼도 이 목록 때문에 계속 터진다.
+                if (kind.isHerald) continue
                 val triggered = group.gems.filter { gem ->
                     gem.enabled && gem !== triggerGem &&
                         !PobCalculator.isSupport(gem) && TriggerKind.of(gem) == null

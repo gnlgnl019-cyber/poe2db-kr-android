@@ -100,7 +100,7 @@ def paste_circle(image, art, cx, cy, radius):
 def normalize(tree, atlas):
     """두 자료를 같은 모양(id, 이름, 설명, 종류, x, y, 아이콘)으로 맞춘다."""
     passive_nodes = [
-        {"id": row[0], "name": row[2], "stats": row[3], "kind": row[4],
+        {"id": row[0], "name": row[2], "stats": row[3], "kind": row[4], "ascendancy": row[5],
          "x": row[6], "y": row[7], "icon": row[11]}
         for row in tree["nodes"]
     ]
@@ -139,9 +139,25 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
 
     allocated = set(allocated_ids)
 
-    # 연결선
+    # 연결선 — 가운데 직업 메달·전직 링으로 이어지는 긴 선은 긋지 않는다 (앱 화면과 같게)
+    def medallion_edge(nid):
+        row = by_id.get(nid)
+        if row is None:
+            return True
+        # 직업 시작점·전직 시작점은 메달·전직 링으로 따로 그리므로 선을 긋지 않는다.
+        return row["kind"] in ("c", "a")
+
+    def long_edge(a, b):
+        if a not in by_id or b not in by_id:
+            return True
+        dx = by_id[a]["x"] - by_id[b]["x"]
+        dy = by_id[a]["y"] - by_id[b]["y"]
+        return dx * dx + dy * dy > 2500 * 2500
+
     for a, b in edges:
         if a not in by_id or b not in by_id:
+            continue
+        if medallion_edge(a) or medallion_edge(b) or long_edge(a, b):
             continue
         x1, y1 = sx(by_id[a]["x"]), sy(by_id[a]["y"])
         x2, y2 = sx(by_id[b]["x"]), sy(by_id[b]["y"])

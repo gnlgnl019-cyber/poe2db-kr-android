@@ -88,7 +88,8 @@
     <string name="tree_stat_crit">치명타</string>
     <string name="tree_class_unknown">미공개 직업</string>
     <string name="tree_reset_done">빌드에서 불러온 트리로 되돌렸습니다</string>
-    <string name="tree_render_failed">트리를 화면에 그리지 못해 poe2db로 열었습니다%1$s</string>
+    <string name="tree_render_failed">트리를 그리는 중 문제가 있었습니다%1$s</string>
+    <string name="tree_open_web">poe2db로 열기</string>
     <string name="tree_allocate_blocked">이어진 노드부터 찍어야 합니다</string>
 
     <string name="pob_empty_title">빌드를 불러오세요</string>

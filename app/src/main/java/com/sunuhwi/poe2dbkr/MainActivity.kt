@@ -122,6 +122,8 @@ class MainActivity : AppCompatActivity() {
     private val battleSpiritOff = LinkedHashSet<String>()
     /** 전투 화면에서 직접 끈 메타(발동) 젬 */
     private val battleTriggerOff = LinkedHashSet<TriggerKind>()
+    /** 전면 광고 (PoB 빌드 '불러오기'를 누를 때 한 번) */
+    private var ads: Ads? = null
 
     private val activeTab: Int
         get() = binding.bottomNav.selectedItemId
@@ -135,6 +137,8 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         applyWindowInsets()
+        // 광고는 미리 받아 두고, 없으면 빌드 불러오기를 그대로 진행한다.
+        ads = Ads(this).also { it.preload() }
         bookmarks = BookmarkStore(this)
         pobStore = PobStore(this)
         comboStore = ComboStore(this)
@@ -895,17 +899,10 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvas.onPointsChanged = TreeCanvasView.OnPointsChanged {
             renderTreePoints(it)
         }
-        // 그리는 도중 예외가 나도 앱이 종료되지 않게, poe2db 트리로 넘기고 예외 이름을 남긴다.
-        treePane.treeCanvas.onRenderFailed = { t ->
-            Log.e(LOG_TAG, "패시브 트리를 그리는 도중 실패했습니다", t)
-            runCatching {
-                showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
-                Snackbar.make(
-                    binding.root,
-                    getString(R.string.tree_render_failed, " (${t.javaClass.simpleName})"),
-                    Snackbar.LENGTH_LONG,
-                ).show()
-            }
+        // 그리는 도중 한 조각이 실패해도 트리는 화면에 그대로 둔다.
+        // (예전에는 poe2db로 넘겨 버려서 웹 직업 선택창이 뜨는 원인이었다.)
+        treePane.treeCanvas.onDrawProblem = { t ->
+            Log.e(LOG_TAG, "패시브 트리를 그리는 중 일부를 건너뛰었습니다", t)
         }
         treePane.btnTreeNodeClose.setOnClickListener { treePane.treeNodeCard.isVisible = false }
         treePane.chipPassiveTree.setOnClickListener { showPassiveTree() }
@@ -947,8 +944,9 @@ class MainActivity : AppCompatActivity() {
     /**
      * 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다 (직업·전직·찍은 노드 그대로).
      *
-     * 트리 자료를 읽어 화면에 붙이는 동안 한 곳이라도 예외가 나면 앱이 그대로 종료되므로,
-     * 실패하면 poe2db 트리를 대신 열고 예외 이름을 화면에 남긴다 (다시 제보만 받으면 특정된다).
+     * 예전에는 한 곳이라도 예외가 나면 poe2db 웹 트리로 넘겼는데, 그 화면에 사이트의
+     * 직업 선택 드롭다운이 그대로 떠서 오히려 쓸 수 없었다. 이제는 앱 안 트리를 그대로 두고,
+     * 트리 자료 자체가 없을 때만 poe2db를 연다.
      */
     private fun showBuildTree() {
         val build = pobBuild
@@ -956,22 +954,19 @@ class MainActivity : AppCompatActivity() {
             showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
             return
         }
-        var failure: Throwable? = null
         try {
             bindBuildTree(build)
         } catch (t: Throwable) {
-            failure = t
             Log.e(LOG_TAG, "불러온 빌드의 패시브 트리를 그리지 못했습니다", t)
-        }
-        if (failure != null) {
-            // 앱을 종료시키지 않고 poe2db 트리로 넘어간다. 예외 이름은 화면에 남겨 다음 제보에서 바로 특정한다.
-            showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+            // 실패해도 화면을 poe2db로 바꾸지 않는다. 다시 시도할 수 있게만 알린다.
             runCatching {
                 Snackbar.make(
                     binding.root,
-                    getString(R.string.tree_render_failed, " (${failure.javaClass.simpleName})"),
+                    getString(R.string.tree_render_failed, " (${t.javaClass.simpleName})"),
                     Snackbar.LENGTH_LONG,
-                ).show()
+                ).setAction(R.string.tree_open_web) {
+                    showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+                }.show()
             }
         }
     }
@@ -987,8 +982,8 @@ class MainActivity : AppCompatActivity() {
         treePane.treeProgress.isVisible = false
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
-        treePane.treeClassScroll.isVisible = true
         treePane.treeNodeCard.isVisible = false
+        treePane.chipPassiveTree.isChecked = true
         val classIndex = tree.classIndex(build.className, build.treeClassId)
         val ascendIndex = if (classIndex >= 0) {
             tree.ascendancyIndex(classIndex, build.ascendClassName, build.treeAscendClassId)
@@ -998,11 +993,16 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvas.bindLevel = build.level
         treePane.treeCanvas.bindClassArt(ClassArts.of(this))
         treePane.treeCanvas.bind(tree, build.treeNodeIds, build.treeMastery.keys.toList(), classIndex, ascendIndex)
-        updateTreeInfo()
-        refreshTreePoints()
-        buildClassRow()
+        // 직업 선택 줄은 트리 위에 늘 보이게 먼저 채운다.
+        // (포인트·정신력 계산이 실패해도 직업 줄과 트리는 그대로 보여야 한다.)
+        runCatching { buildClassRow() }
+            .onFailure { Log.e(LOG_TAG, "직업 선택 줄을 채우지 못했습니다", it) }
+        treePane.treeClassScroll.isVisible = treePane.treeClassRow.childCount > 0
+        runCatching { updateTreeInfo() }
+            .onFailure { Log.e(LOG_TAG, "트리 정보 줄을 갱신하지 못했습니다", it) }
+        runCatching { refreshTreePoints() }
+            .onFailure { Log.e(LOG_TAG, "트리 포인트를 갱신하지 못했습니다", it) }
         binding.bottomNav.selectedItemId = R.id.nav_tree
-        treePane.chipPassiveTree.isChecked = true
     }
 
     /** 아틀라스 트리도 앱 안에서 그린다. 자료가 없으면 poe2db를 연다. */
@@ -1166,35 +1166,47 @@ class MainActivity : AppCompatActivity() {
     /** 직업 12줄 + 그 직업의 전직을 버튼으로 채운다. */
     private fun buildClassRow() {
         val tree = Poe2Tree.of(this)
-        if (tree.isEmpty() || !canvasVisible()) return
         val row = treePane.treeClassRow
         row.removeAllViews()
+        if (tree.isEmpty() || !canvasVisible()) return
         val pad = (5 * resources.displayMetrics.density).toInt()
+        // 한 직업 버튼이 실패해도 나머지 줄은 그린다.
         tree.classes.forEachIndexed { index, cls ->
-            val name = cls.nameKo.ifBlank { getString(R.string.tree_class_unknown) }
-            if (name.isBlank()) return@forEachIndexed
-            row.addView(classPickButton(name, index == treeClassPick) {
-                treeClassPick = index
-                treeAscendPick = 1
-                treePane.treeCanvas.setClass(tree, index, 1, ClassArts.of(this))
-                buildClassRow()
-                updateTreeInfo()
-                refreshTreePoints()
-            }, pad)
+            runCatching {
+                val name = cls.nameKo.ifBlank { cls.nameEn }.ifBlank { getString(R.string.tree_class_unknown) }
+                row.addView(classPickButton(name, index == treeClassPick) {
+                    treeClassPick = index
+                    treeAscendPick = 1
+                    treePane.treeCanvas.setClass(tree, index, 1, ClassArts.of(this))
+                    buildClassRow()
+                    updateTreeInfo()
+                    refreshTreePoints()
+                }, pad)
+            }.onFailure { Log.e(LOG_TAG, "직업 버튼을 만들지 못했습니다 (${cls.nameEn})", it) }
         }
         // 고른 직업의 전직 세 줄
-        val cls = tree.classes.getOrNull(treeClassPick) ?: return
-        cls.ascendancies.forEachIndexed { order, (en, ko) ->
+        val cls = tree.classes.getOrNull(treeClassPick)
+        cls?.ascendancies?.forEachIndexed { order, ascend ->
+            val (_, ko) = ascend
             // 아직 공개되지 않은 전직(WIP)은 한국어 이름이 없으므로 목록에서 뺀다.
             if (ko.isBlank() || ko == "WIP") return@forEachIndexed
-            val label = ko
-            row.addView(classPickButton("↳ $label", treeAscendPick == order + 1) {
-                treeAscendPick = order + 1
-                treePane.treeCanvas.setClass(tree, treeClassPick, treeAscendPick, ClassArts.of(this))
-                buildClassRow()
-                updateTreeInfo()
-                refreshTreePoints()
-            }, pad)
+            runCatching {
+                row.addView(classPickButton("↳ $ko", treeAscendPick == order + 1) {
+                    treeAscendPick = order + 1
+                    treePane.treeCanvas.setClass(tree, treeClassPick, treeAscendPick, ClassArts.of(this))
+                    buildClassRow()
+                    updateTreeInfo()
+                    refreshTreePoints()
+                }, pad)
+            }.onFailure { Log.e(LOG_TAG, "전직 버튼을 만들지 못했습니다 ($ko)", it) }
+        }
+        if (row.childCount == 0) {
+            row.addView(android.widget.TextView(this).apply {
+                text = getString(R.string.tree_class_unknown)
+                setTextColor(mutedColor())
+                textSize = 12f
+                setPadding(pad, pad, pad, pad)
+            })
         }
     }
 
@@ -1801,6 +1813,28 @@ class MainActivity : AppCompatActivity() {
         }
         val work = ArrayList(comboPicks)
 
+        // 손가락으로 누르기 편하게: 누를 수 있는 것은 모두 44dp 이상으로 잡고,
+        // 누르는 동안 살짝 줄어들어 눌린 것이 눈에 보이게 한다.
+        fun rippleBackground(view: android.view.View) {
+            val value = android.util.TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, value, true)
+            if (value.resourceId != 0) view.setBackgroundResource(value.resourceId)
+        }
+        fun pressable(view: android.view.View) {
+            view.isClickable = true
+            view.isFocusable = true
+            view.setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN ->
+                        v.animate().scaleX(0.94f).scaleY(0.94f).setDuration(80).start()
+                    android.view.MotionEvent.ACTION_UP,
+                    android.view.MotionEvent.ACTION_CANCEL ->
+                        v.animate().scaleX(1f).scaleY(1f).setDuration(110).start()
+                }
+                false
+            }
+        }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((18 * density).toInt(), (4 * density).toInt(), (18 * density).toInt(), (6 * density).toInt())
@@ -1878,9 +1912,10 @@ class MainActivity : AppCompatActivity() {
                 row.addView(TextView(this).apply {
                     text = pick.label + if (pick.repeats > 1) "  x${pick.repeats}" else ""
                     setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-                    textSize = 12.5f
+                    textSize = 13.5f
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
+                    setPadding((4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt())
                     layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 fun smallButton(label: String, description: String, action: () -> Unit) {
@@ -1888,9 +1923,13 @@ class MainActivity : AppCompatActivity() {
                         text = label
                         contentDescription = description
                         setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
-                        textSize = 13f
+                        textSize = 16f
                         gravity = Gravity.CENTER
-                        setPadding((10 * density).toInt(), (4 * density).toInt(), (10 * density).toInt(), (4 * density).toInt())
+                        minWidth = (46 * density).toInt()
+                        minHeight = (46 * density).toInt()
+                        setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
+                        rippleBackground(this)
+                        pressable(this)
                         setOnClickListener {
                             action()
                             render()
@@ -1922,6 +1961,11 @@ class MainActivity : AppCompatActivity() {
                 chip.id = View.generateViewId()
                 chip.text = option.label + (if (option.dps > 0) "  ${dpsText(option.dps)}" else "")
                 chip.isCheckable = false
+                chip.minHeight = (48 * density).toInt()
+                chip.minWidth = (48 * density).toInt()
+                chip.textSize = 13.5f
+                chip.setPadding((6 * density).toInt(), (8 * density).toInt(), (6 * density).toInt(), (8 * density).toInt())
+                pressable(chip)
                 chip.setOnClickListener {
                     work.add(option)
                     render()
@@ -1946,10 +1990,12 @@ class MainActivity : AppCompatActivity() {
             tools.addView(TextView(this).apply {
                 text = label
                 setTextColor(ContextCompat.getColor(context, R.color.gold))
-                textSize = 12f
+                textSize = 13f
                 gravity = Gravity.CENTER
-                setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+                minHeight = (48 * density).toInt()
+                setPadding((16 * density).toInt(), (12 * density).toInt(), (16 * density).toInt(), (12 * density).toInt())
                 setBackgroundResource(R.drawable.bg_search)
+                pressable(this)
                 setOnClickListener {
                     action()
                     render()
@@ -1994,8 +2040,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 정신력 젬 칩 — 전투 화면에서 젬 하나씩 켜고 끈다.
-     * 누른 젬은 정신력 점유에서 빠지고, 남은 예산으로 뒤 젬이 켜진다 (수치는 헤더에 바로 반영).
+     * 정신력 점유 칩 — 정신력 젬과 전령을 하나씩 켜고 끈다.
+     * 누른 젬은 정신력 점유에서 빠지고, 남은 예산으로 뒤 젬이 켜진다 (수치는 헤더에 곧바로 반영).
      */
     private fun buildBattleSpiritChips() {
         val group = pobPane.battleSpiritChips
@@ -2006,10 +2052,17 @@ class MainActivity : AppCompatActivity() {
         } else {
             SpiritBuffs.plan(build, SpiritBuffs.catalog(this), krDict, disabled = battleSpiritOff)
         }
+        val heralds = if (build == null) {
+            HeraldPlan.EMPTY
+        } else {
+            Heralds.plan(build, krDict, plan.reserved + plan.spiritForMinions, disabled = battleSpiritOff)
+        }
         val specs = plan.specs
-        pobPane.tvBattleSpirit.isVisible = specs.isNotEmpty()
-        pobPane.battleSpiritScroll.isVisible = specs.isNotEmpty()
-        if (specs.isEmpty()) return
+        val heraldSpecs = heralds.specs
+        val any = specs.isNotEmpty() || heraldSpecs.isNotEmpty()
+        pobPane.tvBattleSpirit.isVisible = any
+        pobPane.battleSpiritScroll.isVisible = any
+        if (!any) return
         val budget = if (plan.spirit > 0.0) {
             "정신력 ${(plan.reserved + plan.spiritForMinions).toInt()} / ${plan.spirit.toInt()}"
         } else {
@@ -2017,20 +2070,59 @@ class MainActivity : AppCompatActivity() {
         }
         pobPane.tvBattleSpirit.text = getString(R.string.battle_spirit_title, budget)
         specs.forEach { spec ->
-            val off = battleSpiritOff.any { it.equals(spec.gem.en, true) || it.equals(spec.name, true) }
-            val label = if (spec.active) "${spec.name} ${spec.spirit.toInt()}" else "${spec.name} ${spec.spirit.toInt()} · 꺼짐"
-            val chip = battleChip(label, spec.active) {
-                if (off) battleSpiritOff.removeAll { it.equals(spec.gem.en, true) || it.equals(spec.name, true) }
-                else battleSpiritOff.add(spec.gem.en.ifBlank { spec.name })
-                buildBattleSpiritChips()
-                refreshBattleHeader()
-                restartBattleIfRunning()
+            val off = isSpiritOff(spec)
+            val label = buildString {
+                append(spec.name)
+                append(' ')
+                append(if (spec.spirit > 0.0) spec.spirit.toInt().toString() else "?")
+                if (!spec.active) append(" · 꺼짐")
             }
-            group.addView(chip)
+            group.addView(
+                battleChip(label, spec.active) {
+                    toggleSpiritOff(spec, off)
+                    buildBattleSpiritChips()
+                    buildBattleMetaChips()
+                    refreshBattleHeader()
+                    restartBattleIfRunning()
+                }
+            )
+        }
+        heraldSpecs.forEach { spec ->
+            val off = battleSpiritOff.any { it.equals(spec.gem, true) || it.equals(spec.name, true) }
+            val label = "${spec.name} ${spec.spirit.toInt()}" + if (!spec.active) " · 꺼짐" else ""
+            group.addView(
+                battleChip(label, spec.active) {
+                    if (off) battleSpiritOff.removeAll { it.equals(spec.gem, true) || it.equals(spec.name, true) }
+                    else battleSpiritOff.add(spec.gem.ifBlank { spec.name })
+                    buildBattleSpiritChips()
+                    buildBattleMetaChips()
+                    refreshBattleHeader()
+                    restartBattleIfRunning()
+                }
+            )
         }
     }
 
-    /** 메타(발동) 젬 칩 — 어떤 발동 장치를 전투에 넣을지 젬별로 고른다. */
+    private fun isSpiritOff(spec: SpiritSpec): Boolean =
+        battleSpiritOff.any { it.equals(spec.gem.en, true) || it.equals(spec.name, true) }
+
+    private fun toggleSpiritOff(spec: SpiritSpec, off: Boolean) {
+        if (off) {
+            battleSpiritOff.removeAll { it.equals(spec.gem.en, true) || it.equals(spec.name, true) }
+        } else {
+            battleSpiritOff.add(spec.gem.en.ifBlank { spec.name })
+        }
+        // 메타 젬은 발동 장치 목록에서도 같이 빼야 실제로 멈춘다.
+        val kind = runCatching { TriggerKind.ofName(spec.gem.en) ?: TriggerKind.ofName(spec.name) }.getOrNull()
+        if (kind != null) {
+            if (off) battleTriggerOff.remove(kind) else battleTriggerOff.add(kind)
+        }
+    }
+
+    /**
+     * 메타(발동) 젬 칩 — 어떤 발동 장치를 전투에 넣을지 젬별로 고른다.
+     * 정신력을 점유하는 메타 젬은 여기서 끄면 점유도 함께 빠진다.
+     */
     private fun buildBattleMetaChips() {
         val group = pobPane.battleMetaChips
         group.removeAllViews()
@@ -2040,11 +2132,37 @@ class MainActivity : AppCompatActivity() {
             pobPane.battleMetaScroll.isVisible = false
             return
         }
+        val plan = runCatching {
+            SpiritBuffs.plan(build, SpiritBuffs.catalog(this), krDict, disabled = battleSpiritOff)
+        }.getOrDefault(SpiritBuffPlan.EMPTY)
         val kinds = runCatching { PobTriggers.extract(build, 0.0).map { it.kind }.distinct() }
             .getOrDefault(emptyList())
-        pobPane.tvBattleMeta.isVisible = kinds.isNotEmpty()
-        pobPane.battleMetaScroll.isVisible = kinds.isNotEmpty()
-        kinds.forEach { kind ->
+        val metaSpecs = plan.meta
+        val any = kinds.isNotEmpty() || metaSpecs.isNotEmpty()
+        pobPane.tvBattleMeta.isVisible = any
+        pobPane.battleMetaScroll.isVisible = any
+        if (!any) return
+        metaSpecs.forEach { spec ->
+            val kind = runCatching { TriggerKind.ofName(spec.gem.en) ?: TriggerKind.ofName(spec.name) }.getOrNull()
+            val on = spec.active && (kind == null || kind !in battleTriggerOff)
+            val label = buildString {
+                append(spec.name)
+                if (spec.spirit > 0.0) append(" ").append(spec.spirit.toInt())
+                append(" (메타)")
+                if (!on) append(" · 꺼짐")
+            }
+            group.addView(
+                battleChip(label, on) {
+                    toggleSpiritOff(spec, !on)
+                    buildBattleMetaChips()
+                    buildBattleSpiritChips()
+                    refreshBattleHeader()
+                    restartBattleIfRunning()
+                }
+            )
+        }
+        // 자료에 없는 메타 젬도 발동 장치 이름으로 남는다.
+        kinds.filter { kind -> metaSpecs.none { TriggerKind.ofName(it.gem.en) == kind } }.forEach { kind ->
             val on = kind !in battleTriggerOff
             group.addView(
                 battleChip(kind.label, on) {
@@ -2457,7 +2575,11 @@ class MainActivity : AppCompatActivity() {
                 showLoadError(getString(R.string.pob_load_hint_need_code))
                 return@setOnClickListener
             }
-            loadPob(raw, dialog)
+            // 광고가 준비돼 있으면 먼저 보여 주고, 닫힌 뒤에 빌드를 연다.
+            // 준비되지 않았으면 기다리지 않고 바로 연다 (광고 때문에 막히지 않는다).
+            showLoadError(getString(R.string.pob_loading), highlight = false)
+            val ad = ads
+            if (ad == null) loadPob(raw, dialog) else ad.showThenLoad { loadPob(raw, dialog) }
         }
         renderRecent(sheet)
         dialog.setOnDismissListener {

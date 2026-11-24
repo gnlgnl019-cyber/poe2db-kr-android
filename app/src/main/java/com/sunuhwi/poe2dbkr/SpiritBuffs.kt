@@ -17,15 +17,32 @@ import kotlin.math.min
 data class SpiritGem(
     val en: String,
     val ko: String,
-    /** 점유 정신력 (20레벨 기준) */
+    /** 점유 정신력 (20레벨 기준, 0이면 자료에 점유량이 없음) */
     val spirit: Double,
     val tags: List<String> = emptyList(),
     /** 젬 설명 (한 문단) */
     val text: String = "",
     /** 효과 문장 — 화면의 툴팁에 그대로 쓴다 */
     val lines: List<String> = emptyList(),
+    /** "spirit"(정신력 점유 버프) 또는 "meta"(정신력을 점유하고 다른 스킬을 발동) */
+    val kind: String = "spirit",
+    /** poe2db의 분류 (스킬 젬 / Meta Skill Gem) */
+    val cls: String = "",
+    /** 메타 젬이 에너지를 얻는 조건·획득량 문장 */
+    val energy: String = "",
+    /** poe2db 주소 끝부분 (자료 출처) */
+    val slug: String = "",
 ) {
     val displayName: String get() = ko.ifBlank { en }
+
+    /** 메타 젬인지 — 정신력을 점유하고 조건에 맞춰 다른 스킬을 발동한다 */
+    val isMeta: Boolean get() = kind == "meta" || cls.equals("Meta Skill Gem", ignoreCase = true)
+
+    /** 점유량을 자료에서 확인했는지 (poe2db가 일부 지속 스킬의 점유량을 적지 않는다) */
+    val spiritKnown: Boolean get() = spirit > 0.0
+
+    /** 화면에 붙일 점유 표시 */
+    val spiritLabel: String get() = if (spirit > 0.0) "정신력 ${spirit.toInt()}" else "점유량 미상"
 
     /** 젬이 다루는 원소·계열 (오라 색을 고를 때 쓴다) */
     val family: String
@@ -164,6 +181,8 @@ data class SpiritSpec(
     val granted: Boolean = false,
     val mods: SpiritMods = SpiritMods.EMPTY,
     val behavior: SpiritBehavior = SpiritBehavior.BUFF,
+    /** 메타 젬인지 (버프가 아니라 다른 스킬을 발동하는 장치) */
+    val meta: Boolean = false,
     /** 화면에 함께 적을 한 줄 설명 */
     val note: String = "",
 ) {
@@ -174,10 +193,14 @@ data class SpiritSpec(
 
     val supportText: String get() = if (supports.isEmpty()) "" else supports.joinToString(", ")
 
+    /** 화면에 붙일 점유 표시 (자료에 점유량이 없으면 그렇게 적는다) */
+    val spiritLabel: String get() = if (spirit > 0.0) "정신력 ${spirit.toInt()}" else "점유량 미상"
+
     /** 툴팁에 올릴 효과 문장 — 점유량과 수치를 한글로 */
     fun tooltip(): List<String> {
         val out = ArrayList<String>()
-        out.add("정신력 ${spirit.toInt()} 점유")
+        out.add(if (spirit > 0.0) "정신력 ${spirit.toInt()} 점유" else "점유량 미상 (자료에 없음)")
+        if (gem.isMeta) out.add("메타 젬 — 조건을 채우면 장착한 스킬을 발동")
         if (note.isNotBlank()) out.add(note)
         gem.lines.take(6).forEach { out.add(it) }
         return out
@@ -199,8 +222,13 @@ data class SpiritBuffPlan(
     val free: Double = 0.0,
     /** 빌드에 있으나 정신력이 모자라 꺼진 것 */
     val inactive: List<SpiritSpec> = emptyList(),
+    /** 정신력을 점유하는 메타 젬 (버프가 아니라 발동 장치 — 조건·발동은 전투가 맡는다) */
+    val meta: List<SpiritSpec> = emptyList(),
 ) {
     val active: List<SpiritSpec> get() = specs.filter { it.active }
+
+    /** 메타 젬까지 합친 모든 정신력 점유 스킬 */
+    val all: List<SpiritSpec> get() = specs + meta
     val isEmpty: Boolean get() = specs.isEmpty()
 
     val mods: SpiritMods
@@ -218,6 +246,8 @@ data class SpiritBuffPlan(
     val summary: String
         get() = buildList {
             if (active.isNotEmpty()) add(active.joinToString(" · ") { it.name })
+            val metaOn = meta.filter { it.active }
+            if (metaOn.isNotEmpty()) add(metaOn.joinToString(" · ") { it.name })
             if (spirit > 0.0) {
                 add("정신력 ${(reserved + spiritForMinions).toInt()}/${spirit.toInt()}")
             }
@@ -289,10 +319,18 @@ class SpiritCatalog(val gems: List<SpiritGem> = emptyList()) {
                         tags = tags,
                         text = row.optString("text"),
                         lines = lines,
+                        kind = row.optString("kind", if (tags.contains("메타")) "meta" else "spirit"),
+                        cls = row.optString("cls"),
+                        energy = row.optString("energy"),
+                        slug = row.optString("slug"),
                     )
                 )
             }
-            return SpiritCatalog(out)
+            val catalog = SpiritCatalog(out)
+            // 스킬 칸·콤보에서 정신력·메타 젬을 걸러 낼 수 있게 이름을 알려 둔다.
+            SpiritGems.register(out.map { it.en } + out.map { it.ko })
+            SpiritGems.registerMeta(out.filter { it.isMeta }.flatMap { listOf(it.en, it.ko) })
+            return catalog
         }
 
         /**
@@ -336,8 +374,125 @@ object SpiritBuffs {
         return cached.get() ?: loaded
     }
 
-    /** 정신력 젬의 수치 — 문장에 적힌 20레벨 값(범위는 가운데)을 정리한 표 */
-    fun modsOf(gem: SpiritGem): SpiritMods = when (gem.en) {
+    /**
+     * 정신력 젬의 수치.
+     *
+     * 손으로 맞춰 둔 값(아래 표)을 먼저 쓰고, 표에 없는 젬은 poe2db 효과 문장에서
+     * 수치를 읽어 낸다 — 자료에 있는 90여 종이 모두 전투 수치에 반영되게 하기 위해서다.
+     * 범위로 적힌 값((10—20) 등)은 20레벨 값인 가운데를 쓴다.
+     */
+    fun modsOf(gem: SpiritGem): SpiritMods {
+        val fixed = fixedMods(gem)
+        if (!fixed.isEmpty) return fixed
+        return parsedMods(gem)
+    }
+
+    /** 문장에서 읽어 낸 수치 (같은 문장을 두 번 세지 않는다) */
+    internal fun parsedMods(gem: SpiritGem): SpiritMods {
+        var evasion = 0.0
+        var armour = 0.0
+        var esPct = 0.0
+        var esFlat = 0.0
+        var lifePct = 0.0
+        var lifeFlat = 0.0
+        var damage = 0.0
+        var spell = 0.0
+        var elemental = 0.0
+        var attackSpeed = 0.0
+        var castSpeed = 0.0
+        var crit = 0.0
+        var res = 0.0
+        var maxRes = 0.0
+        var move = 0.0
+        var stun = 0.0
+        var regen = 0.0
+        var physRed = 0.0
+        var block = 0.0
+        for (raw in gem.lines) {
+            val line = raw.trim()
+            if (line.isEmpty()) continue
+            fun value(): Double? = numberIn(line)
+            when {
+                line.contains("회피") && (line.contains("증폭") || line.contains("증가")) && !line.contains("재충전") ->
+                    value()?.let { evasion += it }
+                line.contains("방어도") && (line.contains("증폭") || line.contains("증가")) ->
+                    value()?.let { armour += it }
+                line.contains("총 에너지 보호막") && line.contains("+") ->
+                    value()?.let { esFlat += it }
+                line.contains("에너지 보호막") && line.contains("증가") && !line.contains("재충전") ->
+                    value()?.let { esPct += it }
+                line.contains("생명력 최대치") && line.contains("+") ->
+                    value()?.let { lifeFlat += it }
+                line.contains("생명력") && line.contains("증가") && !line.contains("소환수") && !line.contains("저장") ->
+                    value()?.let { lifePct += it }
+                line.contains("저항 최대치") && line.contains("+") ->
+                    value()?.let { maxRes += it }
+                line.contains("저항") && line.contains("+") && !line.contains("최대치") ->
+                    if (line.contains("모든 원소")) res += (value() ?: 0.0) else res += (value() ?: 0.0)
+                line.contains("공격 피해") && line.contains("증폭") ->
+                    value()?.let { damage += it }
+                line.contains("주문 피해") && line.contains("증폭") ->
+                    value()?.let { spell += it }
+                line.contains("원소 피해") && line.contains("증폭") ->
+                    value()?.let { elemental += it }
+                line.contains("공격 속도") && line.contains("증가") ->
+                    value()?.let { attackSpeed += it }
+                line.contains("시전 속도") && line.contains("증가") ->
+                    value()?.let { castSpeed += it }
+                line.contains("치명타 명중 확률") && line.contains("+") ->
+                    value()?.let { crit += it }
+                line.contains("이동 속도") && line.contains("증가") ->
+                    value()?.let { move += it }
+                line.contains("기절 한계치") && line.contains("+") ->
+                    value()?.let { stun += it }
+                line.contains("기절 한계치") && line.contains("증폭") ->
+                    value()?.let { stun += it }
+                line.contains("1초마다") && line.contains("회복") ->
+                    value()?.let { regen += it }
+                line.contains("물리 피해") && line.contains("감소") ->
+                    value()?.let { physRed += it }
+                line.contains("막기 확률") && line.contains("증가") ->
+                    value()?.let { block += it }
+            }
+        }
+        return SpiritMods(
+            evasionPct = evasion.coerceIn(0.0, 150.0),
+            armourPct = armour.coerceIn(0.0, 200.0),
+            esPct = esPct.coerceIn(0.0, 200.0),
+            esFlat = esFlat.coerceIn(0.0, 2000.0),
+            lifePct = lifePct.coerceIn(0.0, 100.0),
+            lifeFlat = lifeFlat.coerceIn(0.0, 1000.0),
+            damagePct = damage.coerceIn(0.0, 100.0),
+            spellDamagePct = spell.coerceIn(0.0, 100.0),
+            elementalDamagePct = elemental.coerceIn(0.0, 100.0),
+            attackSpeedPct = attackSpeed.coerceIn(0.0, 60.0),
+            castSpeedPct = castSpeed.coerceIn(0.0, 60.0),
+            critChancePct = crit.coerceIn(0.0, 200.0),
+            resPct = res.coerceIn(0.0, 80.0),
+            maxResPct = maxRes.coerceIn(0.0, 10.0),
+            moveSpeedPct = move.coerceIn(0.0, 40.0),
+            stunThresholdPct = stun.coerceIn(0.0, 150.0),
+            regenPct = regen.coerceIn(0.0, 20.0),
+            physRedPct = physRed.coerceIn(0.0, 30.0),
+            blockPct = block.coerceIn(0.0, 50.0),
+        )
+    }
+
+    /** 문장에서 첫 수치 (범위면 가운데) */
+    private val RANGE = Regex("\\((\\d+(?:\\.\\d+)?)\\s*[—–~-]\\s*(\\d+(?:\\.\\d+)?)\\)")
+    private val NUMBER = Regex("(\\d+(?:\\.\\d+)?)")
+
+    internal fun numberIn(line: String): Double? {
+        RANGE.find(line)?.let { found ->
+            val a = found.groupValues[1].toDoubleOrNull() ?: return@let
+            val b = found.groupValues[2].toDoubleOrNull() ?: return@let
+            return (a + b) / 2.0
+        }
+        return NUMBER.find(line)?.groupValues?.get(1)?.toDoubleOrNull()
+    }
+
+    /** 손으로 맞춰 둔 값 (문장만으로는 알기 어려운 젬) */
+    private fun fixedMods(gem: SpiritGem): SpiritMods = when (gem.en) {
         // 회피 10% 증폭 ×3단계
         "Wind Dancer" -> SpiritMods(evasionPct = 30.0)
         // 방어도·회피 30% 증폭 오라
@@ -441,7 +596,7 @@ object SpiritBuffs {
         spiritForMinions: Double = 0.0,
         /** 전령이 가져간 정신력 (전령은 따로 계산한다) */
         heraldSpirit: Double = 0.0,
-        /** 전투 화면에서 직접 끈 정신력 젬 이름 */
+        /** 전투 화면에서 직접 끈 정신력 점유 스킬 이름 */
         disabled: Set<String> = emptySet(),
     ): SpiritBuffPlan {
         if (build == null) return SpiritBuffPlan.EMPTY
@@ -454,6 +609,7 @@ object SpiritBuffs {
             val gems = group.gems.filter { it.enabled }
             for (gem in gems) {
                 if (PobCalculator.isSupport(gem)) continue
+                // 전령은 Heralds가 따로 셈한다 (여기서 또 세면 정신력이 두 번 빠진다).
                 if (gem.name.startsWith("Herald of")) continue
                 // 자료에 있는 젬을 먼저 찾고, 목록에 없는 정신력 젬도 이름으로 알아본다.
                 val entry = catalog.find(gem.name) ?: run {
@@ -464,12 +620,15 @@ object SpiritBuffs {
                         spirit = 0.0,
                         text = SpiritGems.NO_DATA_NOTE,
                         lines = emptyList(),
+                        kind = if (SpiritGems.isMeta(gem.name)) "meta" else "spirit",
+                        cls = if (SpiritGems.isMeta(gem.name)) "Meta Skill Gem" else "",
                     )
                 } ?: continue
                 val key = SpiritCatalog.key(entry.en) ?: continue
                 if (!seen.add(key)) continue
                 val supports = gems.filter { it !== gem && PobCalculator.isSupport(it) }.map { it.name }
                 val userOff = key in off
+                val meta = entry.isMeta
                 found.add(
                     SpiritSpec(
                         gem = entry,
@@ -478,9 +637,16 @@ object SpiritBuffs {
                         supports = supports,
                         spirit = entry.spirit,
                         granted = group.grantedByItem || group.grantedByTree,
-                        mods = modsOf(entry),
-                        behavior = behaviorOf(entry),
-                        note = if (userOff) DISABLED_NOTE else noteOf(entry),
+                        // 메타 젬은 직접 버프를 주지 않고 조건에 맞춰 다른 스킬을 발동한다.
+                        mods = if (meta) SpiritMods.EMPTY else modsOf(entry),
+                        behavior = if (meta) SpiritBehavior.INVOCATION else behaviorOf(entry),
+                        meta = meta,
+                        note = when {
+                            userOff -> DISABLED_NOTE
+                            meta -> entry.energy.ifBlank { noteOf(entry) }.ifBlank { "조건을 채우면 장착한 스킬을 발동" }
+                            !entry.spiritKnown -> "점유량 미상 (poe2db에 없음) · " + noteOf(entry)
+                            else -> noteOf(entry)
+                        },
                         active = !userOff,
                     )
                 )
@@ -494,7 +660,8 @@ object SpiritBuffs {
             )
         }
         var used = spiritForMinions.coerceAtLeast(0.0) + heraldSpirit.coerceAtLeast(0.0)
-        val specs = found.map { spec ->
+        // PoB에 적힌 순서대로 예산을 채운다 — 정신력 젬과 메타 젬이 같은 예산을 나눠 쓴다.
+        val checked = found.map { spec ->
             if (!spec.active) return@map spec
             if (budget <= 0.0) return@map spec
             if (spec.spirit <= 0.0) return@map spec
@@ -504,14 +671,17 @@ object SpiritBuffs {
             used += spec.spirit
             spec
         }
-        val reserved = specs.filter { it.active }.sumOf { it.spirit }
+        val specs = checked.filter { !it.meta }
+        val meta = checked.filter { it.meta }
+        val reserved = checked.filter { it.active }.sumOf { it.spirit }
         return SpiritBuffPlan(
             specs = specs,
             spirit = budget,
             spiritForMinions = spiritForMinions.coerceAtLeast(0.0),
             reserved = reserved,
             free = max(0.0, budget - used),
-            inactive = specs.filter { !it.active },
+            inactive = checked.filter { !it.active },
+            meta = meta,
         )
     }
 

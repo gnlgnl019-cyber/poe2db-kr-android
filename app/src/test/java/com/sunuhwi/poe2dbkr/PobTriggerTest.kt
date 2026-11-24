@@ -129,14 +129,14 @@ class PobTriggerTest {
         val build = parse()
         val specs = PobTriggers.extract(build, 2_800_000.0)
         println("[TEST] triggers=" + specs.map { it.kind.name + ":" + it.skillNames + "=" + it.dps })
-        // 메타젬은 첫 그룹만 쓰지 않는다 — 빌드에 있는 CoC와 전령이 모두 잡힌다.
-        assertEquals(2, specs.size)
+        // 전령은 Heralds가 따로 계산하므로 발동 목록에는 올리지 않는다 (같은 전령이 두 번 집계되지 않게).
+        assertEquals(1, specs.size)
         val coc = specs.first { it.kind == TriggerKind.CAST_ON_CRIT }
         assertEquals(listOf("Comet"), coc.skills.map { it.name })
         assertEquals(800_000.0, coc.dps, 1.0)
         assertEquals(SkillEffectType.ICE, coc.skills.first().fx)
-        val herald = specs.first { it.kind == TriggerKind.HERALD_OF_THUNDER }
-        assertEquals(listOf("Herald of Thunder"), herald.skills.map { it.name })
+        val heralds = Heralds.plan(build)
+        assertTrue("전령 계획에 천둥의 전령이 없다", heralds.specs.any { it.kind == HeraldKind.THUNDER })
     }
 
     @Test
@@ -203,9 +203,8 @@ class PobTriggerTest {
         assertEquals("Stormshroud", weapon?.name)
         assertEquals("Thunder Wolf Séance Bow", weapon?.baseType)
         assertEquals(WeaponVisualType.BOW, weapon?.weapon)
-        // 샘플 빌드의 "천둥의 전령"도 메타젬으로 잡힌다.
-        val specs = PobTriggers.extract(build, 1.0)
-        assertTrue(specs.any { it.kind == TriggerKind.HERALD_OF_THUNDER })
+        // 샘플 빌드의 "천둥의 전령"은 전령 계획에서 잡힌다.
+        assertTrue(Heralds.plan(build).specs.any { it.kind == HeraldKind.THUNDER })
         assertTrue(weapon!!.lines.any { it.contains("maximum Life") })
     }
 }

@@ -130,12 +130,15 @@ class MetaGemTest {
         assertTrue(kinds.contains(TriggerKind.CAST_ON_SHOCK))
         assertTrue(kinds.contains(TriggerKind.CAST_ON_FREEZE))
         assertTrue(kinds.contains(TriggerKind.CAST_ON_IGNITE))
-        assertTrue(kinds.contains(TriggerKind.HERALD_OF_THUNDER))
-        assertTrue(kinds.contains(TriggerKind.HERALD_OF_ICE))
+        // 전령은 Heralds가 따로 계산하므로 발동 목록에는 올리지 않는다 (두 번 집계 방지).
+        assertTrue("전령이 발동 목록에 섞였다", kinds.none { it.isHerald })
+        val heraldKinds = Heralds.plan(multiGemBuild(), KrDict.EMPTY).specs.map { it.kind }
+        assertTrue(heraldKinds.contains(HeraldKind.THUNDER))
+        assertTrue(heraldKinds.contains(HeraldKind.ICE))
         assertTrue(kinds.contains(TriggerKind.CAST_WHEN_DAMAGE_TAKEN))
         assertTrue(kinds.contains(TriggerKind.CAST_ON_DODGE))
         assertTrue(kinds.contains(TriggerKind.BLASPHEMY))
-        assertEquals("메타젬 10개가 모두 잡혀야 한다", 10, specs.size)
+        assertEquals("전령을 뺀 메타젬 8개가 모두 잡혀야 한다", 8, specs.size)
     }
 
     @Test
@@ -150,7 +153,9 @@ class MetaGemTest {
         val result = world.result()
         println("[TEST] state=${world.state} elapsed=${world.elapsed}")
         result.triggers.forEach { println("[TEST] ${it.line} (추정=${it.estimated})") }
-        assertTrue("결과에 메타젬 목록이 없다", result.triggers.size >= 10)
+        assertTrue("결과에 메타젬 목록이 없다", result.triggers.size >= 7)
+        // 전령은 전령 기록으로 따로 남는다.
+        assertTrue("전령 기록이 없다", result.heraldReports.size >= 2)
         // 소환수 사망은 소환수 빌드에서만 생기므로 별도 테스트에서 확인한다.
         val silent = result.triggers.filter { it.casts == 0 && !it.label.contains("소환수") }
         println("[TEST] 한 번도 안 터진 메타젬=${silent.map { it.label }}")
@@ -189,7 +194,8 @@ class MetaGemTest {
         val hud = world.triggerHud()
         println("[TEST] hud=$hud")
         assertTrue(hud.contains("CoC"))
-        assertTrue(hud.contains("천둥"))
         assertTrue(hud.contains("저주"))
+        // 전령은 발동 목록이 아니라 전령 기록으로 따로 보여 준다.
+        assertTrue(world.heraldReports().isNotEmpty() || stats.heralds.isEmpty)
     }
 }

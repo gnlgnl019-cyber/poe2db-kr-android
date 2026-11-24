@@ -7,15 +7,13 @@ import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.util.AttributeSet
+import android.util.Log
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.hypot
-import kotlin.math.sin
 
 /** 트리 한 노드의 이름·설명·아이콘을 배열로 모아 둔 묶음 (노드 5천 개를 객체로 다루지 않는다) */
 class TreeScene(
@@ -148,17 +146,26 @@ class TreeCanvasView @JvmOverloads constructor(
     var onNodeTap: OnNodeTap? = null
     var onPointsChanged: OnPointsChanged? = null
 
-    /** 그리는 도중 예외가 나면 알린다 (앱이 종료되지 않게 poe2db 트리로 넘어가는 데 쓴다) */
-    var onRenderFailed: ((Throwable) -> Unit)? = null
+    /**
+     * 한 조각을 그리다 예외가 났을 때 알린다.
+     * 트리는 화면에 그대로 두고(poe2db로 넘기지 않는다), 화면 쪽이 안내만 띄우는 데 쓴다.
+     */
+    var onDrawProblem: ((Throwable) -> Unit)? = null
 
-    /** 그리기가 실패한 뒤에는 다시 그리지 않는다 */
-    private var renderFailed = false
+    /** 같은 자리에서 되풀이해 실패하면 그 조각은 건너뛴다 (매 프레임 로그·예외가 쌓이지 않게) */
+    private val sectionFailures = HashMap<String, Int>()
 
     private val viewport = TreeViewport()
     private var scene: TreeScene = TreeScene.EMPTY
     private var tree: TreeDict = TreeDict.EMPTY
     private var alloc = TreeAllocation(TreeGeometry.EMPTY)
     private val allocated: BooleanArray get() = alloc.allocated
+
+    /** 화면에 그릴 것만 골라 둔 계산 (자료가 바뀔 때 새로 만든다) */
+    private var cull: TreeCull? = null
+    private val ringX = FloatArray(TreeRing.MAX)
+    private val ringY = FloatArray(TreeRing.MAX)
+    private val ringIndex = IntArray(TreeRing.MAX)
     private var iconSheet: SpriteSheet? = null
     private var classSheet: SpriteSheet? = null
     private var classArtRect: IntArray? = null
@@ -168,9 +175,6 @@ class TreeCanvasView @JvmOverloads constructor(
     private var ascendancyTotal = 8
 
     private val density = resources.displayMetrics.density
-    private val lineArray = FloatArray(64000)
-    private val edgeOnArray = FloatArray(4000)
-    private val pointArray = FloatArray(16000)
 
     private val bgPaint = Paint().apply { color = ContextCompat.getColor(context, R.color.bg) }
     private var bgShader: Shader? = null
@@ -238,12 +242,12 @@ class TreeCanvasView @JvmOverloads constructor(
     private var velocityY = 0f
     private var flinging = false
 
-    private val normalRadius = 26f
-    private val notableRadius = 44f
-    private val keystoneRadius = 60f
-    private val masteryRadius = 40f
-    private val jewelRadius = 34f
-    private val ascendRadius = 32f
+    private val normalRadius = TreeMetrics.NORMAL
+    private val notableRadius = TreeMetrics.NOTABLE
+    private val keystoneRadius = TreeMetrics.KEYSTONE
+    private val masteryRadius = TreeMetrics.MASTERY
+    private val jewelRadius = TreeMetrics.JEWEL
+    private val ascendRadius = TreeMetrics.ASCENDANT
 
     private val gold = 0xFFE8C060.toInt()
     private val goldSoft = 0xFFF0DCA8.toInt()
@@ -273,6 +277,7 @@ class TreeCanvasView @JvmOverloads constructor(
             clear()
             return
         }
+        prepare()
         iconSheet = SpriteSheet.of(context, next.iconAsset)
         classArtRect = arts?.of(tree.classes.getOrNull(classIndex)?.nameEn.orEmpty())
             ?: classArtRect
@@ -304,6 +309,7 @@ class TreeCanvasView @JvmOverloads constructor(
             clear()
             return
         }
+        prepare()
         iconSheet = SpriteSheet.of(context, scene.iconAsset)
         if (classSheet == null) bindClassArt(ClassArts.of(context))
         classArtRect = classSheet?.let { _ ->
@@ -325,6 +331,7 @@ class TreeCanvasView @JvmOverloads constructor(
             clear()
             return
         }
+        prepare()
         iconSheet = SpriteSheet.of(context, scene.iconAsset)
         classSheet = null
         classArtRect = null
@@ -334,6 +341,30 @@ class TreeCanvasView @JvmOverloads constructor(
         viewport.fit(width, height, scene.geometry.minX, scene.geometry.minY, scene.geometry.maxX, scene.geometry.maxY, 18f * density)
         invalidate()
         notifyPoints()
+    }
+
+    /**
+     * 새 자료로 그릴 준비를 한다.
+     *
+     * 노드 배열(아이콘·이름·설명·전직 표시)과 찍은 노드 배열의 길이를 기하 배열에 맞춰 둔다.
+     * 어긋난 채로 그리면 배열 범위를 넘어 IndexOutOfBoundsException이 나 트리가 멈추므로,
+     * 여기서 길이를 확정하고 그리기 계산([TreeCull])을 새로 만든다.
+     */
+    private fun prepare() {
+        sectionFailures.clear()
+        cull = null
+        if (scene.size != alloc.size) {
+            // 장면과 찍기 상태가 서로 다른 자료를 보고 있으면 장면 기준으로 다시 만든다.
+            alloc = TreeAllocation(
+                geometry = scene.geometry,
+                ascendancy = scene.ascendancy,
+                classStart = scene.classStart,
+                ascendStart = scene.ascendStart,
+                pointTotal = pointTotal,
+                ascendancyTotal = ascendancyTotal,
+            )
+        }
+        cull = TreeCull(scene.geometry, allocated, scene.icons, scene.ascendancy)
     }
 
     /** 아틀라스의 지금 찍은 노드 (PoB가 주지 않으므로 직접 찍은 것만) */
@@ -353,12 +384,14 @@ class TreeCanvasView @JvmOverloads constructor(
             ascendancyTotal = ascendancyTotal,
         )
         alloc.bind(ids)
+        cull = TreeCull(scene.geometry, alloc.allocated, scene.icons, scene.ascendancy)
     }
 
     fun clear() {
         scene = TreeScene.EMPTY
         alloc = TreeAllocation(TreeGeometry.EMPTY)
         iconSheet = null
+        cull = null
         invalidate()
     }
 
@@ -526,146 +559,75 @@ class TreeCanvasView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (renderFailed) return
-        try {
-            drawScene(canvas)
-        } catch (t: Throwable) {
-            // 커스텀 뷰는 그리다가 예외가 나면 앱이 그대로 종료된다.
-            // 한 번 실패하면 다시 그리지 않고, 화면이 poe2db 트리로 넘어가게 알린다.
-            renderFailed = true
-            post { onRenderFailed?.invoke(t) }
-        }
-    }
-
-    private fun drawScene(canvas: Canvas) {
-        bgPaint.shader = bgShader
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+        // 한 조각이 실패해도 나머지는 그린다. 예외를 밖으로 내보내면 앱이 종료되고,
+        // 전부 그리지 못하게 되면 트리 대신 poe2db로 넘어가야 하므로 조각별로 막아 둔다.
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint.apply { shader = bgShader })
         bgPaint.shader = null
         val geo = scene.geometry
         if (geo.size == 0) return
         if (flash > 0f) flash = maxOf(0f, flash - 0.03f)
         val s = viewport.scale
-        val left = -viewport.offsetX / s
-        val top = -viewport.offsetY / s
-        val right = (width - viewport.offsetX) / s
-        val bottom = (height - viewport.offsetY) / s
 
-        drawEdges(canvas, geo, s, left, top, right, bottom)
-        drawNodes(canvas, geo, s, left, top, right, bottom)
-        drawMedallion(canvas, geo, s, left, top, right, bottom)
-        drawLabels(canvas, geo, s, left, top, right, bottom)
+        val plan = cull ?: TreeCull(geo, allocated, scene.icons, scene.ascendancy).also { cull = it }
+        section("cull") { plan.compute(s, viewport.offsetX, viewport.offsetY, width, height) }
+        section("edges") {
+            drawEdges(canvas, plan, s)
+        }
+        section("nodes") {
+            drawNodes(canvas, plan, geo, s)
+        }
+        section("medallion") {
+            drawMedallion(canvas, geo, s)
+        }
+        section("labels") {
+            drawLabels(canvas, geo, s)
+        }
     }
 
-    private fun drawEdges(
-        canvas: Canvas,
-        geo: TreeGeometry,
-        s: Float,
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
-    ) {
-        val stroke = (6f * s).coerceIn(0.7f, 3.2f)
-        var plain = 0
-        var on = 0
-        var i = 0
-        while (i + 1 < geo.edges.size) {
-            val a = geo.edges[i]
-            val b = geo.edges[i + 1]
-            i += 2
-            if (outside(geo, a, b, left, top, right, bottom)) continue
-            val x1 = viewport.screenX(geo.xs[a])
-            val y1 = viewport.screenY(geo.ys[a])
-            val x2 = viewport.screenX(geo.xs[b])
-            val y2 = viewport.screenY(geo.ys[b])
-            if (allocated[a] && allocated[b]) {
-                if (on + 4 <= edgeOnArray.size) {
-                    edgeOnArray[on] = x1
-                    edgeOnArray[on + 1] = y1
-                    edgeOnArray[on + 2] = x2
-                    edgeOnArray[on + 3] = y2
-                    on += 4
-                }
-            } else if (plain + 4 <= lineArray.size) {
-                lineArray[plain] = x1
-                lineArray[plain + 1] = y1
-                lineArray[plain + 2] = x2
-                lineArray[plain + 3] = y2
-                plain += 4
+    /** 그리기 한 조각을 막아 둔다. 같은 조각이 되풀이해 실패하면 그 조각은 건너뛴다. */
+    private inline fun section(name: String, block: () -> Unit) {
+        val failed = sectionFailures[name] ?: 0
+        if (failed >= 6) return
+        try {
+            block()
+            if (failed > 0) sectionFailures.remove(name)
+        } catch (t: Throwable) {
+            sectionFailures[name] = failed + 1
+            Log.e(LOG_TAG, "트리 '$name' 그리기를 건너뛰었습니다 (${failed + 1}번째)", t)
+            if (failed == 0) {
+                post { onDrawProblem?.invoke(t) }
             }
         }
-        if (plain > 0) {
+    }
+
+    private fun drawEdges(canvas: Canvas, plan: TreeCull, s: Float) {
+        val stroke = (6f * s).coerceIn(0.7f, 3.2f)
+        if (plan.plainCount > 0) {
             edgePaint.strokeWidth = stroke
-            canvas.drawLines(lineArray, 0, plain, edgePaint)
+            canvas.drawLines(plan.plainEdges, 0, plan.plainCount, edgePaint)
         }
         // 찍은 노드끼리 이어진 길은 금빛으로 빛나게 (넓고 옅은 선 + 가는 밝은 선)
-        if (on > 0) {
+        if (plan.onCount > 0) {
             edgeGlowPaint.strokeWidth = stroke * 4.2f
-            canvas.drawLines(edgeOnArray, 0, on, edgeGlowPaint)
+            canvas.drawLines(plan.onEdges, 0, plan.onCount, edgeGlowPaint)
             edgeOnPaint.strokeWidth = stroke * 1.6f
-            canvas.drawLines(edgeOnArray, 0, on, edgeOnPaint)
+            canvas.drawLines(plan.onEdges, 0, plan.onCount, edgeOnPaint)
         }
     }
 
-    private fun outside(
-        geo: TreeGeometry,
-        a: Int,
-        b: Int,
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
-    ): Boolean {
-        val ax = geo.xs[a]
-        val bx = geo.xs[b]
-        if (maxOf(ax, bx) < left || minOf(ax, bx) > right) return true
-        val ay = geo.ys[a]
-        val by = geo.ys[b]
-        return maxOf(ay, by) < top || minOf(ay, by) > bottom
-    }
-
-    private fun drawNodes(
-        canvas: Canvas,
-        geo: TreeGeometry,
-        s: Float,
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
-    ) {
+    private fun drawNodes(canvas: Canvas, plan: TreeCull, geo: TreeGeometry, s: Float) {
         val sheet = iconSheet
-        // 아이콘을 그릴 만큼 확대됐는지 (작을 때는 점으로 그려 빠르게)
-        val iconsVisible = s > 0.02f
-        var points = 0
-        for (i in 0 until geo.size) {
-            val x = geo.xs[i]
-            val y = geo.ys[i]
-            if (x < left - 200 || x > right + 200 || y < top - 200 || y > bottom + 200) continue
-            val kind = geo.kindAt(i)
-            if (kind == TreeKind.CLASS_START) continue
-            val on = allocated[i]
-            val sx = viewport.screenX(x)
-            val sy = viewport.screenY(y)
-            val radius = radiusOf(kind) * s
-            val small = kind == TreeKind.NORMAL || kind == TreeKind.ASCENDANT
-            if (!on && small && (!iconsVisible || radius < 3.2f)) {
-                if (points + 2 <= pointArray.size) {
-                    pointArray[points] = sx
-                    pointArray[points + 1] = sy
-                    points += 2
-                }
-                continue
-            }
-            if (!on && small && radius < 6f) {
-                if (points + 2 <= pointArray.size) {
-                    pointArray[points] = sx
-                    pointArray[points + 1] = sy
-                    points += 2
-                }
-                continue
-            }
-            val icon = scene.icons[i]
-            // 찍힌 노드는 뒤에 금빛 번짐을 깐다.
+        for (order in 0 until plan.nodeCount) {
+            val i = plan.nodes[order]
+            if (!plan.has(i)) continue
+            val kind = plan.kindOf(i)
+            val on = plan.isAllocated(i)
+            val sx = viewport.screenX(geo.xs[i])
+            val sy = viewport.screenY(geo.ys[i])
+            val radius = TreeMetrics.radiusOf(kind) * s
+            if (!radius.isFinite() || radius <= 0.2f) continue
+            val icon = plan.iconOf(i)
+            // 찍힌 노드는 뒤에 금빛 번짐을 깔아 둔다.
             if (on) {
                 glowPaint.color = 0x33E8C060
                 canvas.drawCircle(sx, sy, radius * 1.75f, glowPaint)
@@ -707,30 +669,23 @@ class TreeCanvasView @JvmOverloads constructor(
             }
             canvas.drawCircle(sx, sy, radius, ringPaint)
         }
-        if (points > 0) {
-            pointPaint.strokeWidth = (normalRadius * 0.55f * s).coerceIn(1f, 3.4f)
-            canvas.drawPoints(pointArray, 0, points, pointPaint)
+        if (plan.dotCount > 0) {
+            pointPaint.strokeWidth = (TreeMetrics.NORMAL * 0.55f * s).coerceIn(1f, 3.4f)
+            canvas.drawPoints(plan.dots, 0, plan.dotCount, pointPaint)
         }
     }
 
     /** 직업 메달 — 가운데 일러스트와 전직 노드 링 */
-    private fun drawMedallion(
-        canvas: Canvas,
-        geo: TreeGeometry,
-        s: Float,
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
-    ) {
+    private fun drawMedallion(canvas: Canvas, geo: TreeGeometry, s: Float) {
         val start = scene.classStart
-        if (start < 0) return
+        if (start !in 0 until geo.size) return
         val x = geo.xs[start]
         val y = geo.ys[start]
-        if (x < left - 4000 || x > right + 4000 || y < top - 4000 || y > bottom + 4000) return
         val sx = viewport.screenX(x)
         val sy = viewport.screenY(y)
+        if (!sx.isFinite() || !sy.isFinite()) return
         val radius = (900f * s).coerceIn(42f * density, 96f * density)
+        if (!radius.isFinite() || radius <= 0f) return
 
         // 뒤로 퍼지는 따뜻한 빛
         glowPaint.color = 0x22E8C060
@@ -761,63 +716,67 @@ class TreeCanvasView @JvmOverloads constructor(
         canvas.drawCircle(sx, sy, radius * 0.93f, medallionRing)
 
         // 전직 노드 링 (아이콘은 노드 스프라이트에서 잘라 쓴다 — 직업 일러스트 시트와 자리가 다르다)
-        val ring = scene.ascendRing
-        if (ring.isEmpty()) return
+        val placed = TreeRing.placement(
+            ring = scene.ascendRing,
+            size = geo.size,
+            centerX = sx,
+            centerY = sy,
+            radius = radius * 1.32f,
+            outX = ringX,
+            outY = ringY,
+            outIndex = ringIndex,
+        )
+        if (placed == 0) return
         val ringSheet = iconSheet
-        val ringRadius = radius * 1.32f
-        val size = radius * 0.2f
-        ring.forEachIndexed { order, index ->
-            if (index !in geo.ids.indices) return@forEachIndexed
-            val angle = (Math.PI * 2.0 * order / ring.size - Math.PI / 2).toFloat()
-            val nx = sx + cos(angle) * ringRadius
-            val ny = sy + sin(angle) * ringRadius
-            val on = allocated[index]
+        val dot = radius * 0.2f
+        for (order in 0 until placed) {
+            val index = ringIndex[order]
+            if (index !in 0 until geo.size) continue
+            val nx = ringX[order]
+            val ny = ringY[order]
+            val on = allocated.getOrElse(index) { false }
             if (on) {
                 glowPaint.color = 0x44E8C060
-                canvas.drawCircle(nx, ny, size * 1.5f, glowPaint)
+                canvas.drawCircle(nx, ny, dot * 1.5f, glowPaint)
             }
             nodePaint.color = if (on) 0xFF3A2E18.toInt() else 0xFF15161C.toInt()
-            canvas.drawCircle(nx, ny, size, nodePaint)
-            val icon = scene.icons[index]
+            canvas.drawCircle(nx, ny, dot, nodePaint)
+            val icon = scene.icons.getOrNull(index)
             if (ringSheet != null && icon != null) {
                 clipPath.reset()
-                clipPath.addCircle(nx, ny, size, android.graphics.Path.Direction.CW)
+                clipPath.addCircle(nx, ny, dot, android.graphics.Path.Direction.CW)
                 canvas.save()
                 canvas.clipPath(clipPath)
-                ringSheet.draw(canvas, icon, nx, ny, size * 1.0f, if (on) 255 else 205)
+                ringSheet.draw(canvas, icon, nx, ny, dot, if (on) 255 else 205)
                 canvas.restore()
             }
-            ringPaint.strokeWidth = (size * 0.22f).coerceAtLeast(1f)
+            ringPaint.strokeWidth = (dot * 0.22f).coerceAtLeast(1f)
             ringPaint.color = if (on) goldSoft else 0xFF8C7340.toInt()
-            canvas.drawCircle(nx, ny, size, ringPaint)
+            canvas.drawCircle(nx, ny, dot, ringPaint)
         }
     }
 
-    private fun drawLabels(
-        canvas: Canvas,
-        geo: TreeGeometry,
-        s: Float,
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
-    ) {
+    private fun drawLabels(canvas: Canvas, geo: TreeGeometry, s: Float) {
         val size = 10.5f * density
-        if (notableRadius * s < size * 1.2f) return
+        if (TreeMetrics.NOTABLE * s < size * 1.2f) return
         labelPaint.textSize = size
+        val left = -viewport.offsetX / s
+        val top = -viewport.offsetY / s
+        val right = (width - viewport.offsetX) / s
+        val bottom = (height - viewport.offsetY) / s
         for (i in 0 until geo.size) {
-            if (!allocated[i]) continue
+            if (!allocated.getOrElse(i) { false }) continue
             val kind = geo.kindAt(i)
             if (kind != TreeKind.KEYSTONE && kind != TreeKind.NOTABLE) continue
             val x = geo.xs[i]
             val y = geo.ys[i]
             if (x < left || x > right || y < top || y > bottom) continue
-            val label = scene.names[i]
+            val label = scene.names.getOrNull(i).orEmpty()
             if (label.isBlank()) continue
             canvas.drawText(
                 label,
                 viewport.screenX(x),
-                viewport.screenY(y) - radiusOf(kind) * s - size * 0.35f,
+                viewport.screenY(y) - TreeMetrics.radiusOf(kind) * s - size * 0.35f,
                 labelPaint,
             )
         }
@@ -828,22 +787,13 @@ class TreeCanvasView @JvmOverloads constructor(
             canvas.drawCircle(
                 viewport.screenX(geo.xs[highlight]),
                 viewport.screenY(geo.ys[highlight]),
-                radiusOf(geo.kindAt(highlight)) * s * 1.8f,
+                TreeMetrics.radiusOf(geo.kindAt(highlight)) * s * 1.8f,
                 searchPaint,
             )
         }
     }
 
-    private fun radiusOf(kind: TreeKind): Float = when (kind) {
-        TreeKind.NOTABLE -> notableRadius
-        TreeKind.KEYSTONE -> keystoneRadius
-        TreeKind.MASTERY -> masteryRadius
-        TreeKind.JEWEL -> jewelRadius
-        TreeKind.ASCENDANT -> ascendRadius
-        TreeKind.ASCENDANT_START -> ascendRadius * 1.6f
-        TreeKind.CLASS_START -> 0f
-        else -> normalRadius
-    }
+    private fun radiusOf(kind: TreeKind): Float = TreeMetrics.radiusOf(kind)
 
     // ------------------------------------------------------------ 손짓
 
@@ -983,6 +933,8 @@ class TreeCanvasView @JvmOverloads constructor(
     }
 
     companion object {
+        private const val LOG_TAG = "TreeCanvas"
+
         /**
          * 캠페인·퀘스트로 얻는 패시브 포인트.
          * 레벨 90 빌드가 114개를 찍고 있어 25로 잡는다 (레벨-1 + 25).
