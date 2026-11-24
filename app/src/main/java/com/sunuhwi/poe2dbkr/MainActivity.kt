@@ -992,11 +992,12 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvasBar.isVisible = true
         treePane.treeClassScroll.isVisible = false
         treePane.treeNodeCard.isVisible = false
+        // 카운터를 그리기 전에 아틀라스 모드로 바꿔 둔다 (패시브 카운터가 잠깐 보이지 않게).
+        treePane.chipAtlasTree.isChecked = true
         treePane.treeCanvas.bindAtlas(atlas)
         treePane.tvTreeCanvasInfo.text = getString(R.string.tree_atlas_points, 0, atlas.totalPoints)
         refreshTreePoints()
         binding.bottomNav.selectedItemId = R.id.nav_tree
-        treePane.chipAtlasTree.isChecked = true
     }
 
     /** 트리 위쪽의 직업·전직 안내 줄 */
