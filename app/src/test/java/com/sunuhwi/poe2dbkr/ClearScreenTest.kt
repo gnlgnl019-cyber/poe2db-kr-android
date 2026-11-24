@@ -133,6 +133,18 @@ class ClearScreenTest {
         assertTrue(ClearText.columnHeader().contains("비율"))
     }
 
+    // ------------------------------------------------------------- 간단한 결과 화면
+
+    @Test
+    fun resultScreenSaysOnlyWhatHappened() {
+        assertEquals("클리어!", ClearText.title())
+        assertTrue("클리어 화면에 수치가 남아 있다", ClearText.subtitle().none { it.isDigit() })
+        assertEquals("사망", DeathText.title())
+        assertTrue("사망 화면에 수치가 남아 있다", DeathText.subtitle().none { it.isDigit() })
+        assertTrue("클리어 화면 보조 글이 없다", ClearText.subtitle().isNotBlank())
+        assertTrue("사망 화면 보조 글이 없다", DeathText.subtitle().isNotBlank())
+    }
+
     // ------------------------------------------------------------- 페이드인 시간표
 
     @Test

@@ -52,6 +52,29 @@ class MainSkillChoiceTest {
             .filter { it !in setOf("점화", "냉기", "감전", "중독", "출혈") }
 
     @Test
+    fun everyChoiceOnTheChipRowIsHonoured() {
+        // 칩에 올라온 스킬을 하나씩 골라, 그 스킬이 그대로 전투 수치가 되는지 본다.
+        val options = BattleSetup.skillOptions(build(), KrDict.EMPTY)
+        options.forEach { option ->
+            val stats = BattleSetup.statsFor(build(), skillOverride = option.gem)
+            assertNotNull("전투 수치를 만들지 못했다: ${option.gem}", stats)
+            assertEquals("고른 스킬이 다른 스킬로 바뀌었다", option.gem, stats!!.skillName)
+        }
+    }
+
+    @Test
+    fun theBattleTabShowsNoNumberSummaryAboveTheChips() {
+        // 전투 탭 위쪽의 수치 요약 글은 걷어 냈다 (스킬 선택과 얽혀 오해를 샀다).
+        val layout = java.io.File("src/main/res/layout/pane_pob.xml").readText()
+        assertFalse("전투 탭에 스킬 요약 글이 남아 있다", layout.contains("@+id/tvBattleSkill\""))
+        assertFalse("전투 탭에 전직 효과 글이 남아 있다", layout.contains("@+id/tvAscendancy\""))
+        assertFalse("전투 탭에 고유 효과 글이 남아 있다", layout.contains("@+id/tvBattleUnique\""))
+        val activity = java.io.File("src/main/java/com/sunuhwi/poe2dbkr/MainActivity.kt").readText()
+        assertFalse("전투 탭 요약을 아직 채운다", activity.contains("tvBattleSkill.text"))
+        assertFalse("전투 탭 전직 글을 아직 채운다", activity.contains("tvAscendancy.text"))
+    }
+
+    @Test
     fun chosenSkillIsTheOnlySkillUsed() {
         val world = run("Ice Shot")
         val fired = skillNames(world)

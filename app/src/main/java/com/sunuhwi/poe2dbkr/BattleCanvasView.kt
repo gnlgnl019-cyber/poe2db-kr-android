@@ -41,21 +41,10 @@ class BattleCanvasView @JvmOverloads constructor(
 
     var onFinished: ((BattleResult) -> Unit)? = null
 
-    /** 사망 화면의 단추 — 전투 화면이 다시 시작과 닫기를 연결한다 */
-    var onRetry: (() -> Unit)? = null
-    var onClose: (() -> Unit)? = null
-
     /** 사용자가 사망 화면을 닫았는지 */
     private var deathDismissed = false
     /** 사용자가 클리어 화면을 닫았는지 */
     private var victoryDismissed = false
-    private val retryRect = RectF()
-    private val closeRect = RectF()
-    private val victoryRetryRect = RectF()
-    private val victoryCloseRect = RectF()
-    /** 클리어 요약은 전투가 끝난 순간의 기록을 한 번만 뽑아 둔다 */
-    private var victorySummary: ClearSummary? = null
-
     private val dp = resources.displayMetrics.density
     private val chrome = Choreographer.getInstance()
     private var running = false
@@ -99,13 +88,13 @@ class BattleCanvasView @JvmOverloads constructor(
                     if (result.victory) {
                         onFinished?.invoke(result)
                     } else {
-                        // 사망 원인 카드가 올라온 뒤에 아래 결과 글을 띄운다.
+                        // 사망 화면 글이 올라온 뒤에 아래 결과 글을 띄운다.
                         postDelayed({ if (world === w) onFinished?.invoke(result) }, 1500L)
                     }
                 }
             }
             invalidate()
-            // 사망·클리어 화면은 카드가 다 올라올 때까지 조금 더 그린다.
+            // 사망·클리어 화면의 글씨가 다 올라올 때까지 조금 더 그린다.
             val tailMs = when (w?.state) {
                 BattleWorld.State.DEFEAT -> 6200L
                 BattleWorld.State.VICTORY -> 4200L
@@ -144,7 +133,6 @@ class BattleCanvasView @JvmOverloads constructor(
         this.world = world
         deathDismissed = false
         victoryDismissed = false
-        victorySummary = null
         finished = false
         paused = false
         lastFrameNanos = 0L
@@ -4357,9 +4345,8 @@ class BattleCanvasView @JvmOverloads constructor(
     /**
      * 사망 화면.
      *
-     * 붉은 배너 → 사망 원인 → 스킬별 DPS 기록 → 다시 시작·닫기 순서로 알파가 0에서 1로
-     * 차오른다. 전장 위에 어두운 막을 깔고 카드 안에서만 글자를 써서, 세로로 좁은
-     * 화면에서도 글자가 겹치거나 잘리지 않게 한다.
+     * 수치를 늘어놓지 않는다. 전장 위에 어두운 막을 깔고 "사망"이라는 큰 글씨와 한 줄만 띄운다.
+     * 화면 아무 곳이나 누르면 닫힌다.
      */
     private fun drawDeathScreen(c: Canvas, w: BattleWorld) {
         if (w.state != BattleWorld.State.DEFEAT || deathDismissed) return
@@ -4367,255 +4354,41 @@ class BattleCanvasView @JvmOverloads constructor(
         val vh = height.toFloat()
         if (vw <= 1f || vh <= 1f) return
         val age = w.deathAge
-        val pad = 12f * dp
 
-        // ---- 어두운 막
+        // ---- 어두운 막 — 아래 HUD까지 덮어 지저분한 겹침을 없앤다.
         val dim = DeathFx.alpha(age, 0.05f, 0.66f)
-        fill.color = alpha(0xFF05070B.toInt(), (dim * 185f).toInt().coerceIn(0, 255))
+        fill.color = alpha(0xFF05070B.toInt(), (dim * 235f).toInt().coerceIn(0, 255))
         c.drawRect(0f, 0f, vw, vh, fill)
 
-        val left = pad
-        val right = vw - pad
-        val cardW = right - left
-        var y = pad
-
-        // ---- 붉은 사망 배너
-        val ba = DeathFx.bannerAlpha(age)
-        if (ba > 0.002f) {
-            val rise = (1f - ba) * 12f * dp
-            rect.set(left, y + rise, right, y + rise + 66f * dp)
-            fill.shader = LinearGradient(
-                left, rect.top, right, rect.bottom,
-                intArrayOf(
-                    alpha(0xFF7A1216.toInt(), (ba * 255).toInt()),
-                    alpha(0xFF2A0608.toInt(), (ba * 240).toInt()),
-                ),
-                floatArrayOf(0f, 1f), Shader.TileMode.CLAMP,
+        // ---- 붉은 사망 섬광 (화면 한가운데서 터진다)
+        val flash = DeathFx.flash(age)
+        if (flash > 0.002f) {
+            fill.shader = RadialGradient(
+                vw / 2f, vh * 0.45f, max(vw, vh) * 0.55f,
+                intArrayOf(alpha(0xFFFF3B3B.toInt(), (120 * flash).toInt().coerceIn(0, 255)), 0x00000000),
+                null, Shader.TileMode.CLAMP,
             )
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
+            c.drawRect(0f, 0f, vw, vh, fill)
             fill.shader = null
-            stroke.color = alpha(0xFFFF6A5A.toInt(), (ba * 210f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1.4f * dp
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
-
-            text.textAlign = Paint.Align.LEFT
-            text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            text.textSize = 26f * dp
-            text.color = alpha(0xFFFFEDE7.toInt(), (ba * 255).toInt().coerceIn(0, 255))
-            c.drawText("사망", left + 16f * dp, rect.top + 34f * dp, text)
-
-            textLight.textAlign = Paint.Align.LEFT
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textLight.textSize = 10f * dp
-            textLight.color = alpha(0xFFFFB4A6.toInt(), (ba * 230f).toInt().coerceIn(0, 255))
-            val sub = String.format(
-                Locale.KOREA, "전투 %.1f초 · 피격 %d회 · 처치 %d/%d",
-                w.elapsed, w.hitsTaken, w.kills, w.totalEnemies,
-            )
-            c.drawText(sub, left + 16f * dp, rect.top + 52f * dp, textLight)
-
-            // 오른쪽 끝의 붉은 표식
-            val cx = right - 28f * dp
-            val cy = rect.top + 33f * dp
-            glowAt(c, cx, cy, 20f * dp, 0xFFFF3B3B.toInt(), (ba * 80f).toInt().coerceIn(0, 255))
-            stroke.color = alpha(0xFFFF8A7A.toInt(), (ba * 200f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1.5f * dp
-            c.drawLine(cx - 5f * dp, cy - 5f * dp, cx + 5f * dp, cy + 5f * dp, stroke)
-            c.drawLine(cx - 5f * dp, cy + 5f * dp, cx + 5f * dp, cy - 5f * dp, stroke)
-            y += 66f * dp + 8f * dp
-        } else {
-            y += 74f * dp
         }
 
-        // ---- 사망 원인 카드
-        val cause = w.deathCause
-        val ca = DeathFx.causeAlpha(age)
-        if (ca > 0.002f && cause != null) {
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textLight.textSize = 14.5f * dp
-            val heads = wrapText(cause.headline, cardW - 26f * dp, 2)
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            val causeH = (44f + heads.size * 18f) * dp
-            rect.set(left, y, right, y + causeH)
-            fill.color = alpha(0xFF12080A.toInt(), (ca * 232f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
-            stroke.color = alpha(0xFFB33A32.toInt(), (ca * 180f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1f * dp
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
-
-            textLight.textAlign = Paint.Align.LEFT
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textLight.textSize = 9f * dp
-            textLight.color = alpha(0xFFFF7A6A.toInt(), (ca * 235f).toInt().coerceIn(0, 255))
-            c.drawText("사망 원인", left + 13f * dp, y + 16f * dp, textLight)
-
-            textLight.textSize = 14.5f * dp
-            textLight.color = alpha(0xFFFFF1EC.toInt(), (ca * 255).toInt().coerceIn(0, 255))
-            heads.forEachIndexed { index, line ->
-                c.drawText(line, left + 13f * dp, y + (36f + index * 18f) * dp, textLight)
-            }
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textLight.textSize = 10.5f * dp
-            textLight.color = alpha(0xFFFFC9BC.toInt(), (ca * 235f).toInt().coerceIn(0, 255))
-            val detailY = y + (38f + heads.size * 18f) * dp
-            c.drawText(cause.damageLine, left + 13f * dp, detailY, textLight)
-
-            val recent = cause.recentLine
-            if (recent.isNotBlank()) {
-                textLight.textSize = 9.5f * dp
-                textLight.color = alpha(0xFFB49A96.toInt(), (ca * 220f).toInt().coerceIn(0, 255))
-                c.drawText(recent, left + 13f * dp, detailY + 14f * dp, textLight)
-            }
-            y += causeH + 8f * dp
-        } else if (cause == null) {
-            y += 0f
-        } else {
-            y += 0f
-        }
-
-        // ---- 스킬별 DPS 기록
-        val rows = w.skillTally()
-        val buttonH = 46f * dp
-        val buttonTop = vh - pad - buttonH
-        val headerH = 22f * dp
-        val rowH = 23f * dp
-        val listTop = y
-        val listBottom = buttonTop - 10f * dp
-        // 남은 자리에 들어가는 만큼만 줄을 놓는다 — 좁은 화면에서 글자가 겹치지 않게.
-        val capacity = DeathFx.rowCapacity(listTop, listBottom, headerH, rowH, reserve = 14f * dp)
-        val shown = if (capacity >= 1) SkillTally.pages(rows, capacity) else emptyList()
-        val rest = SkillTally.rest(rows, capacity)
-        val listH = DeathFx.listHeight(shown.size, headerH, rowH, if (rest > 0) 14f * dp else 0f) * dp
-        if (listH > 4f * dp) {
-            rect.set(left, listTop, right, listTop + listH + 10f * dp)
-            fill.color = alpha(0xFF0C0E13.toInt(), (ca * 226f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
-            stroke.color = alpha(0xFF3A3F4C.toInt(), (ca * 190f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1f * dp
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
-
-            textLight.textAlign = Paint.Align.LEFT
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textLight.textSize = 9f * dp
-            textLight.color = alpha(0xFFCFE4FF.toInt(), (ca * 235f).toInt().coerceIn(0, 255))
-            c.drawText("스킬별 DPS 기록", left + 13f * dp, listTop + 15f * dp, textLight)
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textLight.textAlign = Paint.Align.RIGHT
-            textLight.textSize = 9f * dp
-            textLight.color = alpha(0xFF7E8A9C.toInt(), (ca * 220f).toInt().coerceIn(0, 255))
-            c.drawText("누적 피해 · 비율", right - 13f * dp, listTop + 15f * dp, textLight)
-
-            if (shown.isEmpty()) {
-                textLight.textAlign = Paint.Align.LEFT
-                textLight.textSize = 9.5f * dp
-                textLight.color = alpha(0xFF8894A6.toInt(), (ca * 220f).toInt().coerceIn(0, 255))
-                c.drawText("기록된 피해가 없다", left + 13f * dp, listTop + headerH + 11f * dp, textLight)
-            }
-            shown.forEachIndexed { index, row ->
-                val ra = DeathFx.rowAlpha(age, index)
-                if (ra <= 0.002f) return@forEachIndexed
-                val rowTop = listTop + headerH + index * rowH
-                val slide = (1f - ra) * 8f * dp
-                // 순위 점
-                fill.color = alpha(if (index == 0) 0xFFFFC24D.toInt() else 0xFF5C6472.toInt(), (ra * 230f).toInt().coerceIn(0, 255))
-                c.drawCircle(left + 15f * dp, rowTop + 9f * dp, 2.2f * dp, fill)
-
-                textLight.textAlign = Paint.Align.LEFT
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, if (index == 0) Typeface.BOLD else Typeface.NORMAL)
-                textLight.textSize = 10.5f * dp
-                textLight.color = alpha(
-                    if (index == 0) 0xFFFFE6A8.toInt() else 0xFFE2E8F2.toInt(),
-                    (ra * 245f).toInt().coerceIn(0, 255),
-                )
-                val nameRoom = cardW * 0.56f
-                var name = row.name
-                while (name.length > 2 && textLight.measureText(name) > nameRoom) name = name.dropLast(2)
-                if (name != row.name) name = name.trimEnd() + "…"
-                c.drawText(name, left + 22f * dp, rowTop + 12.5f * dp + slide, textLight)
-
-                textLight.textAlign = Paint.Align.RIGHT
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textLight.textSize = 10f * dp
-                textLight.color = alpha(0xFFDDE6F2.toInt(), (ra * 240f).toInt().coerceIn(0, 255))
-                c.drawText(
-                    BattleWorld.formatShort(row.damage),
-                    right - 44f * dp, rowTop + 12.5f * dp + slide, textLight,
-                )
-                textLight.textSize = 9f * dp
-                textLight.color = alpha(0xFF9FB6D6.toInt(), (ra * 235f).toInt().coerceIn(0, 255))
-                c.drawText(
-                    String.format(Locale.KOREA, "%d%%", row.share.toInt()),
-                    right - 13f * dp, rowTop + 12.5f * dp + slide, textLight,
-                )
-
-                // 비율 막대
-                val barY = rowTop + 17.5f * dp
-                fill.color = alpha(0xFF1B2029.toInt(), (ra * 220f).toInt().coerceIn(0, 255))
-                c.drawRoundRect(left + 22f * dp, barY, right - 13f * dp, barY + 2.6f * dp, 1.3f * dp, 1.3f * dp, fill)
-                val barW = (right - 13f * dp - (left + 22f * dp)) * (row.share / 100.0).toFloat()
-                if (barW > 0.5f) {
-                    fill.color = alpha(
-                        if (index == 0) 0xFFFFC24D.toInt() else 0xFF5B8FD6.toInt(),
-                        (ra * 240f).toInt().coerceIn(0, 255),
-                    )
-                    c.drawRoundRect(left + 22f * dp, barY, left + 22f * dp + barW, barY + 2.6f * dp, 1.3f * dp, 1.3f * dp, fill)
-                }
-            }
-            if (rest > 0) {
-                textLight.textAlign = Paint.Align.LEFT
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                textLight.textSize = 9f * dp
-                textLight.color = alpha(0xFF7E8A9C.toInt(), (ca * 225f).toInt().coerceIn(0, 255))
-                c.drawText(
-                    "+ ${rest}개 스킬 더",
-                    left + 22f * dp,
-                    listTop + headerH + shown.size * rowH + 11f * dp,
-                    textLight,
-                )
-            }
-        }
-
-        // ---- 다시 시작 · 닫기
-        val bAlpha = DeathFx.buttonAlpha(age)
-        if (bAlpha > 0.002f) {
-            val gap = 8f * dp
-            val bw = (cardW - gap) / 2f
-            retryRect.set(left, buttonTop, left + bw, buttonTop + buttonH)
-            closeRect.set(right - bw, buttonTop, right, buttonTop + buttonH)
-
-            fill.color = alpha(0xFF8E1A18.toInt(), (bAlpha * 240f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(retryRect, 9f * dp, 9f * dp, fill)
-            stroke.color = alpha(0xFFFF8A78.toInt(), (bAlpha * 220f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1.2f * dp
-            c.drawRoundRect(retryRect, 9f * dp, 9f * dp, stroke)
-            text.textAlign = Paint.Align.CENTER
-            text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            text.textSize = 12.5f * dp
-            text.color = alpha(0xFFFFF2EC.toInt(), (bAlpha * 255).toInt().coerceIn(0, 255))
-            c.drawText("다시 시작", retryRect.centerX(), retryRect.centerY() + 4.4f * dp, text)
-
-            fill.color = alpha(0xFF181C24.toInt(), (bAlpha * 235f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(closeRect, 9f * dp, 9f * dp, fill)
-            stroke.color = alpha(0xFF4A5160.toInt(), (bAlpha * 220f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(closeRect, 9f * dp, 9f * dp, stroke)
-            text.color = alpha(0xFFD6DCE8.toInt(), (bAlpha * 245f).toInt().coerceIn(0, 255))
-            c.drawText("닫기", closeRect.centerX(), closeRect.centerY() + 4.4f * dp, text)
-        }
-        text.textAlign = Paint.Align.LEFT
-    }
-
-    /** 사망 화면을 닫는다 — 전장과 버튼은 그대로 두고 카드만 걷는다 */
-    fun dismissDeath() {
-        deathDismissed = true
-        invalidate()
+        drawOutcomeText(
+            c = c,
+            age = age,
+            title = DeathText.title(),
+            subtitle = DeathText.subtitle(),
+            accent = 0xFFFF7A6A.toInt(),
+            glow = 0xFFB32024.toInt(),
+            fall = DeathFx.fall(age),
+            hintAlpha = DeathFx.buttonAlpha(age),
+        )
     }
 
     /**
      * 클리어 화면.
      *
      * 사망 화면([drawDeathScreen])과 같은 틀을 금빛으로 뒤집은 것이다.
-     * 금빛 클리어 배너 → 클리어 요약 카드 → 스킬별 DPS 줄(누적 피해·명중·실전 DPS·비율)
-     * → 다시 시작·닫기 순서로 흐리게 올라온다.
+     * 수치 없이 "클리어!"와 한 줄만 띄우고, 아무 곳이나 누르면 닫힌다.
      */
     private fun drawVictoryScreen(c: Canvas, w: BattleWorld) {
         if (w.state != BattleWorld.State.VICTORY || victoryDismissed) return
@@ -4623,254 +4396,93 @@ class BattleCanvasView @JvmOverloads constructor(
         val vh = height.toFloat()
         if (vw <= 1f || vh <= 1f) return
         val age = w.victoryAge
-        val pad = 12f * dp
         val gold = 0xFFFFD36A.toInt()
-        val pale = 0xFFDCF4FF.toInt()
-        val summary = victorySummary ?: w.clearSummary().also { victorySummary = it }
 
-        // ---- 클리어 순간의 금빛 섬광과 어두운 막
+        // ---- 클리어 순간의 금빛 플래시와 어두운 막
         val flash = VictoryFx.flash(age)
         if (flash > 0.002f) {
             fill.shader = RadialGradient(
-                vw / 2f, vh * 0.42f, max(vw, vh) * 0.75f,
-                intArrayOf(alpha(gold, (90 * flash).toInt().coerceIn(0, 255)), 0x00000000),
+                vw / 2f, vh * 0.45f, max(vw, vh) * 0.75f,
+                intArrayOf(alpha(gold, (100 * flash).toInt().coerceIn(0, 255)), 0x00000000),
                 null, Shader.TileMode.CLAMP,
             )
             c.drawRect(0f, 0f, vw, vh, fill)
             fill.shader = null
         }
-        val dim = DeathFx.ease(min(1f, age / 0.9f)) * 0.58f
-        fill.color = alpha(0xFF05070B.toInt(), (dim * 185f).toInt().coerceIn(0, 255))
+        val dim = DeathFx.ease(min(1f, age / 0.9f)) * 0.72f
+        fill.color = alpha(0xFF05070B.toInt(), (dim * 235f).toInt().coerceIn(0, 255))
         c.drawRect(0f, 0f, vw, vh, fill)
 
-        val left = pad
-        val right = vw - pad
-        val cardW = right - left
-        var y = pad
+        drawOutcomeText(
+            c = c,
+            age = age,
+            title = ClearText.title(),
+            subtitle = ClearText.subtitle(),
+            accent = 0xFFFFE6A8.toInt(),
+            glow = 0xFF8A6A14.toInt(),
+            fall = 0f,
+            hintAlpha = VictoryFx.buttonAlpha(age),
+        )
+    }
 
-        // ---- 금빛 클리어 배너
-        val ba = VictoryFx.bannerAlpha(age)
-        if (ba > 0.002f) {
-            val rise = (1f - ba) * 12f * dp
-            rect.set(left, y + rise, right, y + rise + 66f * dp)
-            fill.shader = LinearGradient(
-                left, rect.top, right, rect.bottom,
-                intArrayOf(
-                    alpha(0xFF6B4E13.toInt(), (ba * 255).toInt()),
-                    alpha(0xFF22180A.toInt(), (ba * 240).toInt()),
-                ),
-                floatArrayOf(0f, 1f), Shader.TileMode.CLAMP,
-            )
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
-            fill.shader = null
-            stroke.color = alpha(gold, (ba * 220f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1.4f * dp
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
+    /**
+     * 전투가 끝났다고만 알리는 글 — 큰 제목 하나, 보조 한 줄, 닫는 안내.
+     * 숫자는 적지 않는다.
+     */
+    private fun drawOutcomeText(
+        c: Canvas,
+        age: Float,
+        title: String,
+        subtitle: String,
+        accent: Int,
+        glow: Int,
+        fall: Float,
+        hintAlpha: Float,
+    ) {
+        val vw = width.toFloat()
+        val vh = height.toFloat()
+        val a = DeathFx.alpha(age, 0.1f, 0.55f)
+        if (a <= 0.002f) return
+        val cx = vw / 2f
+        val cy = vh * 0.44f - fall * 6f * dp
 
-            text.textAlign = Paint.Align.LEFT
-            text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            text.textSize = 26f * dp
-            text.color = alpha(0xFFFFF7E2.toInt(), (ba * 255).toInt().coerceIn(0, 255))
-            c.drawText("클리어", left + 16f * dp, rect.top + 34f * dp, text)
+        // 제목 둘레의 은은한 빛
+        glowAt(c, cx, cy - 6f * dp, max(vw * 0.42f, 120f * dp), glow, (a * 105f).toInt().coerceIn(0, 255))
 
-            textLight.textAlign = Paint.Align.LEFT
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textLight.textSize = 10f * dp
-            textLight.color = alpha(0xFFFFE4A8.toInt(), (ba * 230f).toInt().coerceIn(0, 255))
-            val sub = String.format(
-                Locale.KOREA, "%s · 처치 %d/%d",
-                summary.headline, summary.kills, summary.total,
-            )
-            c.drawText(sub, left + 16f * dp, rect.top + 52f * dp, textLight)
+        text.textAlign = Paint.Align.CENTER
+        text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        text.textSize = min(vw * 0.17f, 42f * dp)
+        // 테두리를 살짝 어둡게 깔아 어떤 배경 위에서도 읽히게 한다.
+        text.style = Paint.Style.STROKE
+        text.strokeWidth = 4f * dp
+        text.color = alpha(0xB3000000.toInt(), (a * 210).toInt().coerceIn(0, 255))
+        c.drawText(title, cx, cy, text)
+        text.style = Paint.Style.FILL
+        text.color = alpha(accent, (a * 255).toInt().coerceIn(0, 255))
+        c.drawText(title, cx, cy, text)
 
-            // 오른쪽 끝의 금빛 표식
-            val cx = right - 28f * dp
-            val cy = rect.top + 33f * dp
-            glowAt(c, cx, cy, 22f * dp, gold, (ba * 110f).toInt().coerceIn(0, 255))
-            val star = 5f * dp
-            path.reset()
-            for (i in 0 until 10) {
-                val ang = -1.5708f + i * 0.6283f
-                val r = if (i % 2 == 0) star else star * 0.42f
-                val px = cx + cos(ang) * r
-                val py = cy + sin(ang) * r
-                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-            }
-            path.close()
-            fill.color = alpha(0xFFFFF0C0.toInt(), (ba * 245f).toInt().coerceIn(0, 255))
-            c.drawPath(path, fill)
-            y += 66f * dp + 8f * dp
-        } else {
-            y += 74f * dp
-        }
+        text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        text.textSize = 13f * dp
+        text.color = alpha(0xFFE8E2D2.toInt(), (a * 235f).toInt().coerceIn(0, 255))
+        c.drawText(subtitle, cx, cy + 30f * dp, text)
 
-        // ---- 클리어 요약 카드 (총 시간 · 총 피해 · 평균 DPS)
-        val sa = VictoryFx.summaryAlpha(age)
-        var summaryH = 0f
-        if (sa > 0.002f) {
-            summaryH = 58f * dp
-            rect.set(left, y, right, y + summaryH)
-            fill.color = alpha(0xFF12100A.toInt(), (sa * 232f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
-            stroke.color = alpha(0xFFB08A2E.toInt(), (sa * 185f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1f * dp
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
-
-            textLight.textAlign = Paint.Align.LEFT
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textLight.textSize = 9f * dp
-            textLight.color = alpha(gold, (sa * 235f).toInt().coerceIn(0, 255))
-            c.drawText("클리어 요약", left + 13f * dp, y + 16f * dp, textLight)
-
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textLight.textSize = 13.5f * dp
-            textLight.color = alpha(0xFFFFF6E2.toInt(), (sa * 255).toInt().coerceIn(0, 255))
-            c.drawText(summary.bodyLine, left + 13f * dp, y + 36f * dp, textLight)
-
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textLight.textSize = 9.5f * dp
-            textLight.color = alpha(0xFFCDBE92.toInt(), (sa * 228f).toInt().coerceIn(0, 255))
-            val top = summary.topSkill
-            val tail = if (top == null) {
-                "기록된 피해가 없다"
-            } else {
-                "가장 센 스킬 ${top.name} · ${BattleWorld.formatShort(top.damage)} (${top.share.toInt()}%)"
-            }
-            c.drawText(tail, left + 13f * dp, y + 50f * dp, textLight)
-            y += summaryH + 8f * dp
-        } else {
-            y += 66f * dp
-        }
-
-        // ---- 스킬별 DPS 기록
-        val rows = summary.skills
-        val buttonH = 46f * dp
-        val buttonTop = vh - pad - buttonH
-        val headerH = 22f * dp
-        val rowH = 30f * dp
-        val listTop = y
-        val listBottom = buttonTop - 10f * dp
-        // 남은 자리에 들어가는 만큼만 줄을 놓는다 — 좁은 화면에서 글자가 겹치지 않게.
-        val capacity = VictoryFx.rowCapacity(listTop, listBottom, headerH, rowH, reserve = 14f * dp)
-        val shown = if (capacity >= 1) rows.take(capacity) else emptyList()
-        val rest = summary.rest(capacity)
-        val listH = VictoryFx.listHeight(shown.size, headerH, rowH, if (rest > 0) 14f * dp else 0f) * dp
-        if (listH > 4f * dp) {
-            rect.set(left, listTop, right, listTop + listH + 10f * dp)
-            fill.color = alpha(0xFF0C0E13.toInt(), (sa * 226f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, fill)
-            stroke.color = alpha(0xFF3F464F.toInt(), (sa * 190f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1f * dp
-            c.drawRoundRect(rect, 10f * dp, 10f * dp, stroke)
-
-            textLight.textAlign = Paint.Align.LEFT
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textLight.textSize = 9f * dp
-            textLight.color = alpha(0xFFFFE7B0.toInt(), (sa * 235f).toInt().coerceIn(0, 255))
-            c.drawText("스킬별 DPS 기록", left + 13f * dp, listTop + 15f * dp, textLight)
-            textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-            textLight.textAlign = Paint.Align.RIGHT
-            textLight.color = alpha(0xFF8C8570.toInt(), (sa * 220f).toInt().coerceIn(0, 255))
-            c.drawText(ClearText.columnHeader(), right - 13f * dp, listTop + 15f * dp, textLight)
-
-            if (shown.isEmpty()) {
-                textLight.textAlign = Paint.Align.LEFT
-                textLight.textSize = 9.5f * dp
-                textLight.color = alpha(0xFF8894A6.toInt(), (sa * 220f).toInt().coerceIn(0, 255))
-                c.drawText("기록된 피해가 없다", left + 13f * dp, listTop + headerH + 12f * dp, textLight)
-            }
-            shown.forEachIndexed { index, row ->
-                val ra = VictoryFx.rowAlpha(age, index)
-                if (ra <= 0.002f) return@forEachIndexed
-                val rowTop = listTop + headerH + index * rowH
-                val slide = (1f - ra) * 8f * dp
-
-                // 순위 점
-                fill.color = alpha(if (index == 0) gold else 0xFF5C6472.toInt(), (ra * 230f).toInt().coerceIn(0, 255))
-                c.drawCircle(left + 15f * dp, rowTop + 11f * dp, 2.2f * dp, fill)
-
-                // 이름
-                textLight.textAlign = Paint.Align.LEFT
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, if (index == 0) Typeface.BOLD else Typeface.NORMAL)
-                textLight.textSize = 10.8f * dp
-                textLight.color = alpha(
-                    if (index == 0) 0xFFFFE6A8.toInt() else 0xFFE2E8F2.toInt(),
-                    (ra * 245f).toInt().coerceIn(0, 255),
-                )
-                val nameRoom = cardW * 0.54f
-                var name = row.name
-                while (name.length > 2 && textLight.measureText(name) > nameRoom) name = name.dropLast(2)
-                if (name != row.name) name = name.trimEnd() + "…"
-                c.drawText(name, left + 22f * dp, rowTop + 12f * dp + slide, textLight)
-
-                // 누적 피해 (오른쪽 큰 글씨)
-                textLight.textAlign = Paint.Align.RIGHT
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                textLight.textSize = 10f * dp
-                textLight.color = alpha(0xFFF3F7FF.toInt(), (ra * 242f).toInt().coerceIn(0, 255))
-                c.drawText(ClearText.rowValue(row), right - 13f * dp, rowTop + 12f * dp + slide, textLight)
-
-                // 명중 · 실전 DPS · 비율 (아래 줄)
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                textLight.textSize = 9f * dp
-                textLight.color = alpha(0xFFA9B8CC.toInt(), (ra * 236f).toInt().coerceIn(0, 255))
-                c.drawText(ClearText.rowDetail(row), right - 13f * dp, rowTop + 24f * dp + slide, textLight)
-
-                // 비율 막대
-                val barY = rowTop + 27f * dp
-                fill.color = alpha(0xFF1B2029.toInt(), (ra * 220f).toInt().coerceIn(0, 255))
-                c.drawRoundRect(left + 22f * dp, barY, right - 13f * dp, barY + 2.2f * dp, 1.1f * dp, 1.1f * dp, fill)
-                val barW = (right - 13f * dp - (left + 22f * dp)) * (row.share / 100.0).toFloat()
-                if (barW > 0.5f) {
-                    fill.color = alpha(if (index == 0) gold else 0xFF5B8FD6.toInt(), (ra * 240f).toInt().coerceIn(0, 255))
-                    c.drawRoundRect(left + 22f * dp, barY, left + 22f * dp + barW, barY + 2.2f * dp, 1.1f * dp, 1.1f * dp, fill)
-                }
-            }
-            if (rest > 0) {
-                textLight.textAlign = Paint.Align.LEFT
-                textLight.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                textLight.textSize = 9f * dp
-                textLight.color = alpha(0xFF8C8570.toInt(), (sa * 225f).toInt().coerceIn(0, 255))
-                c.drawText(
-                    "+ ${rest}개 스킬 더",
-                    left + 22f * dp,
-                    listTop + headerH + shown.size * rowH + 12f * dp,
-                    textLight,
-                )
-            }
-        }
-
-        // ---- 다시 시작 · 닫기
-        val bAlpha = VictoryFx.buttonAlpha(age)
-        if (bAlpha > 0.002f) {
-            val gap = 8f * dp
-            val bw = (cardW - gap) / 2f
-            victoryRetryRect.set(left, buttonTop, left + bw, buttonTop + buttonH)
-            victoryCloseRect.set(right - bw, buttonTop, right, buttonTop + buttonH)
-
-            fill.color = alpha(0xFF8A6A14.toInt(), (bAlpha * 242f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(victoryRetryRect, 9f * dp, 9f * dp, fill)
-            stroke.color = alpha(gold, (bAlpha * 225f).toInt().coerceIn(0, 255))
-            stroke.strokeWidth = 1.2f * dp
-            c.drawRoundRect(victoryRetryRect, 9f * dp, 9f * dp, stroke)
-            text.textAlign = Paint.Align.CENTER
-            text.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            text.textSize = 12.5f * dp
-            text.color = alpha(0xFFFFF8E4.toInt(), (bAlpha * 255).toInt().coerceIn(0, 255))
-            c.drawText("다시 시작", victoryRetryRect.centerX(), victoryRetryRect.centerY() + 4.4f * dp, text)
-
-            fill.color = alpha(0xFF181C24.toInt(), (bAlpha * 235f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(victoryCloseRect, 9f * dp, 9f * dp, fill)
-            stroke.color = alpha(0xFF4A5160.toInt(), (bAlpha * 220f).toInt().coerceIn(0, 255))
-            c.drawRoundRect(victoryCloseRect, 9f * dp, 9f * dp, stroke)
-            text.color = alpha(0xFFD6DCE8.toInt(), (bAlpha * 245f).toInt().coerceIn(0, 255))
-            c.drawText("닫기", victoryCloseRect.centerX(), victoryCloseRect.centerY() + 4.4f * dp, text)
+        if (hintAlpha > 0.002f) {
+            text.textSize = 10.5f * dp
+            text.color = alpha(0xFF9AA0AC.toInt(), (hintAlpha * 200f).toInt().coerceIn(0, 255))
+            c.drawText("화면을 눌러 닫기", cx, vh - 16f * dp, text)
         }
         text.textAlign = Paint.Align.LEFT
         text.typeface = Typeface.DEFAULT
+        text.style = Paint.Style.FILL
     }
 
-    /** 클리어 화면을 닫는다 — 전장과 기록 글은 그대로 두고 카드만 걷는다 */
+    /** 사망 화면을 닫는다 — 전장은 그대로 두고 글씨만 걷는다 */
+    fun dismissDeath() {
+        deathDismissed = true
+        invalidate()
+    }
+
+    /** 클리어 화면을 닫는다 — 전장은 그대로 두고 글씨만 걷는다 */
     fun dismissVictory() {
         victoryDismissed = true
         invalidate()
@@ -4880,36 +4492,15 @@ class BattleCanvasView @JvmOverloads constructor(
         val w = world ?: return false
         if (w.state == BattleWorld.State.VICTORY && !victoryDismissed) {
             if (event.actionMasked != MotionEvent.ACTION_UP) return true
-            // 카드가 다 올라오기 전의 터치는 무시한다.
+            // 글씨가 다 올라오기 전의 터치는 무시한다.
             if (VictoryFx.buttonAlpha(w.victoryAge) < 0.9f) return true
-            if (victoryRetryRect.contains(event.x, event.y)) {
-                victoryDismissed = true
-                onRetry?.invoke()
-                return true
-            }
-            if (victoryCloseRect.contains(event.x, event.y)) {
-                dismissVictory()
-                onClose?.invoke()
-                return true
-            }
+            dismissVictory()
             return true
         }
         if (w.state != BattleWorld.State.DEFEAT || deathDismissed) return false
         if (event.actionMasked != MotionEvent.ACTION_UP) return true
-        // 카드가 다 올라오기 전의 터치는 무시한다.
         if (DeathFx.buttonAlpha(w.deathAge) < 0.9f) return true
-        val x = event.x
-        val y = event.y
-        if (retryRect.contains(x, y)) {
-            deathDismissed = true
-            onRetry?.invoke()
-            return true
-        }
-        if (closeRect.contains(x, y)) {
-            dismissDeath()
-            onClose?.invoke()
-            return true
-        }
+        dismissDeath()
         return true
     }
 

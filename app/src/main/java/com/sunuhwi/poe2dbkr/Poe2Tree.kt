@@ -75,6 +75,12 @@ class TreeDict(
 
     fun isEmpty(): Boolean = classes.isEmpty()
 
+    /** 이 직업으로 트리를 찍을 수 있는지 — 시작 노드가 자료에 있어야 한다. */
+    fun hasStartNode(classIndex: Int): Boolean {
+        val id = classStarts[classIndex] ?: return false
+        return nodes.containsKey(id)
+    }
+
     /** PoB의 직업 이름(없으면 번호)으로 poe2db 직업 번호를 찾는다. */
     fun classIndex(className: String, classId: Int = -1): Int {
         val key = className.trim().lowercase()

@@ -197,6 +197,12 @@ object SkillTally {
 /** 사망 화면 글자 — 화면과 테스트가 같은 문장을 쓴다 */
 object DeathText {
 
+    /** 사망 화면에 크게 쓰는 글 */
+    fun title(): String = "사망"
+
+    /** 사망 화면 아래 한 줄 — 수치는 적지 않는다 */
+    fun subtitle(): String = "캐릭터가 쓰러졌습니다"
+
     /** 4,820 처럼 천 단위로 끊어 쓴다 */
     fun number(value: Double): String {
         if (!value.isFinite()) return "—"

@@ -185,6 +185,67 @@ class TreeScreenTest {
         assertFalse("되돌린 뒤에도 변경으로 나온다", alloc.hasChanges)
     }
 
+    // ------------------------------------------------------------- 직업 고르기
+
+    @Test
+    fun passiveTabKeepsTheClassRowAtTheTop() {
+        val layout = File("src/main/res/layout/pane_pob.xml").readText()
+        assertTrue("패시브 탭에 직업 줄이 없다", layout.contains("@+id/pobTreeClassRow"))
+        assertTrue("트리 화면에 직업 줄이 없다", File("src/main/res/layout/pane_tree.xml").readText().contains("@+id/treeClassRow"))
+        val activity = File("src/main/java/com/sunuhwi/poe2dbkr/MainActivity.kt").readText()
+        assertTrue("직업을 고를 때 시작 노드로 옮기지 않는다", activity.contains("focusStart()"))
+        assertTrue("다른 직업을 고르면 새로 찍게 하지 않는다", activity.contains("bindDefaultTree(tree)"))
+        // 고른 직업 버튼이 줄 밖에 있으면 그 자리로 민다.
+        assertTrue("고른 직업이 보이게 밀지 않는다", activity.contains("scrollClassRowToPick"))
+    }
+
+    @Test
+    fun everyClassInTheDataHasAStartNode() {
+        val withStart = tree.classes.indices.filter { tree.hasStartNode(it) }
+        println("[TEST] 시작 노드가 있는 직업 $withStart / ${tree.classes.size}")
+        assertEquals("자료의 직업마다 시작 노드가 있어야 한다", tree.classes.size, withStart.size)
+        assertTrue("직업이 너무 적다", withStart.size >= 8)
+        // 포인트를 찍을 수 없는 직업은 버튼으로 내보내지 않는다.
+        tree.classes.indices.forEach { index ->
+            val start = tree.startNode(index, 0)
+            assertTrue("시작 노드 번호가 없다: $index", start > 0)
+            assertNotNull("시작 노드를 찾지 못했다: $index", tree.node(start))
+        }
+    }
+
+    @Test
+    fun everyClassStartCanGrowItsOwnBranch() {
+        // 직업마다 시작 노드에서 이어진 노드를 찍고, 시작 노드는 되돌릴 수 없어야 한다.
+        tree.classStarts.forEach { (classIndex, startId) ->
+            val scene = TreeScene.of(tree, classIndex, 1)
+            assertTrue("시작 노드 자리", scene.classStart >= 0)
+            val alloc = TreeAllocation(
+                geometry = scene.geometry,
+                ascendancy = scene.ascendancy,
+                classStart = scene.classStart,
+                ascendStart = scene.ascendStart,
+                pointTotal = 100,
+            )
+            alloc.bind(emptyList())
+            assertTrue("시작 노드가 찍혀 있지 않다: $classIndex", alloc.isAllocated(startId))
+            assertEquals("시작 노드는 되돌릴 수 없다", TreeAllocation.Result.START_NODE, alloc.deallocate(startId))
+            val next = (0 until scene.size).firstOrNull { index ->
+                !alloc.allocated[index] && scene.geometry.xs[index] != 0f &&
+                    alloc.allocate(scene.geometry.ids[index]) == TreeAllocation.Result.DONE
+            }
+            assertNotNull("시작 노드에서 이어진 노드를 찍지 못했다: $classIndex", next)
+            // 시작 노드 하나에 이어진 노드 하나 — 두 자리가 찍혀 있어야 한다.
+            assertEquals("시작 노드에서 이어진 자리를 찍지 못했다", 2, alloc.allocatedIds().size)
+        }
+    }
+
+    @Test
+    fun classStartNamesAreKorean() {
+        val names = tree.classes.indices.map { tree.classes[it].nameKo.ifBlank { tree.classes[it].nameEn } }
+        println("[TEST] 직업 이름 $names")
+        assertTrue("직업 이름이 한글이 아니다", names.count { name -> name.any { it in '가'..'힣' } } >= 8)
+    }
+
     @Test
     fun atlasAllocationStartsFromFirstTap() {
         val geo = atlas.geometry

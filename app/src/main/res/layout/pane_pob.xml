@@ -572,12 +572,51 @@
             </ScrollView>
 
             <!-- 패시브 -->
-            <ScrollView
+            <LinearLayout
                 android:id="@+id/pobPageTree"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:clipToPadding="false"
+                android:orientation="vertical"
                 android:visibility="gone">
+
+                <!-- 직업 고르기 — 페이지를 굴려도 맨 위에 붙어 있다 -->
+                <TextView
+                    android:id="@+id/tvPobTreeClassTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="#CC0A0D12"
+                    android:paddingStart="12dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="2dp"
+                    android:text="@string/pob_tree_class_title"
+                    android:textColor="@color/gold"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <HorizontalScrollView
+                    android:id="@+id/pobTreeClassScroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="#CC0A0D12"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/pobTreeClassRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingStart="8dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="6dp" />
+                </HorizontalScrollView>
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -635,6 +674,7 @@
                         android:textSize="11sp" />
                 </LinearLayout>
             </ScrollView>
+            </LinearLayout>
 
             <!-- 메타 랭킹 -->
             <ScrollView
@@ -726,53 +766,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/tvBattleSkill"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="12dp"
-                        android:paddingTop="6dp"
-                        android:paddingEnd="12dp"
-                        android:paddingBottom="2dp"
-                        android:text="@string/battle_need_build"
-                        android:textColor="@color/gold"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/tvBattleTrigger"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11sp"
-                        android:visibility="gone" />
-
-                    <TextView
-                        android:id="@+id/tvAscendancy"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="12dp"
-                        android:paddingTop="2dp"
-                        android:paddingEnd="12dp"
-                        android:lineSpacingExtra="1dp"
-                        android:textColor="@color/gold"
-                        android:textSize="11sp"
-                        android:visibility="gone" />
-
-                    <TextView
-                        android:id="@+id/tvBattleUnique"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="12dp"
-                        android:paddingTop="2dp"
-                        android:paddingEnd="12dp"
-                        android:lineSpacingExtra="1dp"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="10.5sp"
-                        android:visibility="gone" />
 
                     <HorizontalScrollView
                         android:layout_width="match_parent"

@@ -3,19 +3,25 @@ package com.sunuhwi.poe2dbkr
 import kotlin.math.hypot
 
 /**
- * 트리 노드의 그리기 크기. poe2db 자료의 좌표 단위(노드 사이가 평균 200쯤)에 맞춘 반지름이다.
- * (그리기 코드와 시험이 같은 값을 보도록 한곳에 모아 둔다.)
+ * 트리 노드의 그리기 크기 — poe2db 패시브 트리 화면과 같은 값이다.
+ *
+ * 화면 쪽 코드(passive-skill-tree-canvas)가 노드마다 쓰는 두 반지름을 그대로 옮겼다.
+ *   normal 51 · notable 76 · jewel 76 · keystone 109   (테두리 고리)
+ *   normal 34 · notable 49 · jewel 49 · keystone 69    (안쪽 아이콘)
+ * 좌표 단위는 자료의 x·y 그대로라, 노드 사이가 좁은 곳(100.9)에서도 아이콘끼리
+ * 닿지 않는다. 테두리 고리는 가는 선이라 이웃 노드를 가리지 않는다.
  */
 object TreeMetrics {
-    const val NORMAL = 108f
-    const val NOTABLE = 158f
-    const val KEYSTONE = 196f
-    const val MASTERY = 138f
-    const val JEWEL = 124f
-    const val ASCENDANT = 120f
-    const val ASCENDANT_START = 158f
-    const val CLASS_START = 168f
+    const val NORMAL = 51f
+    const val NOTABLE = 76f
+    const val KEYSTONE = 109f
+    const val MASTERY = 76f
+    const val JEWEL = 76f
+    const val ASCENDANT = 51f
+    const val ASCENDANT_START = 76f
+    const val CLASS_START = 84f
 
+    /** 테두리 고리의 반지름 */
     fun radiusOf(kind: TreeKind): Float = when (kind) {
         TreeKind.NOTABLE -> NOTABLE
         TreeKind.KEYSTONE -> KEYSTONE
@@ -27,16 +33,28 @@ object TreeMetrics {
         else -> NORMAL
     }
 
-    /** 이 배율에서 아이콘을 넣을 만큼 노드가 큰지 (작으면 속을 비운 원으로만 그린다) */
+    /** 안쪽 아이콘의 반지름 (DB의 iconRadius) */
+    fun iconRadiusOf(kind: TreeKind): Float = when (kind) {
+        TreeKind.NOTABLE -> 49f
+        TreeKind.KEYSTONE -> 69f
+        TreeKind.MASTERY -> 49f
+        TreeKind.JEWEL -> 49f
+        TreeKind.ASCENDANT -> 34f
+        TreeKind.ASCENDANT_START -> 49f
+        TreeKind.CLASS_START -> 56f
+        else -> 34f
+    }
+
+    /** 이 배율에서 아이콘을 넣을 만큼 노드가 큰지 (작으면 작은 점으로만 그린다) */
     fun showsIcon(kind: TreeKind, scale: Float, dp: Float): Boolean =
-        radiusOf(kind) * scale >= 2.4f * dp
+        iconRadiusOf(kind) * scale >= 1.2f * dp
 
     /**
      * 화면에서 점으로만 그리는 배율인지.
      * 트리 전체를 한눈에 볼 때는 노드 5천 개가 서로 겹쳐 아이콘을 넣어도 알아볼 수 없으므로
      * 종류별 크기만 다른 점으로 그린다.
      */
-    fun isDotScale(scale: Float): Boolean = scale < 0.055f
+    fun isDotScale(scale: Float): Boolean = scale < 0.045f
 
     /** 점으로 그릴 때의 반지름(px). 종류가 클수록 조금 크게 찍어 별자리처럼 보이게 한다. */
     fun dotRadius(kind: TreeKind, dp: Float): Float = when (kind) {
@@ -164,6 +182,9 @@ class TreeCull(
 
         // 노드 — 종류별 반지름만큼 화면 밖으로 걸친 것도 담는다.
         for (index in 0 until size) {
+            // 숙련 노드는 해당 주요 노드와 같은 자리에 겹쳐 있어 따로 그리지 않는다.
+            // (그리면 주요 노드를 가리고, 누를 때 엉뚱한 노드가 잡힌다.)
+            if (geometry.kindAt(index) == TreeKind.MASTERY) continue
             val x = geometry.xs[index]
             val y = geometry.ys[index]
             val pad = TreeMetrics.radiusOf(geometry.kindAt(index)) * 1.4f + 40f

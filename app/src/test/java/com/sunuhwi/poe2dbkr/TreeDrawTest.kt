@@ -151,11 +151,57 @@ class TreeDrawTest {
         val normal = TreeMetrics.radiusOf(TreeKind.NORMAL) * view.scale
         val notable = TreeMetrics.radiusOf(TreeKind.NOTABLE) * view.scale
         println("[TEST] 기본 배율 ${view.scale} · 보통 노드 반지름 ${normal}px · 주요 ${notable}px")
-        assertTrue("기본 화면에서 노드가 점으로만 보인다", view.scale >= 0.055f)
-        assertTrue("보통 노드가 너무 작다: ${normal}px", normal >= 6f)
+        assertTrue("기본 화면에서 노드가 점으로만 보인다", view.scale >= 0.045f)
+        assertTrue("보통 노드가 너무 작다: ${normal}px", normal >= 3f)
         assertTrue("주요 노드가 보통 노드보다 크지 않다", notable > normal * 1.2f)
-        // 노드 사이(자료 중앙값 약 212)보다 지름이 크게 넘치지 않아야 서로 뭉개지지 않는다.
-        assertTrue("노드가 너무 커서 겹친다", normal * 2f <= 260f)
+        // 노드 지름은 poe2db와 같은 102다 — 자료의 가장 좁은 간격(100.9)과 맞먹는 크기.
+        assertTrue("노드가 너무 커서 이웃을 가린다", normal * 2f <= 102f)
+    }
+
+    /**
+     * 실제 자료에서 이웃한 두 노드를 골라, 아이콘 원이 절대 겹치지 않는지 본다.
+     * (poe2db 화면과 같은 비율 — 테두리 고리는 가는 선이라 조금 겹쳐도 가리지 않는다.)
+     */
+    @Test
+    fun nodeIconsNeverCoverTheNeighbour() {
+        val scene = scene()
+        val geo = scene.geometry
+        val cell = 140f
+        val grid = HashMap<Long, MutableList<Int>>()
+        fun bucketOf(x: Float, y: Float): Long =
+            (x.toInt() / cell.toInt()).toLong() * 100000L + (y.toInt() / cell.toInt()).toLong()
+        for (i in 0 until geo.size) {
+            if (geo.kindAt(i) == TreeKind.MASTERY) continue
+            grid.getOrPut(bucketOf(geo.xs[i], geo.ys[i])) { ArrayList() }.add(i)
+        }
+        var closestIcon = Float.MAX_VALUE
+        var closestFrame = 0f
+        var pairs = 0
+        for (i in 0 until geo.size) {
+            if (geo.kindAt(i) == TreeKind.MASTERY) continue
+            val x = geo.xs[i]
+            val y = geo.ys[i]
+            val gx = x.toInt() / cell.toInt()
+            val gy = y.toInt() / cell.toInt()
+            for (dx in -1..1) for (dy in -1..1) {
+                val bucket = grid[(gx + dx).toLong() * 100000L + (gy + dy).toLong()] ?: continue
+                for (j in bucket) {
+                    if (j <= i) continue
+                    val dist = kotlin.math.hypot(geo.xs[j] - x, geo.ys[j] - y)
+                    if (dist < 0.5f) continue
+                    pairs++
+                    val iconSum = TreeMetrics.iconRadiusOf(geo.kindAt(i)) + TreeMetrics.iconRadiusOf(geo.kindAt(j))
+                    val frameSum = TreeMetrics.radiusOf(geo.kindAt(i)) + TreeMetrics.radiusOf(geo.kindAt(j))
+                    closestIcon = minOf(closestIcon, dist - iconSum)
+                    closestFrame = maxOf(closestFrame, frameSum - dist)
+                }
+            }
+        }
+        println("[TEST] 이웃 쌍 $pairs · 아이콘 여유 ${closestIcon} · 테두리 겹침 ${closestFrame}")
+        assertTrue("이웃 노드가 없어 확인하지 못했다", pairs > 2000)
+        assertTrue("아이콘이 이웃 노드를 가린다 (여유 ${closestIcon})", closestIcon > 0f)
+        // 테두리 고리는 DB처럼 가는 선이다 — 크게 파고들지 않아야 한다.
+        assertTrue("테두리 고리가 이웃을 덮는다 (겹침 ${closestFrame})", closestFrame <= 12f)
     }
 
     @Test

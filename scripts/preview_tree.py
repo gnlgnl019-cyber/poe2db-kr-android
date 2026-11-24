@@ -38,9 +38,10 @@ MUTED = (121, 128, 140)
 BRONZE = (69, 62, 48)
 BRONZE_SOFT = (138, 117, 73)
 
-# 앱의 TreeMetrics와 같은 값 (트리 좌표 단위)
-RADIUS = {"n": 158, "k": 196, "m": 138, "j": 124, "a": 158, "c": 168, "e": 120, "s": 108}
-DOT_SCALE = 0.055
+# 앱의 TreeMetrics와 같은 값 (트리 좌표 단위) — poe2db 화면이 쓰는 반지름 그대로
+RADIUS = {"n": 76, "k": 109, "m": 76, "j": 76, "a": 76, "c": 84, "e": 51, "s": 51}
+ICON = {"n": 49, "k": 69, "m": 49, "j": 49, "a": 49, "c": 56, "e": 34, "s": 34}
+DOT_SCALE = 0.045
 
 
 def font(size):
@@ -185,12 +186,16 @@ def draw_tree(meta, icons, allocated_ids, box, out_path, counters, class_row=Non
         return 0 if row["kind"] in ("s", "e") else 1
 
     for row in sorted(nodes, key=onclick_order):
+        # 숙련 노드는 주요 노드 위에 겹쳐 있어 그리지 않는다 (앱과 같다).
+        if row["kind"] == "m":
+            continue
         px, py = sx(row["x"]), sy(row["y"])
         if px < -60 or px > width + 60 or py < -60 or py > height + 60:
             continue
         kind = row["kind"]
         on = row["id"] in allocated
-        radius = RADIUS.get(kind, 108) * scale
+        radius = RADIUS.get(kind, 51) * scale
+        icon_r = ICON.get(kind, 34) * scale
         if dot_scale:
             dot = {"k": 5.7, "n": 4.5, "a": 4.5, "m": 3.6, "j": 3.6, "e": 3.3, "c": 6.6}.get(kind, 2.6)
             if on:
@@ -202,31 +207,32 @@ def draw_tree(meta, icons, allocated_ids, box, out_path, counters, class_row=Non
             draw.ellipse((px - dot, py - dot, px + dot, py + dot), fill=color)
             continue
         if on:
-            draw.ellipse((px - radius * 1.55, py - radius * 1.55, px + radius * 1.55, py + radius * 1.55),
+            draw.ellipse((px - radius * 1.3, py - radius * 1.3, px + radius * 1.3, py + radius * 1.3),
                          fill=(232, 192, 96, 45))
-            draw.ellipse((px - radius * 1.16, py - radius * 1.16, px + radius * 1.16, py + radius * 1.16),
-                         fill=(232, 192, 96, 75))
+        # 아이콘 뒤의 어두운 바탕은 아이콘 크기에만 깐다 (이웃 노드를 가리지 않게).
         fill = (58, 46, 24, 255) if on else {
             "k": (36, 28, 18), "n": (26, 29, 38), "c": (34, 26, 16),
         }.get(kind, (14, 17, 24))
-        draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=fill)
-        if row["icon"] and RADIUS.get(kind, 108) * scale >= 2.4 * 3:
-            paste_circle(image, crop_icon(icons, row["icon"]), px, py, radius * 0.98,
-                         alpha=255 if on else 205)
+        draw.ellipse((px - icon_r, py - icon_r, px + icon_r, py + icon_r), fill=fill)
+        if row["icon"] and icon_r >= 1.2 * 3:
+            paste_circle(image, crop_icon(icons, row["icon"]), px, py, icon_r,
+                         alpha=255 if on else 210)
         else:
-            dot = radius * 0.34
+            dot = max(radius * 0.16, 3)
             draw.ellipse((px - dot, py - dot, px + dot, py + dot),
                          fill=GOLD if on else (60, 58, 52))
+        # 테두리 고리 — 가는 선이라 이웃 위에 얹혀도 가리지 않는다.
         ring = GOLD_DIM if on else {
             "c": (224, 190, 120), "k": (180, 118, 47), "n": (138, 117, 73),
             "m": (78, 106, 140), "j": (140, 122, 70), "a": (126, 151, 184),
             "e": (126, 151, 184),
         }.get(kind, BRONZE)
-        stroke = max(1, int(radius * 0.16))
+        stroke = max(1, int(radius * 0.10))
         draw.ellipse((px - radius, py - radius, px + radius, py + radius), outline=ring, width=stroke)
         if kind in ("k", "n"):
-            gap = radius * 1.13
-            draw.ellipse((px - gap, py - gap, px + gap, py + gap),
+            # 주요 노드는 아이콘과 고리 사이에 얇은 고리를 하나 더 둔다.
+            inner = radius * 0.80
+            draw.ellipse((px - inner, py - inner, px + inner, py + inner),
                          outline=(255, 231, 176, 120) if on else (62, 55, 40, 120), width=1)
 
     # 직업 시작점 이름
@@ -262,19 +268,22 @@ def draw_tree(meta, icons, allocated_ids, box, out_path, counters, class_row=Non
         draw.text((x, 100), text, font=font(27), fill=color)
         x += int(draw.textlength(text, font=font(27))) + 26
 
-    # 상단에 고정된 직업 고르기 줄 (앱에서는 늘 보인다)
+    # 상단에 고정된 직업 고르기 줄 (앱에서는 늘 보인다) — 열두 직업을 두 줄로 접는다
     if class_row:
-        draw.rectangle((0, 141, width, 141 + 78), fill=(10, 13, 18, 225))
-        cx = 16
-        for label, on in class_row:
-            w = int(draw.textlength(label, font=font(26))) + 34
-            draw.rounded_rectangle((cx, 152, cx + w, 152 + 56), radius=8,
-                                   fill=(212, 175, 55, 45) if on else (23, 26, 33, 255),
-                                   outline=(212, 175, 55) if on else BRONZE_SOFT, width=2)
-            draw.text((cx + 17, 165), label, font=font(26), fill=GOLD if on else MUTED)
-            cx += w + 10
-            if cx > width - 40:
-                break
+        rows = [class_row[:6], class_row[6:]]
+        top = 141
+        draw.rectangle((0, top, width, top + 30 + 62 * len(rows)), fill=(10, 13, 18, 225))
+        draw.text((16, top + 6), "직업 선택 — 시작 노드에서부터 찍습니다", font=font(24), fill=GOLD)
+        for r, group in enumerate(rows):
+            cx = 16
+            y = top + 34 + r * 62
+            for label, on in group:
+                w = int(draw.textlength(label, font=font(26))) + 34
+                draw.rounded_rectangle((cx, y, cx + w, y + 54), radius=8,
+                                       fill=(212, 175, 55, 45) if on else (23, 26, 33, 255),
+                                       outline=(212, 175, 55) if on else BRONZE_SOFT, width=2)
+                draw.text((cx + 17, y + 12), label, font=font(26), fill=GOLD if on else MUTED)
+                cx += w + 10
 
     DOCS.mkdir(parents=True, exist_ok=True)
     image.save(out_path)
@@ -322,12 +331,26 @@ def main():
         [("패시브 %d / %d" % (passive, total), TEXT),
          ("전직 %d / 8" % ascend, GOLD_DIM),
          ("정신력 90 / 130", (140, 232, 192))],
-        class_row=[(class_ko, True)]
-        + [(c[1] or c[0], False) for i, c in enumerate(tree["classes"]) if i != class_id][:6],
+        class_row=[(c[1] or c[0], i == class_id) for i, c in enumerate(tree["classes"])],
         class_starts=class_starts,
         class_name=class_ko,
     )
     print(f"직업 {class_en} {ascend_ko} · 찍은 노드 {len(nodes)}")
+
+    # 노드 하나하나가 이웃을 가리지 않는지 눈으로 보는 확대 그림 (직업 시작 노드 둘레)
+    if start in node_map:
+        sx0, sy0 = node_map[start][6], node_map[start][7]
+        half = 1500
+        draw_tree(
+            passive_meta, tree_icons, nodes,
+            (sx0 - half, sy0 - half, sx0 + half, sy0 + half),
+            DOCS / "preview-passive-tree-nodes.png",
+            [("패시브 %d / %d" % (passive, total), TEXT),
+             ("전직 %d / 8" % ascend, GOLD_DIM)],
+            class_row=[(c[1] or c[0], i == class_id) for i, c in enumerate(tree["classes"])],
+            class_starts=[start],
+            class_name=class_ko,
+        )
 
     atlas_nodes = [n for n in atlas["nodes"]]
     axs = [n[4] for n in atlas_nodes]

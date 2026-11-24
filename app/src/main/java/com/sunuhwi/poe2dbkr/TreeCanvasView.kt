@@ -34,6 +34,8 @@ class TreeScene(
     val className: String = "",
     /** 고른 전직의 한국어 이름 */
     val ascendName: String = "",
+    /** 고른 직업의 번호 (같은 직업인지 가리는 데 쓴다) */
+    val classIndex: Int = -1,
     /** 트리에 쓸 수 있는 포인트 (아틀라스는 총점, 패시브는 레벨로 계산) */
     val pointTotal: Int = 0,
 ) {
@@ -71,6 +73,7 @@ class TreeScene(
                 ascendStart = ascendStart,
                 className = className,
                 ascendName = if (ascendName == "WIP") "" else ascendName,
+                classIndex = classIndex,
             )
         }
 
@@ -137,8 +140,14 @@ class TreeCanvasView @JvmOverloads constructor(
         fun onChanged(points: TreePoints)
     }
 
+    /** 찍지 못했을 때 이유를 알린다 (이어지지 않은 노드를 눌렀거나 포인트가 모자랄 때) */
+    fun interface OnRefused {
+        fun onRefused(result: TreeAllocation.Result)
+    }
+
     var onNodeTap: OnNodeTap? = null
     var onPointsChanged: OnPointsChanged? = null
+    var onRefused: OnRefused? = null
 
     /** 한 조각을 그리다 예외가 났을 때 알린다 (트리는 화면에 그대로 둔다) */
     var onDrawProblem: ((Throwable) -> Unit)? = null
@@ -235,14 +244,21 @@ class TreeCanvasView @JvmOverloads constructor(
     }
 
     /**
-     * 직업·전직을 바꾼다. 지금 찍은 노드는 그대로 두고 시작점만 새 직업으로 옮긴다.
+     * 직업·전직을 바꾼다.
+     *
+     * 같은 직업에서 전직만 바꾸면 찍은 노드를 그대로 두고, 다른 직업을 고르면
+     * 그 직업의 시작 노드 하나만 남기고 비운 뒤 시작점으로 화면을 옮긴다.
+     * (다른 직업의 시작점과 이어지지 않는 노드를 들고 가면 찍을 수도 되돌릴 수도 없다.)
      */
     fun setClass(tree: TreeDict, classIndex: Int, ascendIndex: Int) {
         if (tree.isEmpty()) return
         this.tree = tree
-        val previous = alloc.allocatedIds().filter { id ->
+        val sameClass = scene.size > 0 && scene.classIndex == classIndex
+        val previous = if (sameClass) {
             // 다른 직업의 시작점은 새 직업 트리에서 뜻이 없으므로 들고 가지 않는다.
-            tree.node(id)?.let { it.kind != 'c' } ?: false
+            alloc.allocatedIds().filter { id -> tree.node(id)?.kind != 'c' }
+        } else {
+            emptyList()
         }
         scene = TreeScene.of(tree, classIndex, ascendIndex)
         if (scene.size == 0) {
@@ -254,7 +270,7 @@ class TreeCanvasView @JvmOverloads constructor(
         pointTotal = totalFor(classIndex)
         bindAllocation(previous)
         alloc.markBound()
-        centerOnStart()
+        focusStart()
         notifyPoints()
         invalidate()
     }
@@ -305,7 +321,7 @@ class TreeCanvasView @JvmOverloads constructor(
         pointTotal = 0
         bindAllocation(emptyList())
         alloc.markBound()
-        centerOnStart()
+        focusStart()
         notifyPoints()
         invalidate()
     }
@@ -481,6 +497,25 @@ class TreeCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** 직업 시작 노드로 화면을 옮긴다. 그 자리에서 이어진 노드를 바로 찍을 수 있는 배율로 당긴다. */
+    fun focusStart() {
+        if (scene.size == 0) return
+        val geo = scene.geometry
+        val start = scene.classStart
+        if (start < 0) {
+            centerOnStart()
+            return
+        }
+        // 테두리 고리 지름이 26dp쯤 되게 당긴다 — 한 화면에 노드 여섯 줄이 보인다.
+        val zoom = (13f * density / TreeMetrics.NORMAL).coerceIn(viewport.fitScale * 0.6f, viewport.maxScale)
+        viewport.setScale(zoom)
+        viewport.center(geo.xs[start], geo.ys[start], width, height)
+        clamp()
+        highlight = start
+        flash = 1.6f
+        invalidate()
+    }
+
     private fun fitAllocated() {
         val geo = scene.geometry
         val start = scene.classStart
@@ -605,7 +640,7 @@ class TreeCanvasView @JvmOverloads constructor(
                     continue
                 }
                 val radius = TreeMetrics.radiusOf(kind) * s
-                if (!radius.isFinite() || radius <= 0.2f) continue
+                if (!radius.isFinite() || radius <= 0.35f) continue
                 drawNode(canvas, plan, i, kind, on, sx, sy, radius)
             }
         }
@@ -628,6 +663,12 @@ class TreeCanvasView @JvmOverloads constructor(
         canvas.drawCircle(sx, sy, r, nodePaint)
     }
 
+    /**
+     * 노드 하나 — poe2db 화면과 같은 구성이다.
+     *
+     * 안쪽에는 아이콘만큼 작은 원을 깔고 그 안에 아이콘을 가뒤 넣는다.
+     * 테두리 고리는 아이콘 바깥에 가는 선으로 둘러, 확대해도 이웃 노드를 가리지 않는다.
+     */
     private fun drawNode(
         canvas: Canvas,
         plan: TreeCull,
@@ -639,13 +680,15 @@ class TreeCanvasView @JvmOverloads constructor(
         radius: Float,
     ) {
         val icon = plan.iconOf(index)
-        // 찍힌 노드는 뒤에 금빛 번짐을 깔아 둔다.
+        val iconR = TreeMetrics.iconRadiusOf(kind) * viewport.scale
+        // 찍힌 노드는 뒤에 금빛 번짐을 깔아 둔다 (고리 바깥으로 살짝만).
         if (on) {
             glowPaint.color = 0x33E8C060
-            canvas.drawCircle(sx, sy, radius * 1.55f, glowPaint)
+            canvas.drawCircle(sx, sy, radius * 1.30f, glowPaint)
             glowPaint.color = 0x55E8C060
-            canvas.drawCircle(sx, sy, radius * 1.16f, glowPaint)
+            canvas.drawCircle(sx, sy, radius * 1.05f, glowPaint)
         }
+        // 아이콘 뒤의 어두운 바탕 — 아이콘 크기에만 깐다.
         nodePaint.color = when {
             on -> 0xFF3A2E18.toInt()
             kind == TreeKind.KEYSTONE -> 0xFF241C12.toInt()
@@ -653,40 +696,41 @@ class TreeCanvasView @JvmOverloads constructor(
             kind == TreeKind.CLASS_START -> 0xFF221A10.toInt()
             else -> 0xFF0E1118.toInt()
         }
-        canvas.drawCircle(sx, sy, radius, nodePaint)
+        val plate = maxOf(iconR * 1.04f, radius * 0.30f)
+        canvas.drawCircle(sx, sy, plate, nodePaint)
         val showIcon = icon != null && TreeMetrics.showsIcon(kind, viewport.scale, density)
         if (showIcon) {
             val sheet = iconSheet
             if (sheet != null) {
                 // 아이콘은 늘 원 안에 가둔다 (네모난 모서리가 드러나면 트리가 지저분해진다).
                 clipPath.reset()
-                clipPath.addCircle(sx, sy, radius * 0.98f, android.graphics.Path.Direction.CW)
+                clipPath.addCircle(sx, sy, iconR, android.graphics.Path.Direction.CW)
                 canvas.save()
                 canvas.clipPath(clipPath)
-                sheet.draw(canvas, icon!!, sx, sy, radius * 0.98f, if (on) 255 else 180)
+                sheet.draw(canvas, icon!!, sx, sy, iconR, if (on) 255 else 190)
                 canvas.restore()
             }
         } else {
             nodePaint.color = if (on) gold else 0xFF3C3A34.toInt()
-            canvas.drawCircle(sx, sy, radius * 0.34f, nodePaint)
+            canvas.drawCircle(sx, sy, maxOf(radius * 0.16f, 1f * density), nodePaint)
         }
-        ringPaint.strokeWidth = (radius * 0.16f).coerceIn(0.9f * density, 3.2f * density)
+        // 테두리 고리 — 가는 선이라도 이웃 노드 위에 얹혀도 가리지 않는다.
+        ringPaint.strokeWidth = (radius * 0.10f).coerceIn(0.7f * density, 2.4f * density)
         ringPaint.color = when {
             on -> goldSoft
             kind == TreeKind.CLASS_START -> 0xFFE0BE78.toInt()
             kind == TreeKind.KEYSTONE -> 0xFFB4762F.toInt()
             kind == TreeKind.NOTABLE -> 0xFF8A7549.toInt()
-            kind == TreeKind.MASTERY -> 0xFF4E6A8C.toInt()
             kind == TreeKind.JEWEL -> 0xFF8C7A46.toInt()
             plan.isAscendancy(index) || kind == TreeKind.ASCENDANT_START -> 0xFF7E97B8.toInt()
             else -> 0xFF453E30.toInt()
         }
         canvas.drawCircle(sx, sy, radius, ringPaint)
         if (kind == TreeKind.KEYSTONE || kind == TreeKind.NOTABLE) {
-            // 주요 노드는 테두리를 한 겹 더 둘러 눈에 띄게 한다.
-            ringPaint.strokeWidth = (radius * 0.07f).coerceIn(0.6f * density, 1.6f * density)
+            // 주요 노드는 아이콘과 고리 사이에 얇은 고리를 하나 더 두어 DB의 두겁 테두리처럼 보이게 한다.
+            ringPaint.strokeWidth = (radius * 0.05f).coerceIn(0.5f * density, 1.4f * density)
             ringPaint.color = if (on) 0x88FFE7B0.toInt() else 0x553E3728
-            canvas.drawCircle(sx, sy, radius * 1.13f, ringPaint)
+            canvas.drawCircle(sx, sy, radius * 0.80f, ringPaint)
         }
     }
 
@@ -844,17 +888,17 @@ class TreeCanvasView @JvmOverloads constructor(
         val geo = scene.geometry
         if (geo.size == 0) return
         val reach = maxOf(26f * density, TreeMetrics.NORMAL * viewport.scale * 0.75f) / viewport.scale
-        val index = geo.nearest(viewport.treeX(sx), viewport.treeY(sy), reach)
+        // 숙련 노드는 주요 노드 위에 겹쳐 있으므로 누를 때는 건너뛴다.
+        val index = geo.nearest(viewport.treeX(sx), viewport.treeY(sy), reach) {
+            geo.kindAt(it) != TreeKind.MASTERY
+        }
         if (index < 0) return
         highlight = index
         flash = 1.6f
         val id = geo.ids[index]
         val wasAllocated = allocated[index]
-        if (wasAllocated) {
-            deallocate(id)
-        } else {
-            allocate(id)
-        }
+        val result = if (wasAllocated) deallocate(id) else allocate(id)
+        if (result != TreeAllocation.Result.DONE) onRefused?.onRefused(result)
         onNodeTap?.onTap(id, wasAllocated)
         invalidate()
     }

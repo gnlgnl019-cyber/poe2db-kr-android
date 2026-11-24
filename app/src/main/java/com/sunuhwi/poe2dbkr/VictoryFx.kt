@@ -122,6 +122,12 @@ data class ClearSummary(
 /** 클리어 화면 글자 — 화면과 시험이 같은 문장을 쓴다 */
 object ClearText {
 
+    /** 클리어 화면에 크게 쓰는 글 */
+    fun title(): String = "클리어!"
+
+    /** 클리어 화면 아래 한 줄 — 수치는 적지 않는다 */
+    fun subtitle(): String = "적을 모두 처치했습니다"
+
     fun number(value: Double): String = DeathText.number(value)
 
     fun headline(seconds: Double): String =

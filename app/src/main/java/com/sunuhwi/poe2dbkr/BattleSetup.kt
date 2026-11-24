@@ -223,7 +223,7 @@ object BattleSetup {
         return null
     }
 
-    /** 빌드에서 켜져 있는 그 액티브 스킬(과 그 그룹). 보조 젬·메타젬은 고르지 않는다. */
+    /** 빌드에서 켜져 있는 그 스킬(과 그 그룹). 보조 젬은 고르지 않는다. */
     private fun activeSkill(build: PobBuild, name: String?): Pair<PobGem, PobSkillGroup>? {
         val key = name?.trim()?.lowercase().orEmpty()
         if (key.isEmpty()) return null
@@ -232,7 +232,7 @@ object BattleSetup {
             for (gem in group.gems) {
                 if (!gem.enabled) continue
                 if (gem.name.trim().lowercase() != key) continue
-                if (!SkillRoles.isActiveDamageGem(gem)) continue
+                if (PobCalculator.isSupport(gem)) continue
                 return gem to group
             }
         }

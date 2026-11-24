@@ -96,7 +96,21 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 
-        <!-- 직업·전직 고르기 (필요할 때만 편다) -->
+        <!-- 직업·전직 고르기 — 늘 위에 붙어 있다 -->
+        <TextView
+            android:id="@+id/tvTreeClassTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#CC0A0D12"
+            android:paddingStart="12dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="1dp"
+            android:text="@string/tree_class_title"
+            android:textColor="@color/gold"
+            android:textSize="10.5sp"
+            android:textStyle="bold" />
+
         <HorizontalScrollView
             android:id="@+id/treeClassScroll"
             android:layout_width="match_parent"

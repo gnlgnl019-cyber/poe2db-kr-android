@@ -90,6 +90,11 @@
     <string name="tree_render_failed">트리를 그리는 중 문제가 있었습니다%1$s</string>
     <string name="tree_no_data">패시브 트리 자료를 읽지 못했습니다. 앱을 다시 설치하면 함께 들어 있습니다.</string>
     <string name="tree_allocate_blocked">이어진 노드부터 찍어야 합니다</string>
+    <string name="tree_refused_not_connected">이어진 노드부터 찍어야 합니다</string>
+    <string name="tree_refused_no_points">남은 포인트가 없습니다</string>
+    <string name="tree_refused_start">시작 노드는 되돌릴 수 없습니다</string>
+    <string name="tree_refused_breaks">이 노드를 되돌리면 다른 노드가 끊깁니다</string>
+    <string name="tree_class_title">직업 선택 — 시작 노드에서부터 찍습니다</string>
 
     <string name="pob_empty_title">빌드를 불러오세요</string>
     <string name="pob_empty_hint">Path of Building 공유 코드 또는 pobb.in 링크를 넣거나 샘플 빌드로 바로 시험해 볼 수 있습니다.</string>
@@ -156,6 +161,7 @@
     <string name="pob_tree_group_notable">주요 패시브</string>
     <string name="pob_tree_group_mastery">마스터리</string>
     <string name="pob_tree_hint">아래 버튼을 누르면 앱 안에서 캐릭터 트리가 열리고, 찍은 노드가 황금색으로 표시됩니다.</string>
+    <string name="pob_tree_class_title">직업 선택 — 고른 직업의 시작 노드부터 찍습니다</string>
     <string name="pob_tree_open_character">캐릭터 패시브 트리 열기</string>
     <string name="pob_open_tree">패시브 트리 열기</string>
     <string name="pob_open_atlas">아틀라스 트리 열기</string>

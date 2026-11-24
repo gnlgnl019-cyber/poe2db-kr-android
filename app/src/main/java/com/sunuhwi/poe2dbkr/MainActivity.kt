@@ -167,7 +167,6 @@ class MainActivity : AppCompatActivity() {
                 marketRates = marketRates.map { localize(it, dict) }
                 applyMarketFilter()
             }
-            if (battleReady) runCatching { refreshBattleHeader() }
         }
 
         Catalog.load(this) { loadedItems ->
@@ -860,6 +859,17 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvas.onPointsChanged = TreeCanvasView.OnPointsChanged {
             renderTreePoints(it)
         }
+        // 이어지지 않은 노드를 누르면 왜 안 찍히는지 알려 준다.
+        treePane.treeCanvas.onRefused = TreeCanvasView.OnRefused { reason ->
+            val message = when (reason) {
+                TreeAllocation.Result.NOT_CONNECTED -> R.string.tree_refused_not_connected
+                TreeAllocation.Result.NO_POINTS -> R.string.tree_refused_no_points
+                TreeAllocation.Result.START_NODE -> R.string.tree_refused_start
+                TreeAllocation.Result.BREAKS_PATH -> R.string.tree_refused_breaks
+                else -> 0
+            }
+            if (message != 0) Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
+        }
         // 그리는 도중 한 조각이 실패해도 트리는 화면에 그대로 둔다.
         treePane.treeCanvas.onDrawProblem = { t ->
             Log.e(LOG_TAG, "패시브 트리를 그리는 중 일부를 건너뛰었습니다", t)
@@ -951,6 +961,10 @@ class MainActivity : AppCompatActivity() {
         runCatching { buildClassRow() }
             .onFailure { Log.e(LOG_TAG, "직업 선택 줄을 채우지 못했습니다", it) }
         treePane.treeClassScroll.isVisible = treePane.treeClassRow.childCount > 0
+        treePane.tvTreeClassTitle.isVisible = treePane.treeClassScroll.isVisible
+        if (treePane.treeClassScroll.isVisible) {
+            scrollClassRowToPick(treePane.treeClassRow, treePane.treeClassScroll)
+        }
         runCatching { updateTreeInfo() }
             .onFailure { Log.e(LOG_TAG, "트리 정보 줄을 갱신하지 못했습니다", it) }
         runCatching { refreshTreePoints() }
@@ -974,6 +988,10 @@ class MainActivity : AppCompatActivity() {
         runCatching { buildClassRow() }
             .onFailure { Log.e(LOG_TAG, "직업 선택 줄을 채우지 못했습니다", it) }
         treePane.treeClassScroll.isVisible = treePane.treeClassRow.childCount > 0
+        treePane.tvTreeClassTitle.isVisible = treePane.treeClassScroll.isVisible
+        if (treePane.treeClassScroll.isVisible) {
+            scrollClassRowToPick(treePane.treeClassRow, treePane.treeClassScroll)
+        }
         runCatching { updateTreeInfo() }
             .onFailure { Log.e(LOG_TAG, "트리 정보 줄을 갱신하지 못했습니다", it) }
         runCatching { refreshTreePoints() }
@@ -991,6 +1009,7 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
         treePane.treeClassScroll.isVisible = false
+        treePane.tvTreeClassTitle.isVisible = false
         treePane.treeNodeCard.isVisible = false
         // 카운터를 그리기 전에 아틀라스 모드로 바꿔 둔다 (패시브 카운터가 잠깐 보이지 않게).
         treePane.chipAtlasTree.isChecked = true
@@ -1144,26 +1163,39 @@ class MainActivity : AppCompatActivity() {
     private var treeClassPick = 0
     private var treeAscendPick = 1
 
-    /** 직업 12줄 + 그 직업의 전직을 버튼으로 채운다. */
+    /** 직업 12줄 + 그 직업의 전직을 버튼으로 채운다. (트리 화면 위쪽 · 패시브 탭 위쪽 두 곳) */
     private fun buildClassRow() {
+        fillClassButtons(treePane.treeClassRow, withAscendancy = true)
+        fillClassButtons(pobPane.pobTreeClassRow, withAscendancy = false)
+    }
+
+    /** 직업·전직 버튼을 한 줄에 채운다. */
+    private fun fillClassButtons(row: LinearLayout, withAscendancy: Boolean) {
         val tree = Poe2Tree.of(this)
-        val row = treePane.treeClassRow
         row.removeAllViews()
-        if (tree.isEmpty() || !canvasVisible()) return
+        if (tree.isEmpty()) return
         val pad = (5 * resources.displayMetrics.density).toInt()
         // 한 직업 버튼이 실패해도 나머지 줄은 그린다.
         tree.classes.forEachIndexed { index, cls ->
+            // 시작 노드가 없는 직업은 트리에서 찍을 수 없으므로 내보내지 않는다.
+            if (!tree.hasStartNode(index)) return@forEachIndexed
             runCatching {
                 val name = cls.nameKo.ifBlank { cls.nameEn }.ifBlank { getString(R.string.tree_class_unknown) }
-                row.addView(classPickButton(name, index == treeClassPick) {
-                    treeClassPick = index
-                    treeAscendPick = 1
-                    treePane.treeCanvas.setClass(tree, index, 1)
-                    buildClassRow()
-                    updateTreeInfo()
-                    refreshTreePoints()
-                }, pad)
+                val button = classPickButton(name, index == treeClassPick, { pickTreeClass(index) }, pad)
+                button.tag = index
+                row.addView(button)
             }.onFailure { Log.e(LOG_TAG, "직업 버튼을 만들지 못했습니다 (${cls.nameEn})", it) }
+        }
+        if (!withAscendancy) {
+            if (row.childCount == 0) {
+                row.addView(android.widget.TextView(this).apply {
+                    text = getString(R.string.tree_class_unknown)
+                    setTextColor(mutedColor())
+                    textSize = 12f
+                    setPadding(pad, pad, pad, pad)
+                })
+            }
+            return
         }
         // 고른 직업의 전직 세 줄
         val cls = tree.classes.getOrNull(treeClassPick)
@@ -1188,6 +1220,47 @@ class MainActivity : AppCompatActivity() {
                 textSize = 12f
                 setPadding(pad, pad, pad, pad)
             })
+        }
+    }
+
+    /** 고른 직업 버튼이 줄 밖에 있으면 그 자리로 민다. */
+    private fun scrollClassRowToPick(row: LinearLayout, scroll: android.widget.HorizontalScrollView) {
+        val child = (0 until row.childCount)
+            .map { row.getChildAt(it) }
+            .firstOrNull { it.tag == treeClassPick } ?: return
+        scroll.post { scroll.smoothScrollTo(maxOf(0, child.left - 12), 0) }
+    }
+
+    /**
+     * 직업을 골랐을 때.
+     *
+     * 불러온 빌드와 같은 직업이면 그 빌드의 트리를 그대로 보여 주고, 다른 직업이면
+     * 그 직업의 시작 노드에서 새로 찍을 수 있게 트리 화면을 연다.
+     */
+    private fun pickTreeClass(index: Int) {
+        val tree = Poe2Tree.of(this)
+        if (tree.isEmpty()) return
+        val sameClass = index == treeClassPick && !treePane.treeCanvas.isEmpty()
+        val build = pobBuild
+        val buildClass = if (build != null) tree.classIndex(build.className, build.treeClassId) else -1
+        treeClassPick = index
+        if (!sameClass) treeAscendPick = 1
+        when {
+            // 이미 그 직업으로 보고 있으면 시작 노드로만 화면을 옮긴다.
+            sameClass -> {
+                binding.bottomNav.selectedItemId = R.id.nav_tree
+                treePane.treeCanvas.focusStart()
+                updateTreeInfo()
+            }
+            build != null && buildClass == index && build.treeNodeIds.isNotEmpty() -> showBuildTree()
+            else -> {
+                binding.bottomNav.selectedItemId = R.id.nav_tree
+                bindDefaultTree(tree)
+            }
+        }
+        buildClassRow()
+        if (treePane.treeClassScroll.isVisible) {
+            scrollClassRowToPick(treePane.treeClassRow, treePane.treeClassScroll)
         }
     }
 
@@ -1315,8 +1388,9 @@ class MainActivity : AppCompatActivity() {
                 if (tab.position == 2) refreshSlots()
                 if (tab.position == 1) renderSkills()
                 if (tab.position == 6) renderMeta()
+                if (tab.position == 4) runCatching { buildClassRow() }
+                    .onFailure { Log.e(LOG_TAG, "패시브 탭 직업 줄을 채우지 못했습니다", it) }
                 if (tab.position == 5) {
-                    refreshBattleHeader()
                     if (battleReady) {
                         if (battleWantsPlay) battleView.resume() else battleView.refresh()
                     }
@@ -1575,9 +1649,6 @@ class MainActivity : AppCompatActivity() {
     private fun setupBattle() {
         battleView = pobPane.battleCanvas
         battleView.onFinished = { result -> showBattleResult(result) }
-        // 사망 화면의 단추 — 바로 다음 전투를 시작하거나 결과 화면을 걷는다.
-        battleView.onRetry = { startBattle() }
-        battleView.onClose = { pobPane.tvBattleResult.isVisible = false }
 
         buildBattleModeChips()
         buildBattleOptChips()
@@ -1695,7 +1766,6 @@ class MainActivity : AppCompatActivity() {
             val chip = battleChip(option.name, battleSkillPick == option.gem) {
                 battleSkillPick = option.gem
                 markSkillChip(group, option.gem)
-                refreshBattleHeader()
                 restartBattleIfRunning()
             }
             // 같은 한국어 이름이 겹쳐도 젬 이름으로 구분한다.
@@ -1833,7 +1903,6 @@ class MainActivity : AppCompatActivity() {
             comboPicks = work.toList()
             if (comboPicks.isEmpty()) comboStore.clear() else comboStore.save(comboPicks)
             refreshComboLabel(stats)
-            refreshBattleHeader()
             restartBattleIfRunning()
         }
 
@@ -1975,7 +2044,6 @@ class MainActivity : AppCompatActivity() {
                         val c = group.getChildAt(i) as Chip
                         c.isChecked = c.text.toString() == label
                     }
-                    refreshBattleHeader()
                     restartBattleIfRunning()
                 }
             )
@@ -2025,7 +2093,6 @@ class MainActivity : AppCompatActivity() {
                     toggleSpiritOff(spec, off)
                     buildBattleSpiritChips()
                     buildBattleMetaChips()
-                    refreshBattleHeader()
                     restartBattleIfRunning()
                 }
             )
@@ -2039,7 +2106,6 @@ class MainActivity : AppCompatActivity() {
                     else battleSpiritOff.add(spec.gem.ifBlank { spec.name })
                     buildBattleSpiritChips()
                     buildBattleMetaChips()
-                    refreshBattleHeader()
                     restartBattleIfRunning()
                 }
             )
@@ -2099,7 +2165,6 @@ class MainActivity : AppCompatActivity() {
                     toggleSpiritOff(spec, !on)
                     buildBattleMetaChips()
                     buildBattleSpiritChips()
-                    refreshBattleHeader()
                     restartBattleIfRunning()
                 }
             )
@@ -2111,7 +2176,6 @@ class MainActivity : AppCompatActivity() {
                 battleChip(kind.label, on) {
                     if (on) battleTriggerOff.add(kind) else battleTriggerOff.remove(kind)
                     buildBattleMetaChips()
-                    refreshBattleHeader()
                     restartBattleIfRunning()
                 }
             )
@@ -2146,147 +2210,6 @@ class MainActivity : AppCompatActivity() {
         }.getOrDefault(emptyMap())
     }
 
-    private fun refreshBattleHeader() {
-        try {
-            refreshBattleHeaderBody()
-        } catch (t: Throwable) {
-            Log.e(LOG_TAG, "전투 헤더를 갱신하지 못했습니다", t)
-            pobPane.tvBattleSkill.text = getString(R.string.pob_render_failed, t.javaClass.simpleName)
-        }
-    }
-
-    private fun refreshBattleHeaderBody() {
-        val stats = battleStats()
-        val dict = krDict
-        if (stats == null) {
-            pobPane.tvBattleSkill.text = getString(R.string.battle_need_build)
-            pobPane.tvBattleTrigger.isVisible = false
-            pobPane.tvAscendancy.isVisible = false
-            pobPane.tvBattleUnique.isVisible = false
-            return
-        }
-        val fmt = NumberFormat.getNumberInstance(Locale.KOREA)
-        val fxLabel = if (battleSkillPick == null) stats.fx.label + " · 빌드 주력" else stats.fx.label
-        pobPane.tvBattleSkill.text = getString(
-            R.string.battle_skill_line,
-            stats.skillName,
-            fxLabel,
-            stats.aps,
-            dpsText(stats.dps),
-            fmt.format(stats.ehp.toLong()),
-        ) + if (stats.weaponLabel.isNotBlank()) "\n무기: ${stats.weaponLabel}" else ""
-        // PoB가 DPS를 inf로 내보낸 빌드는 화면 숫자가 추정치·상한이라는 것을 같이 적는다.
-        if (stats.dpsEstimated) {
-            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(if (stats.dpsInfinite) R.string.pob_dps_infinite else R.string.pob_dps_missing)
-        } else if (stats.dpsCapped) {
-            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(R.string.pob_dps_infinite)
-        }
-        // 빌드에 준비 단계가 필요한 콤보를 엮거나 하는 일은 없다.
-        // 직접 짜 둔 콤보만 그 순서를 적고, 없으면 메인 스킬 하나로 싸운다.
-        val comboText = if (comboPicks.isNotEmpty()) BattleCombos.summary(comboPicks) else ""
-        if (comboText.isNotBlank()) {
-            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(R.string.battle_combo_custom, comboText)
-        }
-        // 전기불꽃은 poe2db 수치(나선 발수·지속시간·관통·벽 튕김)를 화면에 같이 적는다.
-        if (stats.motion == SkillMotion.SPARK) {
-            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(
-                    R.string.battle_spark_line,
-                    SparkMath.salvo(stats.skillLevel, stats.extraProjectiles + stats.unique.extraProjectiles),
-                    SparkMath.PIERCE,
-                    SparkMath.BOUNCES,
-                )
-        }
-        // 부적(Talisman) 변신 — 어떤 형상으로 싸우고 무슨 형태 변환 스킬을 쓰는지 적는다.
-        if (stats.beast.isBeast) {
-            pobPane.tvBattleSkill.text = pobPane.tvBattleSkill.text.toString() + "\n" +
-                getString(
-                    R.string.battle_beast_line,
-                    listOfNotNull(
-                        stats.beastProfile.summary.ifBlank { stats.beast.label },
-                        stats.beast.bonus.ifBlank { null },
-                        stats.beastProfile.reason.ifBlank { null },
-                    ).joinToString(" · "),
-                )
-        }
-        refreshComboLabel()
-        // 빌드에 찍힌 전직 노드 효과 — 전투에 얼마나 반영됐는지 같이 적는다.
-        if (stats.ascendSummary.isNotBlank()) {
-            val suffix = if (stats.ascendApplied > 0) {
-                getString(R.string.battle_ascend_applied, stats.ascendApplied)
-            } else {
-                getString(R.string.battle_ascend_pob_only)
-            }
-            pobPane.tvAscendancy.isVisible = true
-            pobPane.tvAscendancy.text = "✦ ${stats.ascendSummary} · $suffix"
-        } else {
-            pobPane.tvAscendancy.isVisible = true
-            pobPane.tvAscendancy.text = getString(R.string.battle_ascend_none)
-        }
-        // 소환수·반려수와 고유 아이템 효과 — 전투에 실제로 세울 것만 적는다.
-        val extraLines = ArrayList<String>()
-        if (!stats.minions.isEmpty) {
-            val minion = stats.minions
-            val toad = if (minion.hasDarkConsequences) {
-                " · 암울한 결과 ${BattleWorld.formatShort(minion.darkConsequencesDps)} DPS"
-            } else ""
-            extraLines.add("◈ ${minion.summary}$toad")
-            if (minion.spiritBudget > 0.0) {
-                extraLines.add(
-                    getString(
-                        R.string.battle_spirit_line,
-                        minion.spiritReserved.toInt(),
-                        minion.spiritBudget.toInt(),
-                    )
-                )
-            }
-            minion.notes.take(2).forEach { note -> extraLines.add("· $note") }
-        }
-        // 정신력 점유 — 젬을 켜고 끌 때마다 이 줄과 위 칩이 함께 바뀐다.
-        if (stats.spiritBuffs.specs.isNotEmpty()) {
-            val spiritLine = stats.spiritBuffs.summary
-            if (spiritLine.isNotBlank()) extraLines.add("◇ $spiritLine")
-        }
-        if (stats.uniqueSummary.isNotBlank()) {
-            extraLines.add("⬩ ${stats.uniqueSummary}")
-            stats.uniqueEffects.take(3).forEach { effect -> extraLines.add("· $effect") }
-        }
-        if (extraLines.isEmpty()) {
-            pobPane.tvBattleUnique.isVisible = false
-        } else {
-            pobPane.tvBattleUnique.isVisible = true
-            pobPane.tvBattleUnique.text = extraLines.joinToString("\n")
-        }
-        when {
-            stats.triggers.isNotEmpty() -> {
-                // 켜져 있는 메타젬을 전부 나열한다 (첫 그룹만 쓰지 않는다).
-                val lines = stats.triggers.joinToString("\n") { spec ->
-                    "· ${spec.kind.label} · " +
-                        spec.skills.joinToString(" · ") { dict.gemName(it.name).ifBlank { it.name } } +
-                        if (spec.estimated) " (추정)" else ""
-                }
-                pobPane.tvBattleTrigger.isVisible = true
-                pobPane.tvBattleTrigger.text = getString(
-                    R.string.battle_trigger_multi,
-                    stats.triggers.size,
-                    lines,
-                )
-                pobPane.tvBattleTrigger.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-            }
-            battleTriggerMode == TriggerMode.OFF -> {
-                pobPane.tvBattleTrigger.isVisible = false
-            }
-            else -> {
-                pobPane.tvBattleTrigger.isVisible = true
-                pobPane.tvBattleTrigger.text = getString(R.string.battle_trigger_none)
-                pobPane.tvBattleTrigger.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
-            }
-        }
-    }
-
     private fun startBattle() {
         try {
             val stats = battleStats()
@@ -2309,7 +2232,6 @@ class MainActivity : AppCompatActivity() {
             battleView.setSpeed(battleSpeed)
             battleView.attach(world)
             battleView.play()
-            refreshBattleHeader()
         } catch (t: Throwable) {
             Log.e(LOG_TAG, "전투를 시작하지 못했습니다", t)
             battleStarted = false
@@ -2346,7 +2268,6 @@ class MainActivity : AppCompatActivity() {
         battleWantsPlay = false
         pobPane.tvBattleResult.isVisible = false
         pobPane.btnBattlePause.text = getString(R.string.battle_pause)
-        refreshBattleHeader()
     }
 
     private fun showBattleResult(result: BattleResult) {
@@ -2593,7 +2514,6 @@ class MainActivity : AppCompatActivity() {
                     refreshSlots()
                     refreshGearValue(build)
                     renderSkills()
-                    refreshBattleHeader()
                     pobPane.pobTabs.getTabAt(0)?.select()
                     dialog?.dismiss()
                     Snackbar.make(
@@ -3223,7 +3143,6 @@ class MainActivity : AppCompatActivity() {
         buildBattleSkillChips()
         buildBattleSpiritChips()
         buildBattleMetaChips()
-        refreshBattleHeader()
 
         renderTreeTab(build)
     }
@@ -3234,6 +3153,9 @@ class MainActivity : AppCompatActivity() {
         val box = pobPane.llTreeNodes
         box.removeAllViews()
         pobPane.btnOpenTree.setText(R.string.pob_tree_open_character)
+        // 직업 줄은 빌드가 없어도 늘 채운다 — 거기서 직업을 골라 시작 노드부터 찍는다.
+        runCatching { buildClassRow() }
+            .onFailure { Log.e(LOG_TAG, "패시브 탭 직업 줄을 채우지 못했습니다", it) }
         // 트리 탭을 보고 있을 때만 그 자리에서 다시 그린다 (다른 탭에서 빌드를 불러올 때 탭이 튀지 않게).
         if (binding.paneTree.isVisible) showBuildTree()
         val summary = Poe2Tree.summarize(build, tree)
