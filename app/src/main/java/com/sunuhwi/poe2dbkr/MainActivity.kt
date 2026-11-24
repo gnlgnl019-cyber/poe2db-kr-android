@@ -118,6 +118,10 @@ class MainActivity : AppCompatActivity() {
     private var battleStarted = false
     private var battleWantsPlay = false
     private var battleSpeed = 1f
+    /** 전투 화면에서 직접 끈 정신력 젬 이름 (정신력 점유에서 뺀다) */
+    private val battleSpiritOff = LinkedHashSet<String>()
+    /** 전투 화면에서 직접 끈 메타(발동) 젬 */
+    private val battleTriggerOff = LinkedHashSet<TriggerKind>()
 
     private val activeTab: Int
         get() = binding.bottomNav.selectedItemId
@@ -891,15 +895,22 @@ class MainActivity : AppCompatActivity() {
         treePane.treeCanvas.onPointsChanged = TreeCanvasView.OnPointsChanged {
             renderTreePoints(it)
         }
-        treePane.btnTreeNodeClose.setOnClickListener { treePane.treeNodeCard.isVisible = false }
-        treePane.btnTreeCanvasSite.setOnClickListener {
-            val url = buildTreeUrl.ifBlank { PASSIVE_TREE_URL }
-            openExternal(Uri.parse(url))
+        // 그리는 도중 예외가 나도 앱이 종료되지 않게, poe2db 트리로 넘기고 예외 이름을 남긴다.
+        treePane.treeCanvas.onRenderFailed = { t ->
+            Log.e(LOG_TAG, "패시브 트리를 그리는 도중 실패했습니다", t)
+            runCatching {
+                showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+                Snackbar.make(
+                    binding.root,
+                    getString(R.string.tree_render_failed, " (${t.javaClass.simpleName})"),
+                    Snackbar.LENGTH_LONG,
+                ).show()
+            }
         }
+        treePane.btnTreeNodeClose.setOnClickListener { treePane.treeNodeCard.isVisible = false }
         treePane.chipPassiveTree.setOnClickListener { showPassiveTree() }
         treePane.chipAtlasTree.setOnClickListener { showAtlasTree() }
         treePane.btnTreeSearch.setOnClickListener { showTreeSearch() }
-        treePane.btnTreeClass.setOnClickListener { toggleClassPicker() }
         treePane.btnTreeStats.setOnClickListener { showTreeStats() }
         treePane.btnTreeRefresh.setOnClickListener {
             if (canvasVisible()) {
@@ -919,36 +930,9 @@ class MainActivity : AppCompatActivity() {
             else treePane.treeWebView.url
             if (!url.isNullOrBlank()) openExternal(Uri.parse(url))
         }
-        treePane.btnTreeZoomIn.setOnClickListener { treeZoom(1) }
-        treePane.btnTreeZoomOut.setOnClickListener { treeZoom(-1) }
-        treePane.btnTreeZoomReset.setOnClickListener {
-            if (canvasVisible()) treePane.treeCanvas.resetAllocation() else treeZoom(0)
-            refreshTreePoints()
-        }
-        treePane.btnTreeFit.setOnClickListener {
-            if (canvasVisible()) treePane.treeCanvas.showWholeTree() else treeZoom(0)
-        }
     }
 
     private fun canvasVisible(): Boolean = treePane.treeCanvas.isVisible
-
-    /** 확대·축소·되돌리기. 앱이 직접 그린 트리와 poe2db 웹뷰 둘 다에 쓴다. */
-    private fun treeZoom(mode: Int) {
-        if (canvasVisible()) {
-            when (mode) {
-                1 -> treePane.treeCanvas.zoomIn()
-                -1 -> treePane.treeCanvas.zoomOut()
-                else -> treePane.treeCanvas.reset()
-            }
-            return
-        }
-        val script = when (mode) {
-            1 -> "window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(1)"
-            -1 -> "window.__poe2dbkrTree && window.__poe2dbkrTree.zoom(-1)"
-            else -> "window.__poe2dbkrTree && window.__poe2dbkrTree.reset()"
-        }
-        runCatching { treePane.treeWebView.evaluateJavascript(script, null) }
-    }
 
     /** 패시브 칩: 불러온 빌드가 있으면 앱 안의 트리, 없으면 poe2db 트리. */
     private fun showPassiveTree() {
@@ -960,11 +944,42 @@ class MainActivity : AppCompatActivity() {
         showBuildTree()
     }
 
-    /** 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다 (직업·전직·찍은 노드 그대로). */
+    /**
+     * 불러온 캐릭터의 패시브 트리를 앱 안에서 그린다 (직업·전직·찍은 노드 그대로).
+     *
+     * 트리 자료를 읽어 화면에 붙이는 동안 한 곳이라도 예외가 나면 앱이 그대로 종료되므로,
+     * 실패하면 poe2db 트리를 대신 열고 예외 이름을 화면에 남긴다 (다시 제보만 받으면 특정된다).
+     */
     private fun showBuildTree() {
         val build = pobBuild
+        if (build == null || build.treeNodeIds.isEmpty()) {
+            showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+            return
+        }
+        var failure: Throwable? = null
+        try {
+            bindBuildTree(build)
+        } catch (t: Throwable) {
+            failure = t
+            Log.e(LOG_TAG, "불러온 빌드의 패시브 트리를 그리지 못했습니다", t)
+        }
+        if (failure != null) {
+            // 앱을 종료시키지 않고 poe2db 트리로 넘어간다. 예외 이름은 화면에 남겨 다음 제보에서 바로 특정한다.
+            showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
+            runCatching {
+                Snackbar.make(
+                    binding.root,
+                    getString(R.string.tree_render_failed, " (${failure.javaClass.simpleName})"),
+                    Snackbar.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
+    /** 트리 화면을 실제로 채운다 (showBuildTree의 본체) */
+    private fun bindBuildTree(build: PobBuild) {
         val tree = Poe2Tree.of(this)
-        if (build == null || build.treeNodeIds.isEmpty() || tree.isEmpty()) {
+        if (tree.isEmpty()) {
             showWebTree(buildTreeUrl.ifBlank { PASSIVE_TREE_URL })
             return
         }
@@ -972,6 +987,7 @@ class MainActivity : AppCompatActivity() {
         treePane.treeProgress.isVisible = false
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
+        treePane.treeClassScroll.isVisible = true
         treePane.treeNodeCard.isVisible = false
         val classIndex = tree.classIndex(build.className, build.treeClassId)
         val ascendIndex = if (classIndex >= 0) {
@@ -1000,6 +1016,7 @@ class MainActivity : AppCompatActivity() {
         treePane.treeProgress.isVisible = false
         treePane.treeCanvas.isVisible = true
         treePane.treeCanvasBar.isVisible = true
+        treePane.treeClassScroll.isVisible = false
         treePane.treeNodeCard.isVisible = false
         treePane.treeCanvas.bindAtlas(atlas)
         treePane.tvTreeCanvasInfo.text = getString(R.string.tree_atlas_points, 0, atlas.totalPoints)
@@ -1143,13 +1160,6 @@ class MainActivity : AppCompatActivity() {
         input.requestFocus()
     }
 
-    /** 직업·전직 고르기 줄을 편다/접는다. */
-    private fun toggleClassPicker() {
-        val bar = treePane.treeClassScroll
-        bar.isVisible = !bar.isVisible
-        if (bar.isVisible) buildClassRow()
-    }
-
     private var treeClassPick = 0
     private var treeAscendPick = 1
 
@@ -1259,6 +1269,7 @@ class MainActivity : AppCompatActivity() {
     private fun showWebTree(url: String) {
         treePane.treeCanvas.isVisible = false
         treePane.treeCanvasBar.isVisible = false
+        treePane.treeClassScroll.isVisible = false
         treePane.treeNodeCard.isVisible = false
         treePane.treeWebView.isVisible = true
         loadTree(url)
@@ -1600,6 +1611,8 @@ class MainActivity : AppCompatActivity() {
         buildBattleOptChips()
         buildBattleSkillChips()
         buildBattleTriggerChips()
+        buildBattleSpiritChips()
+        buildBattleMetaChips()
 
         pobPane.btnBattleCombo.setOnClickListener { showComboDialog() }
 
@@ -1980,6 +1993,70 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 정신력 젬 칩 — 전투 화면에서 젬 하나씩 켜고 끈다.
+     * 누른 젬은 정신력 점유에서 빠지고, 남은 예산으로 뒤 젬이 켜진다 (수치는 헤더에 바로 반영).
+     */
+    private fun buildBattleSpiritChips() {
+        val group = pobPane.battleSpiritChips
+        group.removeAllViews()
+        val build = pobBuild
+        val plan = if (build == null) {
+            SpiritBuffPlan.EMPTY
+        } else {
+            SpiritBuffs.plan(build, SpiritBuffs.catalog(this), krDict, disabled = battleSpiritOff)
+        }
+        val specs = plan.specs
+        pobPane.tvBattleSpirit.isVisible = specs.isNotEmpty()
+        pobPane.battleSpiritScroll.isVisible = specs.isNotEmpty()
+        if (specs.isEmpty()) return
+        val budget = if (plan.spirit > 0.0) {
+            "정신력 ${(plan.reserved + plan.spiritForMinions).toInt()} / ${plan.spirit.toInt()}"
+        } else {
+            "정신력 점유"
+        }
+        pobPane.tvBattleSpirit.text = getString(R.string.battle_spirit_title, budget)
+        specs.forEach { spec ->
+            val off = battleSpiritOff.any { it.equals(spec.gem.en, true) || it.equals(spec.name, true) }
+            val label = if (spec.active) "${spec.name} ${spec.spirit.toInt()}" else "${spec.name} ${spec.spirit.toInt()} · 꺼짐"
+            val chip = battleChip(label, spec.active) {
+                if (off) battleSpiritOff.removeAll { it.equals(spec.gem.en, true) || it.equals(spec.name, true) }
+                else battleSpiritOff.add(spec.gem.en.ifBlank { spec.name })
+                buildBattleSpiritChips()
+                refreshBattleHeader()
+                restartBattleIfRunning()
+            }
+            group.addView(chip)
+        }
+    }
+
+    /** 메타(발동) 젬 칩 — 어떤 발동 장치를 전투에 넣을지 젬별로 고른다. */
+    private fun buildBattleMetaChips() {
+        val group = pobPane.battleMetaChips
+        group.removeAllViews()
+        val build = pobBuild
+        if (build == null) {
+            pobPane.tvBattleMeta.isVisible = false
+            pobPane.battleMetaScroll.isVisible = false
+            return
+        }
+        val kinds = runCatching { PobTriggers.extract(build, 0.0).map { it.kind }.distinct() }
+            .getOrDefault(emptyList())
+        pobPane.tvBattleMeta.isVisible = kinds.isNotEmpty()
+        pobPane.battleMetaScroll.isVisible = kinds.isNotEmpty()
+        kinds.forEach { kind ->
+            val on = kind !in battleTriggerOff
+            group.addView(
+                battleChip(kind.label, on) {
+                    if (on) battleTriggerOff.add(kind) else battleTriggerOff.remove(kind)
+                    buildBattleMetaChips()
+                    refreshBattleHeader()
+                    restartBattleIfRunning()
+                }
+            )
+        }
+    }
+
     private fun battleStats(): BattlePlayerStats? = BattleSetup.statsFor(
         build = pobBuild,
         overrides = pobOverrides,
@@ -1992,6 +2069,8 @@ class MainActivity : AppCompatActivity() {
         tree = Poe2Tree.of(this),
         combo = BattleCombos.toSteps(comboPicks),
         spiritCatalog = SpiritBuffs.catalog(this),
+        disabledSpirit = battleSpiritOff,
+        disabledTriggers = battleTriggerOff,
     )
 
     /** PoB가 비운 스킬별 DPS를 보충하기 위해 계산기 값만 따로 받아 둔다 (스킬 칩에 쓴다) */
@@ -2108,6 +2187,11 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             minion.notes.take(2).forEach { note -> extraLines.add("· $note") }
+        }
+        // 정신력 점유 — 젬을 켜고 끌 때마다 이 줄과 위 칩이 함께 바뀐다.
+        if (stats.spiritBuffs.specs.isNotEmpty()) {
+            val spiritLine = stats.spiritBuffs.summary
+            if (spiritLine.isNotBlank()) extraLines.add("◇ $spiritLine")
         }
         if (stats.uniqueSummary.isNotBlank()) {
             extraLines.add("⬩ ${stats.uniqueSummary}")
@@ -2959,7 +3043,7 @@ class MainActivity : AppCompatActivity() {
     /** 스킬 그룹 하나의 DPS — 그 그룹 액티브 스킬 중 가장 센 값, 주력 그룹은 총 DPS */
     private fun groupDps(build: PobBuild, group: PobSkillGroup, calc: PobCalculator.Result): Double {
         val keys = group.gems
-            .filter { it.enabled && !PobCalculator.isSupport(it) && PobTriggers.kindOf(it) == null }
+            .filter { it.enabled && SkillRoles.isActiveDamageGem(it) }
             .map { TriggerKind.normalizeName(it.name) }
             .toSet()
         val fromList = calc.skillDps
@@ -3074,8 +3158,10 @@ class MainActivity : AppCompatActivity() {
                 group.gems.filter { it.enabled }.joinToString(", ") { dict.gemName(it.name).ifBlank { it.name } }
         }.ifBlank { getString(R.string.pob_tree_empty) }
 
-        // 이 빌드에 맞는 스킬 칩을 다시 만들고 헤더도 새 수치로 갱신한다.
+        // 이 빌드에 맞는 스킬·정신력·메타 칩을 다시 만들고 헤더도 새 수치로 갱신한다.
         buildBattleSkillChips()
+        buildBattleSpiritChips()
+        buildBattleMetaChips()
         refreshBattleHeader()
 
         renderTreeTab(build)

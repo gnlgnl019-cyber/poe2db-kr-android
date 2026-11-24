@@ -193,13 +193,25 @@ object PobCalculator {
         "drain ailments" to Mods(),
     )
 
-    /** 보조 젬인지 (PoB 2는 skillId 어딘가에 Support가 들어간다) */
+    /**
+     * 보조 젬인지.
+     *
+     * PoB 2는 보통 skillId에 Support가 들어 있지만, PoB 공유 코드·poe.ninja에서 가져온 빌드는
+     * skillId가 비어 있고 gemId·variantId만 남는 경우가 있다. 그때 skillId만 보면
+     * '범위 집중' 같은 보조 젬이 액티브 스킬로 잡혀 스킬 칸·콤보·스킬별 DPS에 섞인다.
+     * 그래서 skillId → gemId → variantId → 이름 목록 순서로 본다.
+     */
     fun isSupport(gem: PobGem): Boolean {
         val id = gem.skillId.lowercase()
         if (id.startsWith("support") || id.contains("support")) return true
+        val gemId = gem.gemId.lowercase()
+        if (gemId.contains("supportgem") || gemId.contains("/gem/support")) return true
+        val variant = gem.variantId.lowercase()
+        if (variant.contains("support")) return true
         val name = gem.name.lowercase().trim()
         if (name in SUPPORT_GEMS) return true
-        return name.contains("support")
+        if (name.contains("support")) return true
+        return SupportGems.byName(gem.name)
     }
 
     /** 무한·NaN은 없는 값으로 친다 (PoB가 inf로 내보낸 빌드 대응) */
@@ -444,10 +456,10 @@ object PobCalculator {
         val wanted = group.mainActiveSkill
         if (wanted > 0) {
             gems.getOrNull(wanted - 1)?.let { gem ->
-                if (!isSupport(gem) && PobTriggers.kindOf(gem) == null) return gem.name
+                if (SkillRoles.isActiveDamageGem(gem)) return gem.name
             }
         }
-        val actives = gems.filter { !isSupport(it) && PobTriggers.kindOf(it) == null }
+        val actives = gems.filter { SkillRoles.isActiveDamageGem(it) }
         return actives.firstOrNull()?.name ?: group.title
     }
 
@@ -520,7 +532,7 @@ object PobCalculator {
         if (full.isEmpty()) {
             val skills = build.skills.filter { it.enabled }
                 .flatMap { group ->
-                    group.gems.filter { it.enabled && !isSupport(it) && PobTriggers.kindOf(it) == null }
+                    group.gems.filter { it.enabled && SkillRoles.isActiveDamageGem(it) }
                         .map { gem -> gem to group }
                 }
                 .distinctBy { it.first.name.lowercase() }
@@ -593,7 +605,7 @@ object PobCalculator {
             val supportPct = supports.sumOf { gem ->
                 SUPPORT_GEMS[gem.name.lowercase().trim()]?.dmgPct ?: UNKNOWN_SUPPORT_PCT
             }
-            val active = group.gems.filter { it.enabled && !isSupport(it) && PobTriggers.kindOf(it) == null }
+            val active = group.gems.filter { it.enabled && SkillRoles.isActiveDamageGem(it) }
             for (gem in active) {
                 val key = TriggerKind.normalizeName(gem.name)
                 if (key.isEmpty() || key == mainKey || out.containsKey(key)) continue

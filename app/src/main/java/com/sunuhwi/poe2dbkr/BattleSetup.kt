@@ -25,10 +25,10 @@ object BattleSetup {
     const val SKILL_CHIP_LIMIT = 5
 
     /**
-     * 전투 탭 스킬 칩에 올릴 스킬 목록.
+     * 전투 탭 스킬 칸에 올릴 스킬 목록.
      *
-     * 불러온 빌드에서 켜져 있는 스킬 그룹의 젬 중 보조 젬과 메타젬을 뺀 액티브 스킬만 고르고,
-     * 주력 스킬 그룹을 앞에 둔다. 빌드가 없으면 빈 목록이라 '자동' 칩만 남는다.
+     * 불러온 빌드에서 켜져 있는 스킬 그룹의 젬 중 보조 젬·메타젬·정신력 점유 젬을 뺀 액티브 스킬만 고르고,
+     * 피해가 큰 순서로 놓는다. 빌드가 없으면 빈 목록이라 '자동' 칩만 남는다.
      */
     fun skillOptions(
         build: PobBuild?,
@@ -38,9 +38,8 @@ object BattleSetup {
         dpsByName: Map<String, Double> = emptyMap(),
     ): List<BattleSkillOption> {
         if (build == null || limit <= 0) return emptyList()
-        val main = Pob.mainGroup(build, 0)
-        // 주력 그룹을 먼저 본다. 나머지는 PoB에 적힌 순서 그대로.
-        val groups = build.skills.filter { it.enabled }.sortedBy { if (it === main) 0 else 1 }
+        val main = autoMain(build, dpsByName)
+        // 주력 스킬을 맨 앞에 두고 나머지는 피해가 큰 순서로.
         val out = LinkedHashMap<String, BattleSkillOption>()
         // 도이드리의 파멸처럼 보조 젬이 발동시키는 스킬은 젬 목록에 없으므로 맨 앞에 따로 올린다.
         if (PobCalculator.isDarkConsequences(build)) {
@@ -52,24 +51,83 @@ object BattleSetup {
                 dps = direct?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
             )
         }
-        for (group in groups) {
+        val candidates = ArrayList<BattleSkillOption>()
+        for (group in build.skills) {
+            if (!group.enabled) continue
             for (gem in group.gems) {
                 if (!gem.enabled) continue
-                if (PobCalculator.isSupport(gem)) continue
-                if (PobTriggers.kindOf(gem) != null) continue
+                if (!SkillRoles.isActiveDamageGem(gem)) continue
                 val key = gem.name.trim().lowercase()
                 if (key.isEmpty() || out.containsKey(key)) continue
                 val direct = dpsByName[TriggerKind.normalizeName(gem.name)]
-                out[key] = BattleSkillOption(
-                    gem = gem.name,
-                    name = dict.gemName(gem.name).ifBlank { gem.name },
-                    fx = SkillEffects.detect(gem.name, group.label),
-                    dps = direct?.takeIf { it.isFinite() && it > 0.0 } ?: skillDps(build, gem.name),
+                candidates.add(
+                    BattleSkillOption(
+                        gem = gem.name,
+                        name = dict.gemName(gem.name).ifBlank { gem.name },
+                        fx = SkillEffects.detect(gem.name, group.label),
+                        dps = direct?.takeIf { it.isFinite() && it > 0.0 } ?: skillDps(build, gem.name),
+                    )
                 )
-                if (out.size >= limit) return out.values.toList()
             }
         }
-        return out.values.toList()
+        val mainName = main?.first?.name
+        candidates.sortWith(
+            compareByDescending<BattleSkillOption> { it.gem == mainName }
+                .thenByDescending { it.dps }
+                .thenBy { it.name },
+        )
+        candidates.forEach { option ->
+            val key = option.gem.trim().lowercase()
+            if (!out.containsKey(key)) out[key] = option
+        }
+        return out.values.take(limit).toList()
+    }
+
+    /**
+     * 자동으로 고를 주력 스킬.
+     *
+     * PoB가 지정한 주력이 이동기(점멸 타격 등)면, 피해를 내는 다른 스킬이 있을 때 그쪽을 쓴다.
+     * 이동기만 있는 빌드면 그대로 쓴다.
+     */
+    fun autoMain(
+        build: PobBuild?,
+        dpsByName: Map<String, Double> = emptyMap(),
+    ): Pair<PobGem, PobSkillGroup>? {
+        if (build == null) return null
+        val candidates = ArrayList<Pair<PobGem, PobSkillGroup>>()
+        val seen = HashSet<String>()
+        for (group in build.skills) {
+            if (!group.enabled) continue
+            // 발동 장치(메타젬)에 물린 스킬과 장비·패시브가 준 스킬은 플레이어가 직접 쓰는 주력기가 아니다.
+            if (group.grantedByItem || group.grantedByTree) continue
+            if (group.gems.any { it.enabled && PobTriggers.kindOf(it) != null }) continue
+            for (gem in group.gems) {
+                if (!gem.enabled) continue
+                if (!SkillRoles.isActiveDamageGem(gem)) continue
+                val key = gem.name.trim().lowercase()
+                if (key.isEmpty() || !seen.add(key)) continue
+                candidates.add(gem to group)
+            }
+        }
+        if (candidates.isEmpty()) return null
+        fun dpsOf(gem: PobGem): Double =
+            dpsByName[TriggerKind.normalizeName(gem.name)] ?: skillDps(build, gem.name)
+        val poB = Pob.mainGroup(build, 0)
+        val poBGem = poB?.let { group ->
+            group.gems.filter { it.enabled && SkillRoles.isActiveDamageGem(it) }
+                .let { gems -> mainGemOf(group)?.takeIf { g -> gems.any { it === g } } }
+        }
+        // 피해 스킬을 먼저 보고, 그중에서도 이동기가 아닌 스킬을 먼저 본다.
+        val ranked = candidates.sortedWith(
+            compareByDescending<Pair<PobGem, PobSkillGroup>> { !SkillRoles.isMovement(it.first.name) }
+                .thenByDescending { dpsOf(it.first) },
+        )
+        val best = ranked.first()
+        if (poBGem != null && !SkillRoles.isMovement(poBGem.name) && dpsOf(poBGem) >= dpsOf(best.first) * 0.9) {
+            val group = candidates.first { it.first === poBGem }.second
+            return poBGem to group
+        }
+        return best
     }
 
     /** PoB Full DPS 목록에서 그 젬의 DPS를 찾는다 (없으면 0) */
@@ -102,8 +160,7 @@ object BattleSetup {
             if (!group.enabled) continue
             for (gem in group.gems) {
                 if (!gem.enabled) continue
-                if (PobCalculator.isSupport(gem)) continue
-                if (PobTriggers.kindOf(gem) != null) continue
+                if (!SkillRoles.isActiveDamageGem(gem)) continue
                 val key = gem.name.trim().lowercase()
                 if (key.isEmpty() || key == mainKey) continue
                 if (!seen.add(key)) continue
@@ -148,7 +205,7 @@ object BattleSetup {
             if (!isForm) continue
             for (gem in group.gems) {
                 if (!gem.enabled) continue
-                if (PobCalculator.isSupport(gem)) continue
+                if (!SkillRoles.isActiveDamageGem(gem)) continue
                 val key = gem.name.lowercase()
                 if (key.contains("hollow") || gem.name.contains("공허")) continue
                 val motion = SkillMotions.detect(gem.name, group.label)
@@ -175,8 +232,7 @@ object BattleSetup {
             for (gem in group.gems) {
                 if (!gem.enabled) continue
                 if (gem.name.trim().lowercase() != key) continue
-                if (PobCalculator.isSupport(gem)) continue
-                if (PobTriggers.kindOf(gem) != null) continue
+                if (!SkillRoles.isActiveDamageGem(gem)) continue
                 return gem to group
             }
         }
@@ -189,7 +245,7 @@ object BattleSetup {
      */
     private fun mainGemOf(group: PobSkillGroup?): PobGem? {
         val gems = group?.gems?.filter { it.enabled }.orEmpty()
-        val actives = gems.filter { !PobCalculator.isSupport(it) }
+        val actives = gems.filter { !PobCalculator.isSupport(it) && !SpiritGems.isSpirit(it.name) }
         val wanted = group?.mainActiveSkill ?: 0
         if (wanted > 0) {
             gems.getOrNull(wanted - 1)?.takeIf { !PobCalculator.isSupport(it) }?.let { return it }
@@ -216,6 +272,10 @@ object BattleSetup {
         combo: List<ComboStep> = emptyList(),
         /** 정신력 점유 젬 자료 (poe2db에서 받아 둔 목록) */
         spiritCatalog: SpiritCatalog = SpiritCatalog.EMPTY,
+        /** 전투 화면에서 직접 끈 정신력 젬 이름 */
+        disabledSpirit: Set<String> = emptySet(),
+        /** 전투 화면에서 직접 끈 메타(발동) 젬 종류 */
+        disabledTriggers: Set<TriggerKind> = emptySet(),
     ): BattlePlayerStats? {
         if (build == null) return null
         // 빌드에 찍힌 전직 노드를 먼저 모아 두고, 그 효과를 수치 계산과 전투 양쪽에 넘긴다.
@@ -223,8 +283,10 @@ object BattleSetup {
         val unique = UniqueEffects.profile(build, overrides, dict)
         val calc = PobCalculator.compute(build, overrides, flasks, config, ascend, unique)
         val picked = activeSkill(build, skillOverride)
-        val group = picked?.second ?: Pob.mainGroup(build, mainGroupPreference)
-        val mainGem = picked?.first ?: mainGemOf(group)
+        // 직접 고른 스킬이 없으면 이동기(점멸 타격 등)에 밀리지 않는 주력기를 스스로 고른다.
+        val auto = if (picked == null) autoMain(build) else null
+        val group = picked?.second ?: auto?.second ?: Pob.mainGroup(build, mainGroupPreference)
+        val mainGem = picked?.first ?: auto?.first ?: mainGemOf(group)
         val dark = picked == null && PobCalculator.isDarkConsequences(build)
         val skillName = when {
             dark -> Minions.DARK_CONSEQUENCES_EN
@@ -277,13 +339,23 @@ object BattleSetup {
         val skillDpsByName = calc.skillDps
             .filter { it.dps.isFinite() && it.dps > 0.0 }
             .associate { TriggerKind.normalizeName(it.name) to it.dps }
+        // 발동 스킬 이름을 한글로 바꾼다 — 전령은 Heralds가 내는 피해와 같은 이름으로 합쳐져
+        // 스킬별 DPS 기록에 같은 전령이 두 줄로 갈라지지 않는다.
+        fun localized(specs: List<TriggerSpec>): List<TriggerSpec> = specs
+            .map { spec ->
+                spec.copy(
+                    skills = spec.skills.map { skill ->
+                        skill.copy(name = dict.gemName(skill.name).ifBlank { skill.name })
+                    },
+                )
+            }
         val triggers = when (triggerMode) {
             TriggerMode.OFF -> emptyList()
-            TriggerMode.TEST -> PobTriggers.synthetic(dpsNow)
+            TriggerMode.TEST -> localized(PobTriggers.synthetic(dpsNow))
             TriggerMode.AUTO -> {
                 // 무한대 빌드는 주력이 상한(2.1B)이라, 그 값을 메타젬 몫으로 나누면
                 // 발동 스킬까지 수억 대가 된다. 스킬별로 잡아 둔 제 몫이 있으면 그것을 쓴다.
-                PobTriggers.extract(build, dpsNow).map { spec ->
+                localized(PobTriggers.extract(build, dpsNow)).map { spec ->
                     val skills = spec.skills.map { skill ->
                         val own = if (calc.dpsCapped) {
                             skillDpsByName[TriggerKind.normalizeName(skill.name)]
@@ -294,6 +366,7 @@ object BattleSetup {
                 }
             }
         }
+        val activeTriggers = if (disabledTriggers.isEmpty()) triggers else triggers.filter { it.kind !in disabledTriggers }
         val evade = (calc.evasionNow / (calc.evasionNow + 7500.0) * 92.0).coerceAtMost(80.0)
         val res = calc.resists
         // 500마리처럼 큰 무리를 세워도 정신력·자리 문제로 모두 나오지는 않는다.
@@ -341,6 +414,7 @@ object BattleSetup {
             catalog = spiritCatalog,
             dict = dict,
             spiritForMinions = minions.spiritReserved,
+            disabled = disabledSpirit,
         )
         val granted = SpiritBuffs.grantedBuffs(build, spiritCatalog, dict)
         val buffs = if (granted.isEmpty()) spiritBuffs else spiritBuffs.copy(
@@ -351,6 +425,7 @@ object BattleSetup {
             build,
             dict,
             minions.spiritReserved + buffs.reserved,
+            disabled = disabledSpirit,
         )
         val out = BattlePlayerStats(
             className = listOf(build.className, build.ascendClassName)
@@ -374,7 +449,7 @@ object BattleSetup {
             ehp = calc.ehpNow,
             dpsBase = calc.dpsBase,
             weaponLabel = weaponLabel,
-            triggers = triggers,
+            triggers = activeTriggers,
             dpsEstimated = pickedDps == null && calc.dpsEstimated && !dark,
             dpsInfinite = pickedDps == null && calc.dpsInfinite && !dark,
             dpsCapped = pickedDps == null && calc.dpsCapped,

@@ -4209,7 +4209,7 @@ class BattleWorld(
         )
         leechPool += dealt * leechRate()
         onSkillHit(e, crit, angle)
-        applyAilments(e, crit)        // 마무리 타격(고유 아이템) — 생명력이 얼마 남지 않은 적을 즉시 처치한다.
+        applyAilments(e, crit, dealt)        // 마무리 타격(고유 아이템) — 생명력이 얼마 남지 않은 적을 즉시 처치한다.
         if (stats.unique.cullingStrike && e.alive && e.hp > 0.0 && e.hp <= e.maxHp * 0.10) {
             addPopup(e.x, e.y - 60f * e.scale, "마무리", false, 0.55f, 0xFFFFD36A.toInt(), 0.8f)
             killEnemy(e)
@@ -4225,7 +4225,7 @@ class BattleWorld(
     }
 
     /** 명중한 피해 속성으로 상태이상을 굴린다. 주 속성은 확률이 높고 다른 속성도 낮은 확률로 걸린다. */
-    private fun applyAilments(e: Enemy, crit: Boolean) {
+    private fun applyAilments(e: Enemy, crit: Boolean, hitDamage: Double = 0.0) {
         val element = stats.fx.element
         fun roll(ailment: DamageElement, match: Double, other: Double, bonusPct: Double): Boolean {
             val base = if (element == ailment) match else other
@@ -4239,7 +4239,7 @@ class BattleWorld(
             addPopup(e.x, e.y - 74f * e.scale, Ailments.SHOCK_LABEL, false, 0.5f, 0xFFFFE272.toInt(), 0.72f)
             addFx(FxKind.SPARK_FLASH, e.x, e.y - 34f * e.scale, radius = 16f, life = 0.16f, color = 0xFFBDE6FF.toInt(), width = 0.9f)
             // 천둥의 전령 — 감전이 걸리면 그 자리에 낙뢰가 떨어진다 (0.4초에 한 번).
-            heraldThunderOnShock(e)
+            heraldThunderOnShock(e, hitDamage)
         }
         if (roll(DamageElement.COLD, 0.22, 0.07, stats.freezeChancePct + stats.unique.freezeChancePct)) {
             e.freezeT = max(e.freezeT, Ailments.FREEZE_TIME)
@@ -5050,12 +5050,20 @@ class BattleWorld(
         return taken
     }
 
-    /** 천둥의 전령 — 감전이 걸릴 때마다 그 적에게 낙뢰 한 줄기 */
-    private fun heraldThunderOnShock(e: Enemy) {
+    /**
+     * 천둥의 전령 — 감전이 걸릴 때마다 그 적에게 낙뢰 한 줄기.
+     *
+     * 피해는 '감전을 건 그 타격'을 기준으로 잡는다. 예전에는 주력 타격을 매번 다시 계산했는데,
+     * PoB가 DPS를 상한(2.1B)으로 내보내는 빌드에서는 그 한 방이 수억이 되어
+     * 전령만 전체 피해의 90% 넘게 차지하는 결과가 나왔다.
+     */
+    private fun heraldThunderOnShock(e: Enemy, hitDamage: Double = 0.0) {
         val spec = stats.heralds.spec(HeraldKind.THUNDER) ?: return
         if (thunderOnShockCooldown > 0f) return
         thunderOnShockCooldown = 0.4f
-        val base = HeraldMath.thunderDamage(baseHitDamage(), spec) * 0.6
+        val single = (if (hitDamage.isFinite() && hitDamage > 0.0) hitDamage else baseHitDamage())
+            .coerceAtMost(baseHitDamage() * 1.5)
+        val base = HeraldMath.thunderDamage(single, spec) * 0.6
         addFx(FxKind.BOLT, e.x + 26f, e.y - 210f, x2 = e.x, y2 = e.y - 22f, life = 0.18f, color = 0xFFFFF3A8.toInt(), width = 1.5f)
         addFx(FxKind.PILLAR, e.x, e.y, radius = 18f, life = 0.3f, color = 0xFFFFF3A8.toInt())
         addBurst(e.x, e.y - 24f, 8, 0xFFFFF3A8.toInt(), 220f, 0.42f)

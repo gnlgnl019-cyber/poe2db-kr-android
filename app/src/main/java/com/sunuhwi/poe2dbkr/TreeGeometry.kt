@@ -222,7 +222,8 @@ class TreeViewport {
 
     /** 화면의 한 점을 기준으로 배율을 바꾼다. */
     fun zoomAround(factor: Float, focusX: Float, focusY: Float) {
-        val next = (scale * factor).coerceIn(fitScale * 0.6f, maxScale)
+        val low = (fitScale * 0.6f).coerceAtMost(maxScale)
+        val next = (scale * factor).coerceIn(low, maxScale)
         if (next == scale) return
         val tx = treeX(focusX)
         val ty = treeY(focusY)
@@ -233,7 +234,8 @@ class TreeViewport {
 
     /** 화면 맞춤 계산 없이 배율을 직접 지정한다 (검색으로 노드로 날아갈 때). */
     fun setScale(value: Float) {
-        scale = value.coerceIn(fitScale * 0.6f, maxScale)
+        val low = (fitScale * 0.6f).coerceAtMost(maxScale)
+        scale = value.coerceIn(low, maxScale)
     }
 
     /** 이동값을 직접 지정한다. */

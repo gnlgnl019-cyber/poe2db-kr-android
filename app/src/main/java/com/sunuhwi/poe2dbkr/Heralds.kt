@@ -204,6 +204,8 @@ object Heralds {
         dict: KrDict = KrDict.EMPTY,
         /** 소환수가 먼저 가져간 정신력 */
         spiritForMinions: Double = 0.0,
+        /** 전투 화면에서 직접 끈 전령 이름 */
+        disabled: Set<String> = emptySet(),
     ): HeraldPlan {
         if (build == null) return HeraldPlan.EMPTY
         val found = LinkedHashMap<HeraldKind, HeraldSpec>()
@@ -228,8 +230,12 @@ object Heralds {
         if (found.isEmpty()) return HeraldPlan.EMPTY
 
         val budget = build.stats["Spirit"]?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val off = disabled.map { it.trim().lowercase() }.toSet()
         var reserved = 0.0
         val specs = found.values.map { spec ->
+            if (off.any { it == spec.name.lowercase() || it == spec.gem.trim().lowercase() }) {
+                return@map spec.copy(active = false)
+            }
             if (budget <= 0.0) return@map spec
             val small = budget - spiritForMinions.coerceAtLeast(0.0) - reserved < spec.spirit
             if (!small) reserved += spec.spirit

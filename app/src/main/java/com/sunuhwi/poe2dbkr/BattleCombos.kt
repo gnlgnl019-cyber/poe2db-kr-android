@@ -90,7 +90,7 @@ object BattleCombos {
             .filter { it.enabled }
             .sortedBy { if (it === main) 0 else 1 } + build.skills.filter { !it.enabled }
         for (group in groups) {
-            // 그룹 안에 든 보조 젬만 빼고, 액티브·발동·메타젬은 모두 보여 준다.
+            // 보조 젬은 '직접 쓰는 스킬'이 아니므로 뺀다. 정신력 젬은 콤보에 넣어 볼 수 있게 남긴다.
             for (gem in group.gems) {
                 if (PobCalculator.isSupport(gem)) continue
                 val name = gem.name.trim()
@@ -191,10 +191,26 @@ object BattleCombos {
             val gem = parts[0]
             val label = parts[1].ifBlank { parts[0] }
             // 지금 빌드에 없는 스킬은 콤보에서 뺀다 (다른 빌드를 불러왔을 때).
-            val opt = options.firstOrNull { it.gem == gem && it.motion == motion }
-                ?: options.firstOrNull { it.label == label && it.motion == motion }
-                ?: options.firstOrNull { it.motion == motion }
-            if (options.isNotEmpty() && opt == null) return@forEach
+            // 같은 동작이라는 이유로 다른 스킬을 끌어오면, 보조 젬 이름이 주력 몫으로
+            // 기록되는 식의 엉뚱한 결과가 나므로 젬 이름이나 화면 이름이 맞을 때만 받는다.
+            val opt = options.firstOrNull { it.gem == gem }
+                ?: options.firstOrNull { it.label == label }
+            if (opt == null) {
+                // 빌드를 아직 모르는 때(앱을 열 때)는 적힌 그대로 들고 있는다.
+                if (options.isNotEmpty()) return@forEach
+                out.add(
+                    ComboPick(
+                        gem = gem,
+                        label = label,
+                        motion = motion,
+                        role = role,
+                        repeats = repeats,
+                        note = parts.getOrNull(5).orEmpty(),
+                        dps = parts.getOrNull(6)?.toDoubleOrNull() ?: 0.0,
+                    )
+                )
+                return@forEach
+            }
             out.add(
                 ComboPick(
                     gem = opt?.gem ?: gem,

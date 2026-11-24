@@ -148,6 +148,12 @@ class TreeCanvasView @JvmOverloads constructor(
     var onNodeTap: OnNodeTap? = null
     var onPointsChanged: OnPointsChanged? = null
 
+    /** 그리는 도중 예외가 나면 알린다 (앱이 종료되지 않게 poe2db 트리로 넘어가는 데 쓴다) */
+    var onRenderFailed: ((Throwable) -> Unit)? = null
+
+    /** 그리기가 실패한 뒤에는 다시 그리지 않는다 */
+    private var renderFailed = false
+
     private val viewport = TreeViewport()
     private var scene: TreeScene = TreeScene.EMPTY
     private var tree: TreeDict = TreeDict.EMPTY
@@ -505,18 +511,33 @@ class TreeCanvasView @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        bgShader = RadialGradient(
-            w * 0.5f, h * 0.45f, maxOf(w, h) * 0.78f,
-            intArrayOf(0xFF131A26.toInt(), 0xFF0B0E14.toInt(), 0xFF05070A.toInt()),
-            floatArrayOf(0f, 0.55f, 1f),
-            Shader.TileMode.CLAMP,
-        )
+        // 폭이나 높이가 0인 순간(화면 회전·분할 화면)에는 RadialGradient가 예외를 던진다.
+        if (w > 0 && h > 0) {
+            bgShader = RadialGradient(
+                w * 0.5f, h * 0.45f, maxOf(w, h) * 0.78f,
+                intArrayOf(0xFF131A26.toInt(), 0xFF0B0E14.toInt(), 0xFF05070A.toInt()),
+                floatArrayOf(0f, 0.55f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+        }
         // 처음 그려지거나 화면이 돌아가면 지금 트리에 맞춰 다시 앉힌다.
         if (scene.size == 0) return
         centerOnStart()
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (renderFailed) return
+        try {
+            drawScene(canvas)
+        } catch (t: Throwable) {
+            // 커스텀 뷰는 그리다가 예외가 나면 앱이 그대로 종료된다.
+            // 한 번 실패하면 다시 그리지 않고, 화면이 poe2db 트리로 넘어가게 알린다.
+            renderFailed = true
+            post { onRenderFailed?.invoke(t) }
+        }
+    }
+
+    private fun drawScene(canvas: Canvas) {
         bgPaint.shader = bgShader
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
         bgPaint.shader = null
@@ -739,9 +760,10 @@ class TreeCanvasView @JvmOverloads constructor(
         medallionRing.color = 0xFFD8B76A.toInt()
         canvas.drawCircle(sx, sy, radius * 0.93f, medallionRing)
 
-        // 전직 노드 링
+        // 전직 노드 링 (아이콘은 노드 스프라이트에서 잘라 쓴다 — 직업 일러스트 시트와 자리가 다르다)
         val ring = scene.ascendRing
         if (ring.isEmpty()) return
+        val ringSheet = iconSheet
         val ringRadius = radius * 1.32f
         val size = radius * 0.2f
         ring.forEachIndexed { order, index ->
@@ -757,12 +779,12 @@ class TreeCanvasView @JvmOverloads constructor(
             nodePaint.color = if (on) 0xFF3A2E18.toInt() else 0xFF15161C.toInt()
             canvas.drawCircle(nx, ny, size, nodePaint)
             val icon = scene.icons[index]
-            if (sheet != null && icon != null) {
+            if (ringSheet != null && icon != null) {
                 clipPath.reset()
                 clipPath.addCircle(nx, ny, size, android.graphics.Path.Direction.CW)
                 canvas.save()
                 canvas.clipPath(clipPath)
-                sheet.draw(canvas, icon, nx, ny, size * 1.0f, if (on) 255 else 205)
+                ringSheet.draw(canvas, icon, nx, ny, size * 1.0f, if (on) 255 else 205)
                 canvas.restore()
             }
             ringPaint.strokeWidth = (size * 0.22f).coerceAtLeast(1f)

@@ -88,6 +88,7 @@
     <string name="tree_stat_crit">치명타</string>
     <string name="tree_class_unknown">미공개 직업</string>
     <string name="tree_reset_done">빌드에서 불러온 트리로 되돌렸습니다</string>
+    <string name="tree_render_failed">트리를 화면에 그리지 못해 poe2db로 열었습니다%1$s</string>
     <string name="tree_allocate_blocked">이어진 노드부터 찍어야 합니다</string>
 
     <string name="pob_empty_title">빌드를 불러오세요</string>
@@ -241,6 +242,9 @@
     <string name="battle_combo_plan">봇 콤보: %1$s</string>
     <string name="battle_spark_line">전기불꽃: 나선 %1$d발 · 지속 2초 · 관통 %2$d회 · 벽 튕김 %3$d회</string>
     <string name="battle_spirit_line">정신력 %1$d / %2$d 점유</string>
+    <string name="battle_spirit_title">정신력 젬 — 눌러서 켜고 끄기 (%1$s)</string>
+    <string name="battle_meta_title">메타 젬 — 발동을 젬별로 켜고 끄기</string>
+    <string name="battle_toggle_off">꺼짐</string>
     <string name="battle_result_minion">소환수 %1$s · 피해 %2$s · 처치 %3$d · 소환수 사망 %4$d · 두꺼비 폭발 %5$d회 · 암울한 결과 %6$s</string>
 
     <string name="battle_combo_button">콤보 설정</string>

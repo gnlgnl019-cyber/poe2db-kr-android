@@ -841,6 +841,68 @@
                             app:singleSelection="true" />
                     </HorizontalScrollView>
 
+                    <!-- 정신력 젬 — 전투 화면에서 하나씩 켜고 끈다 (정신력 점유도 바로 반영) -->
+                    <TextView
+                        android:id="@+id/tvBattleSpirit"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="12dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="12dp"
+                        android:text="@string/battle_spirit_title"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <HorizontalScrollView
+                        android:id="@+id/battleSpiritScroll"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:clipToPadding="false"
+                        android:scrollbars="none"
+                        android:visibility="gone">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/battleSpiritChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:chipSpacingHorizontal="5dp"
+                            app:singleLine="true" />
+                    </HorizontalScrollView>
+
+                    <!-- 메타(발동) 젬 — 젬별로 켜고 끈다 -->
+                    <TextView
+                        android:id="@+id/tvBattleMeta"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="12dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="12dp"
+                        android:text="@string/battle_meta_title"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <HorizontalScrollView
+                        android:id="@+id/battleMetaScroll"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:clipToPadding="false"
+                        android:scrollbars="none"
+                        android:visibility="gone">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/battleMetaChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:chipSpacingHorizontal="5dp"
+                            app:singleLine="true" />
+                    </HorizontalScrollView>
+
                     <!-- 콤보 설정 — 전투 버튼 줄 위에 따로 둔다 -->
                     <LinearLayout
                         android:layout_width="match_parent"

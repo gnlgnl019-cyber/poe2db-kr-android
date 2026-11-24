@@ -320,6 +320,9 @@ data class SpiritReport(
 
 object SpiritBuffs {
 
+    /** 전투 화면에서 직접 끈 젬에 붙이는 설명 */
+    const val DISABLED_NOTE = "전투 화면에서 끔"
+
     private const val ASSET = "poe2_spirit_kr.json"
     private val cached = AtomicReference<SpiritCatalog?>(null)
 
@@ -357,6 +360,8 @@ object SpiritBuffs {
         "Attrition" -> SpiritMods(damagePct = 9.0)
         // 보호막 80% 증가, 생명력 100, 지능·정신력 40% 증가
         "Sacrifice" -> SpiritMods(esPct = 80.0, lifeFlat = 100.0, spellDamagePct = 12.0)
+        // 단련: 오라가 총 최대 에너지 보호막 +328 (20레벨)
+        "Discipline" -> SpiritMods(esFlat = 328.0)
         // 최대 마나 100당 4% 추가 번개 피해
         "Archmage" -> SpiritMods(spellDamagePct = 18.0)
         // 최대 생명력 +50, 기절 한계치 +70, 이동 속도 15% 증가
@@ -426,6 +431,7 @@ object SpiritBuffs {
      *
      * 소환수가 먼저 정신력을 가져가고, 남은 예산을 PoB에 적힌 순서대로 채운다.
      * 예산을 넘긴 젬은 '꺼짐'으로 남겨 화면에서 이유를 볼 수 있게 한다.
+     * 전투 화면에서 직접 끈 젬([disabled])도 '꺼짐'으로 남긴다.
      */
     fun plan(
         build: PobBuild?,
@@ -435,8 +441,11 @@ object SpiritBuffs {
         spiritForMinions: Double = 0.0,
         /** 전령이 가져간 정신력 (전령은 따로 계산한다) */
         heraldSpirit: Double = 0.0,
+        /** 전투 화면에서 직접 끈 정신력 젬 이름 */
+        disabled: Set<String> = emptySet(),
     ): SpiritBuffPlan {
-        if (build == null || catalog.isEmpty) return SpiritBuffPlan.EMPTY
+        if (build == null) return SpiritBuffPlan.EMPTY
+        val off = disabled.mapTo(HashSet()) { SpiritCatalog.key(it) ?: it.lowercase() }
         val budget = build.stats["Spirit"]?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val found = ArrayList<SpiritSpec>()
         val seen = HashSet<String>()
@@ -445,11 +454,22 @@ object SpiritBuffs {
             val gems = group.gems.filter { it.enabled }
             for (gem in gems) {
                 if (PobCalculator.isSupport(gem)) continue
-                val entry = catalog.find(gem.name) ?: continue
+                if (gem.name.startsWith("Herald of")) continue
+                // 자료에 있는 젬을 먼저 찾고, 목록에 없는 정신력 젬도 이름으로 알아본다.
+                val entry = catalog.find(gem.name) ?: run {
+                    if (!SpiritGems.isSpirit(gem.name)) return@run null
+                    SpiritGem(
+                        en = gem.name,
+                        ko = dict.gemName(gem.name).ifBlank { gem.name },
+                        spirit = 0.0,
+                        text = SpiritGems.NO_DATA_NOTE,
+                        lines = emptyList(),
+                    )
+                } ?: continue
                 val key = SpiritCatalog.key(entry.en) ?: continue
                 if (!seen.add(key)) continue
-                if (entry.en.startsWith("Herald of")) continue
                 val supports = gems.filter { it !== gem && PobCalculator.isSupport(it) }.map { it.name }
+                val userOff = key in off
                 found.add(
                     SpiritSpec(
                         gem = entry,
@@ -460,7 +480,8 @@ object SpiritBuffs {
                         granted = group.grantedByItem || group.grantedByTree,
                         mods = modsOf(entry),
                         behavior = behaviorOf(entry),
-                        note = noteOf(entry),
+                        note = if (userOff) DISABLED_NOTE else noteOf(entry),
+                        active = !userOff,
                     )
                 )
             }
@@ -474,9 +495,12 @@ object SpiritBuffs {
         }
         var used = spiritForMinions.coerceAtLeast(0.0) + heraldSpirit.coerceAtLeast(0.0)
         val specs = found.map { spec ->
+            if (!spec.active) return@map spec
             if (budget <= 0.0) return@map spec
             if (spec.spirit <= 0.0) return@map spec
-            if (budget - used < spec.spirit) return@map spec.copy(active = false)
+            if (budget - used < spec.spirit) {
+                return@map spec.copy(active = false, note = (if (spec.note.isBlank()) "" else spec.note + " · ") + "정신력 부족")
+            }
             used += spec.spirit
             spec
         }

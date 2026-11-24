@@ -20,6 +20,10 @@ data class PobGem(
     var level: Int = 20,
     var enabled: Boolean = true,
     var skillId: String = "",
+    /** PoB가 적어 두는 젬 식별자 (예: Metadata/Items/Gem/SupportGemConcentratedEffect) */
+    var gemId: String = "",
+    /** 같은 젬의 변형 이름 (예: ConcentratedAreaSupport) */
+    var variantId: String = "",
 )
 
 data class PobSkillGroup(
@@ -300,8 +304,12 @@ object Pob {
                         val level = parser.getAttributeValue(null, "level")?.toIntOrNull() ?: 20
                         val enabled = parser.getAttributeValue(null, "enabled") != "false"
                         val skillId = parser.getAttributeValue(null, "skillId").orEmpty()
+                        val gemId = parser.getAttributeValue(null, "gemId").orEmpty()
+                        val variantId = parser.getAttributeValue(null, "variantId").orEmpty()
                         if (name.isNotBlank()) {
-                            build.skills.lastOrNull()?.gems?.add(PobGem(name, level, enabled, skillId))
+                            build.skills.lastOrNull()?.gems?.add(
+                                PobGem(name, level, enabled, skillId, gemId, variantId),
+                            )
                         }
                     }
                     "Items" -> {

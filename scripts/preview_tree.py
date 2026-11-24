@@ -116,7 +116,7 @@ def normalize(tree, atlas):
 
 
 def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_ring, counters,
-              out_path, medallion_art=None, focus_span=2600.0):
+              out_path, medallion_art=None, focus_span=2600.0, class_row=None):
     nodes = meta["nodes"]
     edges = meta["edges"]
     width, height = 1080, 1760
@@ -221,21 +221,26 @@ def draw_tree(meta, icons, class_art, allocated_ids, focus, class_start, ascend_
     draw.text((36, 30), "패시브 트리", font=chip_font, fill=(240, 220, 168))
     draw.rounded_rectangle((222, 22, 430, 70), radius=8, fill=(23, 26, 33, 255), outline=BRONZE, width=2)
     draw.text((242, 30), "아틀라스 트리", font=chip_font, fill=MUTED)
-    for i, glyph in enumerate(["⌕", "☺", "ⓘ", "↗", "⟳"]):
-        gx = width - 70 * (5 - i) + 8
-        draw.text((gx, 26), glyph, font=font(30), fill=MUTED)
+    # 상단 오른쪽 아이콘은 미리보기에서 그리지 않는다 (폰트에 없는 글자는 네모로 나온다).
     draw.rectangle((0, 92, width, 140), fill=(10, 13, 18, 235))
     x = 20
     for text, color in counters:
         draw.text((x, 100), text, font=font(27), fill=color)
         x += int(draw.textlength(text, font=font(27))) + 26
 
-    # 우하단 버튼
-    for i, glyph in enumerate(["+", "−", "⟲", "⤢"]):
-        bx = width - 108
-        by = height - 100 - (3 - i) * 108
-        draw.rounded_rectangle((bx, by, bx + 96, by + 96), radius=8, fill=(18, 21, 28, 220), outline=BRONZE_SOFT, width=2)
-        draw.text((bx + 38, by + 26), glyph, font=font(38), fill=(240, 220, 168))
+    # 상단에 고정된 직업 고르기 줄 (앱에서는 늘 보인다)
+    if class_row:
+        draw.rectangle((0, 141, width, 141 + 78), fill=(10, 13, 18, 225))
+        cx = 16
+        for label, on in class_row:
+            w = int(draw.textlength(label, font=font(26))) + 34
+            draw.rounded_rectangle((cx, 152, cx + w, 152 + 56), radius=8,
+                                   fill=(212, 175, 55, 45) if on else (23, 26, 33, 255),
+                                   outline=(212, 175, 55) if on else BRONZE, width=2)
+            draw.text((cx + 17, 165), label, font=font(26), fill=(240, 220, 168) if on else MUTED)
+            cx += w + 10
+            if cx > width - 40:
+                break
 
     DOCS.mkdir(parents=True, exist_ok=True)
     image.save(out_path)
@@ -292,6 +297,8 @@ def main():
         DOCS / "preview-passive-tree.png",
         medallion_art=crop_icon(class_sheet, arts["classes"].get(class_en)),
         focus_span=focus_span,
+        class_row=[(tree["classes"][class_id][1] or class_en, True)]
+        + [(c[1] or c[0], False) for i, c in enumerate(tree["classes"]) if i != class_id][:6],
     )
     print(f"직업 {class_en} {ascend_ko} · 찍은 노드 {len(nodes)} · 전직 링 {len(ring)}")
 

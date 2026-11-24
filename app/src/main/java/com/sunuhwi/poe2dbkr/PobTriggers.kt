@@ -130,6 +130,12 @@ enum class TriggerKind(
     ),
     ;
 
+    /**
+     * 전령 계열인지 — 전령은 [Heralds]가 따로 계산하므로 발동 장치 목록에서는 뺀다.
+     * (둘 다 돌리면 같은 전령이 두 번 집계된다.)
+     */
+    val isHerald: Boolean get() = name.startsWith("HERALD_")
+
     /** 이 메타젬의 에너지를 채우는 사건들 (원소 상태이상 계열은 감전·빙결·점화를 모두 받는다) */
     val accepts: Set<TriggerCondition>
         get() = when (this) {
